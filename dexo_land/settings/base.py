@@ -28,6 +28,8 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "apps.core",
+    "apps.players",
+    "apps.telegram",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -88,7 +90,22 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TIMEZONE = "UTC"
-CELERY_BEAT_SCHEDULE: dict[str, Any] = {}
+TELEGRAM_INGRESS_PURGE_INTERVAL_SECONDS = int(
+    os.getenv("TELEGRAM_INGRESS_PURGE_INTERVAL_SECONDS", "3600")
+)
+CELERY_BEAT_SCHEDULE: dict[str, Any] = {
+    "purge-expired-telegram-payloads": {
+        "task": "apps.telegram.tasks.purge_expired_telegram_payloads",
+        "schedule": TELEGRAM_INGRESS_PURGE_INTERVAL_SECONDS,
+    }
+}
+
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
+telegram_bot_id = os.getenv("TELEGRAM_BOT_ID", "").strip()
+TELEGRAM_BOT_ID = int(telegram_bot_id) if telegram_bot_id else None
+TELEGRAM_INIT_DATA_MAX_AGE_SECONDS = int(os.getenv("TELEGRAM_INIT_DATA_MAX_AGE_SECONDS", "3600"))
+TELEGRAM_INGRESS_RETENTION_SECONDS = int(os.getenv("TELEGRAM_INGRESS_RETENTION_SECONDS", "604800"))
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},

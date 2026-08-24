@@ -40,6 +40,12 @@ def test_celery_uses_rabbitmq_without_results() -> None:
     assert app.conf.result_backend is None
 
 
+def test_telegram_ingress_retention_is_scheduled() -> None:
+    schedule = settings.CELERY_BEAT_SCHEDULE["purge-expired-telegram-payloads"]
+    assert schedule["task"] == "apps.telegram.tasks.purge_expired_telegram_payloads"
+    assert schedule["schedule"] == settings.TELEGRAM_INGRESS_PURGE_INTERVAL_SECONDS
+
+
 def test_redis_cache_round_trip() -> None:
     cache.set("foundation:test", "ok", timeout=5)
     assert cache.get("foundation:test") == "ok"

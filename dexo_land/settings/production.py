@@ -28,6 +28,8 @@ DATABASES["default"].update(  # noqa: F405
 REDIS_URL = require_environment("REDIS_URL")
 CACHES["default"]["LOCATION"] = REDIS_URL  # noqa: F405
 CELERY_BROKER_URL = require_environment("CELERY_BROKER_URL")
+TELEGRAM_BOT_TOKEN = require_environment("TELEGRAM_BOT_TOKEN")
+TELEGRAM_WEBHOOK_SECRET = require_environment("TELEGRAM_WEBHOOK_SECRET")
 DEBUG = False
 LOG_JSON = True
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
