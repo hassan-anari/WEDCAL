@@ -1,0 +1,57 @@
+[project]
+name = "dexo-land-backend"
+version = "0.1.0"
+description = "Dexo Land Season 1 backend"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "celery>=5.6,<5.7",
+    "django>=5.2,<5.3",
+    "django-ninja>=1.6,<1.7",
+    "django-redis>=6,<7",
+    "psycopg[pool]>=3.2,<4",
+    "redis>=6,<7",
+    "structlog>=25,<26",
+    "uvicorn>=0.35,<1",
+]
+
+[dependency-groups]
+dev = [
+    "django-stubs>=5.2,<5.3",
+    "mypy>=1.17,<2",
+    "pytest>=8.4,<9",
+    "pytest-django>=4.11,<5",
+    "ruff>=0.12,<1",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "dexo_land.settings.test"
+python_files = ["test_*.py"]
+testpaths = ["apps", "tests"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+extend-exclude = [
+    "AGENTS.md",
+    "DEXO_LAND_SEASON1_SOURCE_OF_TRUTH_EN.md",
+    "scripts/validate_contract.py",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.13"
+plugins = ["mypy_django_plugin.main"]
+strict = true
+exclude = [".venv"]
+
+[[tool.mypy.overrides]]
+module = ["celery", "celery.*", "kombu", "kombu.*"]
+ignore_missing_imports = true
+
+[tool.django-stubs]
+django_settings_module = "dexo_land.settings.test"
