@@ -1,0 +1,171 @@
+{
+  "pack_version": 1,
+  "source_archive": "Dalexio-main.zip",
+  "source_sha256": "edd8d5e2d5e31fa50108bf6b98fb989ff3682e3b3b55bf0568c370b31521ba41",
+  "rules": {
+    "authoritative": false,
+    "production_imports_allowed": false,
+    "contract_precedence": [
+      "AGENTS.md",
+      "DEXO_LAND_SEASON1_SOURCE_OF_TRUTH_EN.md",
+      "legacy_reference"
+    ]
+  },
+  "references": [
+    {
+      "path": "telegram/miniapp_auth_core.py.txt",
+      "status": "ADAPT",
+      "phases": [
+        2
+      ],
+      "source": "apps/telegram_airdrop/api/authentication.py"
+    },
+    {
+      "path": "telegram/webhook_security_start.py.txt",
+      "status": "ADAPT",
+      "phases": [
+        2,
+        5,
+        7
+      ],
+      "source": "services/fastapi_webhook/main.py"
+    },
+    {
+      "path": "telegram/telegram_api_client.py.txt",
+      "status": "ADAPT",
+      "phases": [
+        5,
+        7,
+        10,
+        11
+      ],
+      "source": "services/fastapi_webhook/telegram_api.py"
+    },
+    {
+      "path": "telegram/regression_tests.py.txt",
+      "status": "REUSE_TEST_IDEAS",
+      "phases": [
+        2,
+        5,
+        7
+      ],
+      "source": "multiple"
+    },
+    {
+      "path": "referrals/code_and_attribution.py.txt",
+      "status": "ADAPT",
+      "phases": [
+        5
+      ],
+      "source": "apps/telegram_airdrop/referrals.py"
+    },
+    {
+      "path": "referrals/regression_tests.py.txt",
+      "status": "REUSE_TEST_IDEAS",
+      "phases": [
+        5
+      ],
+      "source": "apps/telegram_airdrop/tests_phase3_referrals.py"
+    },
+    {
+      "path": "rankings/redis_projection.py.txt",
+      "status": "ADAPT",
+      "phases": [
+        9
+      ],
+      "source": "apps/telegram_airdrop/leaderboard.py"
+    },
+    {
+      "path": "rankings/safe_rebuild.py.txt",
+      "status": "REUSE_ADAPT",
+      "phases": [
+        9,
+        11
+      ],
+      "source": "apps/telegram_airdrop/leaderboard.py"
+    },
+    {
+      "path": "rankings/regression_tests.py.txt",
+      "status": "REUSE_TEST_IDEAS",
+      "phases": [
+        9,
+        11
+      ],
+      "source": "apps/telegram_airdrop/tests_leaderboard.py"
+    },
+    {
+      "path": "transactions/atomic_mutation_patterns.py.txt",
+      "status": "ADAPT",
+      "phases": [
+        3,
+        4,
+        8
+      ],
+      "source": "apps/telegram_airdrop/api/views.py"
+    },
+    {
+      "path": "transactions/regression_tests.py.txt",
+      "status": "REUSE_TEST_IDEAS",
+      "phases": [
+        3,
+        4,
+        8,
+        11
+      ],
+      "source": "multiple"
+    },
+    {
+      "path": "migrations/safe_backfill.py.txt",
+      "status": "ADAPT",
+      "phases": [
+        3,
+        5,
+        11
+      ],
+      "source": "apps/telegram_airdrop/migrations/0004_backfill_referral_codes.py"
+    },
+    {
+      "path": "migrations/numeric_conversion.py.txt",
+      "status": "ADAPT",
+      "phases": [
+        3,
+        8,
+        11
+      ],
+      "source": "apps/telegram_airdrop/migrations/0005_phase4a_integer_scoring.py"
+    },
+    {
+      "path": "notifications/in_app_notifications.py.txt",
+      "status": "ADAPT",
+      "phases": [
+        6,
+        10
+      ],
+      "source": "multiple"
+    },
+    {
+      "path": "broadcast/admin_broadcast_core.py.txt",
+      "status": "ADAPT",
+      "phases": [
+        10
+      ],
+      "source": "apps/telegram_airdrop/tasks.py"
+    },
+    {
+      "path": "broadcast/album_state_atomicity.py.txt",
+      "status": "ADAPT",
+      "phases": [
+        10
+      ],
+      "source": "services/fastapi_webhook/main.py"
+    },
+    {
+      "path": "broadcast/regression_tests.py.txt",
+      "status": "REUSE_TEST_IDEAS",
+      "phases": [
+        10
+      ],
+      "source": "apps/telegram_airdrop/tests.py"
+    }
+  ]
+}

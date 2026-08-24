@@ -1,0 +1,280 @@
+LEGACY REFERENCE — NON-AUTHORITATIVE — DO NOT IMPORT INTO PRODUCTION
+Original source: apps/telegram_airdrop/leaderboard.py
+Original range: 13-66 plus selected projection/read functions
+Classification: ADAPT
+Purpose: Redis ZSET as disposable ranking projection, on-commit sync, tie-aware competition ranking, stale/malformed cleanup, bounded score cursor.
+Warnings: Canonical score must come from the new ledger/projection. Review the historical cursor implementation rather than copy blindly.
+-------------------------------------------------------------------------------
+from django.db import transaction
+
+from apps.telegram_airdrop.models import TelegramProfile
+from apps.telegram_airdrop.scoring import coerce_leaderboard_score, current_season_points
+
+logger = logging.getLogger(__name__)
+
+LEADERBOARD_KEY = "airdrop:leaderboard"
+LEADERBOARD_REBUILD_LOCK_KEY = "airdrop:leaderboard:rebuild:lock"
+LEADERBOARD_REBUILD_DIRTY_KEY = "airdrop:leaderboard:rebuild:dirty"
+LEADERBOARD_REBUILD_REMOVED_KEY = "airdrop:leaderboard:rebuild:removed"
+LEADERBOARD_REBUILD_TMP_PREFIX = "airdrop:leaderboard:rebuild:"
+REBUILD_LOCK_TTL_SECONDS = 900
+REBUILD_TMP_TTL_SECONDS = 900
+REBUILD_DIRTY_TTL_SECONDS = 900
+REBUILD_REMOVED_TTL_SECONDS = 900
+DEFAULT_TOP_LIMIT = 10
+
+_acquire_rebuild_lock_script = """
+if redis.call('exists', KEYS[1]) == 0 then
+    redis.call('set', KEYS[1], ARGV[1], 'EX', ARGV[2])
+    redis.call('del', KEYS[2])
+    redis.call('del', KEYS[3])
+    redis.call('expire', KEYS[2], ARGV[3])
+    redis.call('expire', KEYS[3], ARGV[4])
+    return 1
+end
+return 0
+"""
+
+_renew_rebuild_lock_script = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    redis.call('expire', KEYS[1], ARGV[2])
+    if redis.call('exists', KEYS[2]) == 1 then
+        redis.call('expire', KEYS[2], ARGV[3])
+    end
+    if redis.call('exists', KEYS[3]) == 1 then
+        redis.call('expire', KEYS[3], ARGV[4])
+    end
+    return 1
+end
+return 0
+"""
+
+_release_lock_if_owned_and_clean_script = """
+if redis.call('get', KEYS[1]) == ARGV[1]
+   and redis.call('scard', KEYS[2]) == 0
+   and redis.call('scard', KEYS[3]) == 0 then
+    redis.call('del', KEYS[1])
+    redis.call('del', KEYS[2])
+    redis.call('del', KEYS[3])
+    return 1
+end
+return 0
+
+# --- leaderboard_member (lines 75-76) ---
+def leaderboard_member(telegram_id: int | str) -> str:
+    return str(telegram_id)
+
+# --- _mark_dirty_if_rebuilding (lines 92-98) ---
+def _mark_dirty_if_rebuilding(client, profile_id: int) -> None:
+    try:
+        if client.exists(LEADERBOARD_REBUILD_LOCK_KEY):
+            client.sadd(LEADERBOARD_REBUILD_DIRTY_KEY, str(profile_id))
+            client.expire(LEADERBOARD_REBUILD_DIRTY_KEY, REBUILD_DIRTY_TTL_SECONDS)
+    except Exception:
+        logger.warning("Unable to mark leaderboard dirty profile", exc_info=True, extra={"profile_id": profile_id})
+
+# --- _mark_removed_if_rebuilding (lines 101-110) ---
+def _mark_removed_if_rebuilding(client, telegram_ids: Iterable[int | str]) -> None:
+    ids = [leaderboard_member(value) for value in telegram_ids]
+    if not ids:
+        return
+    try:
+        if client.exists(LEADERBOARD_REBUILD_LOCK_KEY):
+            client.sadd(LEADERBOARD_REBUILD_REMOVED_KEY, *ids)
+            client.expire(LEADERBOARD_REBUILD_REMOVED_KEY, REBUILD_REMOVED_TTL_SECONDS)
+    except Exception:
+        logger.warning("Unable to mark leaderboard removed members", exc_info=True, extra={"telegram_ids": ids})
+
+# --- remove_telegram_ids (lines 119-130) ---
+def remove_telegram_ids(telegram_ids: Iterable[int | str], *, redis_client=None) -> bool:
+    ids = [leaderboard_member(value) for value in telegram_ids]
+    if not ids:
+        return True
+    client = _client(redis_client)
+    _mark_removed_if_rebuilding(client, ids)
+    try:
+        client.zrem(LEADERBOARD_KEY, *ids)
+        return True
+    except Exception:
+        logger.warning("Unable to remove Telegram leaderboard members", exc_info=True, extra={"telegram_ids": ids})
+        return False
+
+# --- sync_profile (lines 133-157) ---
+def sync_profile(profile_id: int, *, redis_client=None, mark_dirty: bool = True) -> bool:
+    client = _client(redis_client)
+    if mark_dirty:
+        _mark_dirty_if_rebuilding(client, profile_id)
+    try:
+        profile = TelegramProfile.objects.filter(pk=profile_id).only(
+            "id",
+            "telegram_id",
+            "first_name",
+            "has_started_bot",
+            "activity_earned_points",
+            "group_earned_points",
+            "referral_earned_points",
+            "bonus_points",
+        ).first()
+        if profile is None:
+            logger.info("Leaderboard sync skipped missing TelegramProfile", extra={"profile_id": profile_id})
+            return False
+        if not profile.has_started_bot:
+            return _remove_member(client, profile.telegram_id)
+        client.zadd(LEADERBOARD_KEY, {leaderboard_member(profile.telegram_id): current_score(profile)})
+        return True
+    except Exception:
+        logger.warning("Unable to sync Telegram leaderboard profile", exc_info=True, extra={"profile_id": profile_id})
+        return False
+
+# --- sync_profiles (lines 160-171) ---
+def sync_profiles(profile_ids: Iterable[int], *, redis_client=None, mark_dirty: bool = True) -> dict[str, int]:
+    ids = sorted({int(profile_id) for profile_id in profile_ids if profile_id})
+    result = {"requested": len(ids), "synced": 0, "failed": 0}
+    if not ids:
+        return result
+    client = _client(redis_client)
+    for profile_id in ids:
+        if sync_profile(profile_id, redis_client=client, mark_dirty=mark_dirty):
+            result["synced"] += 1
+        else:
+            result["failed"] += 1
+    return result
+
+# --- sync_profile_on_commit (lines 174-175) ---
+def sync_profile_on_commit(profile_id: int, *, redis_client=None) -> None:
+    transaction.on_commit(lambda pk=profile_id: sync_profile(pk, redis_client=redis_client))
+
+# --- sync_profiles_on_commit (lines 178-181) ---
+def sync_profiles_on_commit(profile_ids: Iterable[int], *, redis_client=None) -> None:
+    ids = tuple(sorted({int(profile_id) for profile_id in profile_ids if profile_id}))
+    if ids:
+        transaction.on_commit(lambda profile_ids=ids: sync_profiles(profile_ids, redis_client=redis_client))
+
+# --- get_competition_rank (lines 184-196) ---
+def get_competition_rank(telegram_id: int | str, *, redis_client=None) -> int | None:
+    client = _client(redis_client)
+    member = leaderboard_member(telegram_id)
+    try:
+        score = client.zscore(LEADERBOARD_KEY, member)
+        if score is None:
+            return None
+        score = coerce_leaderboard_score(score)
+        greater_count = client.zcount(LEADERBOARD_KEY, f"({score}", "+inf")
+        return int(greater_count) + 1
+    except Exception:
+        logger.warning("Unable to read Telegram leaderboard rank", exc_info=True, extra={"telegram_id": str(telegram_id)})
+        return None
+
+# --- _parse_redis_member (lines 199-206) ---
+def _parse_redis_member(member: Any) -> int | None:
+    try:
+        text = member.decode() if isinstance(member, bytes) else str(member)
+        if not text.lstrip("-").isdigit():
+            return None
+        return int(text)
+    except Exception:
+        return None
+
+# --- _score_groups_desc (lines 209-239) ---
+def _score_groups_desc(client, *, page_size: int = 50):
+    seen = set()
+    max_score = "+inf"
+    page_size = max(int(page_size), 1)
+    while True:
+        raw_scores = client.zrevrangebyscore(
+            LEADERBOARD_KEY,
+            max_score,
+            "-inf",
+            start=0,
+            num=page_size,
+            withscores=True,
+        )
+        if not raw_scores:
+            return
+
+        next_max_score = None
+        for _, raw_score in raw_scores:
+            try:
+                score = coerce_leaderboard_score(raw_score)
+            except Exception:
+                continue
+            next_max_score = score
+            if score in seen:
+                continue
+            seen.add(score)
+            yield score
+
+        if next_max_score is None or len(raw_scores) < page_size:
+            return
+        max_score = f"({next_max_score}"
+
+# --- get_top_rows (lines 242-310) ---
+def get_top_rows(limit: int = DEFAULT_TOP_LIMIT, *, redis_client=None, score_page_size: int = 50) -> list[dict[str, Any]]:
+    client = _client(redis_client)
+    rows: list[dict[str, Any]] = []
+    malformed_members: list[str] = []
+    stale_members: list[str] = []
+    try:
+        for boundary_score in _score_groups_desc(client, page_size=score_page_size):
+            raw_members = client.zrangebyscore(
+                LEADERBOARD_KEY,
+                boundary_score,
+                boundary_score,
+                withscores=True,
+            )
+            parsed: list[tuple[int, int]] = []
+            for member, raw_score in raw_members:
+                telegram_id = _parse_redis_member(member)
+                if telegram_id is None:
+                    malformed_members.append(member.decode() if isinstance(member, bytes) else str(member))
+                    continue
+                try:
+                    score = coerce_leaderboard_score(raw_score)
+                except Exception:
+                    malformed_members.append(str(member))
+                    continue
+                parsed.append((telegram_id, score))
+
+            if malformed_members:
+                try:
+                    client.zrem(LEADERBOARD_KEY, *malformed_members)
+                except Exception:
+                    logger.warning("Unable to clean malformed Telegram leaderboard members", exc_info=True)
+                malformed_members = []
+
+            if not parsed:
+                continue
+
+            profiles = {
+                profile.telegram_id: profile
+                for profile in TelegramProfile.objects.filter(telegram_id__in=[telegram_id for telegram_id, _ in parsed])
+            }
+            valid_group: list[tuple[int, int, TelegramProfile]] = []
+            for telegram_id, score in parsed:
+                profile = profiles.get(telegram_id)
+                if profile is None or not profile.has_started_bot:
+                    stale_members.append(leaderboard_member(telegram_id))
+                    continue
+                valid_group.append((telegram_id, score, profile))
+
+            if stale_members:
+                try:
+                    client.zrem(LEADERBOARD_KEY, *stale_members)
+                except Exception:
+                    logger.warning("Unable to clean stale Telegram leaderboard members", exc_info=True)
+                stale_members = []
+
+            valid_group.sort(key=lambda item: item[0])
+            rank = int(client.zcount(LEADERBOARD_KEY, f"({boundary_score}", "+inf")) + 1
+            for telegram_id, score, profile in valid_group:
+                rows.append({
+                    "rank": rank,
+                    "display_name": display_name(profile),
+                    "score": score,
+                })
+                if len(rows) >= limit:
+                    return rows[:limit]
+        return rows[:limit]
+    except Exception:
+        logger.warning("Unable to fetch Telegram leaderboard rows", exc_info=True)
+        raise

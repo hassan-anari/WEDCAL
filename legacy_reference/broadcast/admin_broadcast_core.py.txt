@@ -1,0 +1,153 @@
+LEGACY REFERENCE — NON-AUTHORITATIVE — DO NOT IMPORT INTO PRODUCTION
+Original source: apps/telegram_airdrop/tasks.py
+Original range: selected functions around 348-493
+Classification: ADAPT
+Purpose: Validated source-message copying, audience iteration, Telegram failure classification, 429 retry_after handling, blocked/inactive target handling, and summary metrics.
+Warnings: Replace synchronous requests/sleep with current outbound client/Celery retry strategy; do not reuse legacy audience/business fields blindly.
+-------------------------------------------------------------------------------
+# --- _safe_broadcast_failure (lines 348-359) ---
+def _safe_broadcast_failure(reason, target_audience, source_message_count=0):
+    return {
+        "audience": target_audience,
+        "source_message_count": source_message_count,
+        "target_count": 0,
+        "success_count": 0,
+        "failure_count": 1,
+        "blocked_users_count": 0,
+        "inactive_groups_count": 0,
+        "rate_limit_retries": 0,
+        "error": reason,
+    }
+
+# --- _validate_admin_broadcast_contract (lines 362-379) ---
+def _validate_admin_broadcast_contract(target_audience, source_chat_id, source_message_ids):
+    if target_audience not in VALID_ADMIN_BROADCAST_AUDIENCES:
+        raise ValueError("Invalid broadcast audience")
+    try:
+        source_chat_id = int(source_chat_id)
+    except (TypeError, ValueError):
+        raise ValueError("Invalid source chat id")
+    if not isinstance(source_message_ids, (list, tuple)) or not source_message_ids:
+        raise ValueError("source_message_ids must be a non-empty list")
+    try:
+        message_ids = sorted({int(mid) for mid in source_message_ids})
+    except (TypeError, ValueError):
+        raise ValueError("Invalid source message id")
+    if any(mid <= 0 for mid in message_ids):
+        raise ValueError("Invalid source message id")
+    if len(message_ids) > MAX_ADMIN_BROADCAST_MESSAGES:
+        raise ValueError("Too many source message ids")
+    return source_chat_id, message_ids
+
+# --- _telegram_description (lines 382-388) ---
+def _telegram_description(response):
+    try:
+        data = response.json()
+    except ValueError:
+        return "non_json_response", {}
+    description = str(data.get("description", ""))[:200]
+    return description, data
+
+# --- _is_forbidden_for_target (lines 391-394) ---
+def _is_forbidden_for_target(description, recipient_type):
+    lowered = (description or "").lower()
+    needles = GROUP_FORBIDDEN_DESCRIPTIONS if recipient_type == "group" else FORBIDDEN_DESCRIPTIONS
+    return any(needle in lowered for needle in needles)
+
+# --- admin_broadcast (lines 398-493) ---
+def admin_broadcast(target_audience: str, source_chat_id: int, source_message_ids: list[int]):
+    """Copy one admin source message or an ordered album to eligible users/groups."""
+    started_at = time.monotonic()
+    try:
+        source_chat_id, message_ids = _validate_admin_broadcast_contract(
+            target_audience, source_chat_id, source_message_ids
+        )
+    except ValueError as exc:
+        logger.warning("admin_broadcast_invalid_contract", extra={"event": "admin_broadcast_invalid_contract", "audience": target_audience, "error": str(exc)})
+        raise
+
+    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not bot_token:
+        logger.error("admin_broadcast_missing_bot_token", extra={"event": "admin_broadcast_missing_bot_token", "audience": target_audience})
+        return _safe_broadcast_failure("TELEGRAM_BOT_TOKEN not configured", target_audience, len(message_ids))
+
+    method = "copyMessage" if len(message_ids) == 1 else "copyMessages"
+    url = f"https://api.telegram.org/bot{bot_token}/{method}"
+    mode = "single" if len(message_ids) == 1 else "album"
+
+    target_count = 0
+    success_count = 0
+    failure_count = 0
+    blocked_users_count = 0
+    inactive_groups_count = 0
+    rate_limit_retries = 0
+
+    logger.info("admin_broadcast_started", extra={"event": "admin_broadcast_started", "audience": target_audience, "mode": mode, "source_message_count": len(message_ids)})
+
+    def build_payload(target_chat_id):
+        payload = {"chat_id": target_chat_id, "from_chat_id": source_chat_id}
+        if len(message_ids) == 1:
+            payload["message_id"] = message_ids[0]
+        else:
+            payload["message_ids"] = message_ids
+        return payload
+
+    def post_once(target_chat_id):
+        return requests.post(url, json=build_payload(target_chat_id), timeout=5)
+
+    def send_to_targets(iterator, id_field, model_class, update_field, recipient_type):
+        nonlocal target_count, success_count, failure_count, blocked_users_count, inactive_groups_count, rate_limit_retries
+        forbidden_pks = []
+        for item in iterator:
+            target_count += 1
+            chat_id = getattr(item, id_field)
+            try:
+                response = post_once(chat_id)
+                description, data = _telegram_description(response)
+                if response.status_code == 429:
+                    retry_after = int(data.get("parameters", {}).get("retry_after", 1) or 1)
+                    rate_limit_retries += 1
+                    time.sleep(max(retry_after, 0))
+                    response = post_once(chat_id)
+                    description, data = _telegram_description(response)
+                if response.ok and data.get("ok") is True:
+                    success_count += 1
+                else:
+                    failure_count += 1
+                    if response.status_code == 403 and _is_forbidden_for_target(description, recipient_type):
+                        forbidden_pks.append(item.id)
+                    logger.warning("admin_broadcast_recipient_failed", extra={"event": "admin_broadcast_recipient_failed", "audience": target_audience, "recipient_type": recipient_type, "status_code": response.status_code, "telegram_description": description})
+            except Exception as exc:
+                failure_count += 1
+                logger.warning("admin_broadcast_network_error", extra={"event": "admin_broadcast_network_error", "audience": target_audience, "recipient_type": recipient_type, "exception_class": exc.__class__.__name__})
+            time.sleep(0.04)
+
+        if forbidden_pks:
+            for i in range(0, len(forbidden_pks), 1000):
+                chunk = forbidden_pks[i:i + 1000]
+                model_class.objects.filter(id__in=chunk).update(**{update_field: False})
+                if model_class is TelegramProfile and update_field == "has_started_bot":
+                    leaderboard.sync_profiles(chunk, redis_client=redis_client)
+            if recipient_type == "user":
+                blocked_users_count += len(forbidden_pks)
+            else:
+                inactive_groups_count += len(forbidden_pks)
+
+    if target_audience in ["users", "all"]:
+        send_to_targets(TelegramProfile.objects.filter(has_started_bot=True).iterator(chunk_size=1000), "telegram_id", TelegramProfile, "has_started_bot", "user")
+    if target_audience in ["groups", "all"]:
+        send_to_targets(TelegramGroup.objects.filter(is_active=True).iterator(chunk_size=1000), "chat_id", TelegramGroup, "is_active", "group")
+
+    duration = time.monotonic() - started_at
+    result = {
+        "audience": target_audience,
+        "source_message_count": len(message_ids),
+        "target_count": target_count,
+        "success_count": success_count,
+        "failure_count": failure_count,
+        "blocked_users_count": blocked_users_count,
+        "inactive_groups_count": inactive_groups_count,
+        "rate_limit_retries": rate_limit_retries,
+    }
+    logger.info("admin_broadcast_completed", extra={"event": "admin_broadcast_completed", "audience": target_audience, "mode": mode, "total_target_count": target_count, "success_count": success_count, "failure_count": failure_count, "blocked_users_count": blocked_users_count, "inactive_groups_count": inactive_groups_count, "rate_limit_retries": rate_limit_retries, "duration": duration})
+    return result

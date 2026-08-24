@@ -1,0 +1,94 @@
+LEGACY REFERENCE — NON-AUTHORITATIVE — DO NOT IMPORT INTO PRODUCTION
+Original source: apps/telegram_airdrop/migrations/0005_phase4a_integer_scoring.py
+Original range: 1-79
+Classification: ADAPT
+Purpose: Decimal-to-integer migration helpers, remainder preservation, precondition validation, and adding constraints after data conversion.
+Warnings: Legacy fields/formulas are obsolete. Reuse only migration mechanics and exact numeric handling ideas.
+-------------------------------------------------------------------------------
+from decimal import Decimal, ROUND_FLOOR
+from django.db import migrations, models
+from django.db.models import Q
+
+
+def floor_decimal(value):
+    if value is None:
+        return 0
+    return int(Decimal(str(value)).to_integral_value(rounding=ROUND_FLOOR))
+
+
+def referral_parts(value):
+    if value is None:
+        return 0, 0
+    hundredths = int((Decimal(str(value)) * Decimal('100')).to_integral_value(rounding=ROUND_FLOOR))
+    return hundredths // 100, hundredths % 100
+
+
+def migrate_forward(apps, schema_editor):
+    Season = apps.get_model('telegram_airdrop', 'AirdropSeason')
+    Profile = apps.get_model('telegram_airdrop', 'TelegramProfile')
+    Tier = apps.get_model('telegram_airdrop', 'ReferralTier')
+    Activity = apps.get_model('telegram_airdrop', 'UserActivityLog')
+    Record = apps.get_model('telegram_airdrop', 'UserSeasonRecord')
+
+    active = Season.objects.filter(is_active=True).first() or Season.objects.first()
+    multiplier = Decimal(str(getattr(active, 'activity_multiplier', 1.0) if active else 1.0))
+    group_bonus = floor_decimal(getattr(active, 'group_add_bonus', 200) if active else 200)
+
+    for season in Season.objects.all():
+        legacy = Decimal(str(getattr(season, 'activity_multiplier', 1.0)))
+        if legacy >= 0 and legacy == legacy.to_integral_value():
+            rate = int(legacy)
+        else:
+            rate = 1
+        season.points_per_message = rate
+        season.points_per_character = rate
+        season.save(update_fields=['points_per_message', 'points_per_character'])
+
+    for tier in Tier.objects.all():
+        pct = Decimal(str(tier.bonus_percentage))
+        if pct != pct.to_integral_value() or pct < 0 or pct > 100:
+            raise ValueError(f"ReferralTier {tier.pk} bonus_percentage must be an integral value between 0 and 100 before Phase 4A migration.")
+        tier.bonus_percentage = int(pct)
+        tier.save(update_fields=['bonus_percentage'])
+
+    for profile in Profile.objects.all():
+        legacy_activity = (Decimal(profile.message_count + profile.char_count) * multiplier).to_integral_value(rounding=ROUND_FLOOR)
+        referral_int, remainder = referral_parts(profile.referral_earned_points)
+        profile.activity_earned_points = int(legacy_activity)
+        profile.group_earned_points = int(profile.added_groups_count) * group_bonus
+        profile.referral_earned_points = referral_int
+        profile.referral_reward_remainder = remainder
+        profile.total_archived_points = floor_decimal(profile.total_archived_points)
+        profile.bonus_points = floor_decimal(profile.bonus_points)
+        profile.save(update_fields=['activity_earned_points', 'group_earned_points', 'referral_earned_points', 'referral_reward_remainder', 'total_archived_points', 'bonus_points'])
+
+    for activity in Activity.objects.all():
+        activity.points_awarded = floor_decimal(activity.points_awarded)
+        activity.save(update_fields=['points_awarded'])
+    for record in Record.objects.all():
+        record.total_points = floor_decimal(record.total_points)
+        record.save(update_fields=['total_points'])
+
+
+class Migration(migrations.Migration):
+    dependencies = [
+        ('telegram_airdrop', '0004_backfill_referral_codes'),
+    ]
+
+    operations = [
+        migrations.AddField('AirdropSeason', 'points_per_message', models.PositiveIntegerField(default=1)),
+        migrations.AddField('AirdropSeason', 'points_per_character', models.PositiveIntegerField(default=1)),
+        migrations.AddField('TelegramProfile', 'activity_earned_points', models.PositiveBigIntegerField(default=0)),
+        migrations.AddField('TelegramProfile', 'group_earned_points', models.PositiveBigIntegerField(default=0)),
+        migrations.AddField('TelegramProfile', 'referral_reward_remainder', models.PositiveSmallIntegerField(default=0)),
+        migrations.RunPython(migrate_forward, migrations.RunPython.noop),
+        migrations.AlterField('ReferralTier', 'bonus_percentage', models.PositiveIntegerField(default=0)),
+        migrations.AlterField('TelegramProfile', 'referral_earned_points', models.PositiveBigIntegerField(default=0)),
+        migrations.AlterField('TelegramProfile', 'total_archived_points', models.PositiveBigIntegerField(default=0)),
+        migrations.AlterField('TelegramProfile', 'bonus_points', models.PositiveBigIntegerField(default=0)),
+        migrations.AlterField('UserActivityLog', 'points_awarded', models.PositiveBigIntegerField(default=0)),
+        migrations.AlterField('UserSeasonRecord', 'total_points', models.PositiveBigIntegerField(default=0)),
+        migrations.RemoveField('AirdropSeason', 'activity_multiplier'),
+        migrations.AddConstraint('ReferralTier', models.CheckConstraint(check=Q(bonus_percentage__gte=0, bonus_percentage__lte=100), name='referral_tier_bonus_percentage_0_100')),
+        migrations.AddConstraint('TelegramProfile', models.CheckConstraint(check=Q(referral_reward_remainder__gte=0, referral_reward_remainder__lte=99), name='telegram_profile_referral_remainder_0_99')),
+    ]

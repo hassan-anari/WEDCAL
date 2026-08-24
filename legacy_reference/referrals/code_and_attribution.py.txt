@@ -1,0 +1,133 @@
+LEGACY REFERENCE — NON-AUTHORITATIVE — DO NOT IMPORT INTO PRODUCTION
+Original source: apps/telegram_airdrop/referrals.py
+Original range: 28-29, 32-38, 41-43, 56-67, 81-102, 105-112, 131-132, 135-189
+Classification: ADAPT
+Purpose: Referral code generation/collision handling, validation/link building, immutable/self-referral-safe attribution transaction, and on-commit cache projection.
+Warnings: Current first-touch/activation/reward contract differs. Do not reuse `has_started_bot`, message thresholds, tiers, or old reward economics.
+-------------------------------------------------------------------------------
+# --- generate_referral_code_candidate (lines 28-29) ---
+def generate_referral_code_candidate() -> str:
+    return "".join(secrets.choice(REFERRAL_CODE_ALPHABET) for _ in range(REFERRAL_CODE_LENGTH))
+
+# --- normalize_referral_code (lines 32-38) ---
+def normalize_referral_code(value) -> str | None:
+    if value is None:
+        return None
+    value = str(value).strip().lower()
+    if not value or value == START_REFERRAL_SENTINEL:
+        return None
+    return value
+
+# --- is_valid_referral_code (lines 41-43) ---
+def is_valid_referral_code(value) -> bool:
+    normalized = normalize_referral_code(value)
+    return bool(normalized and REFERRAL_CODE_RE.fullmatch(normalized))
+
+# --- generate_unique_referral_code (lines 56-67) ---
+def generate_unique_referral_code(*, reserved: Iterable[str] | None = None) -> str:
+    from apps.telegram_airdrop.models import TelegramProfile
+
+    reserved_codes = set(reserved or ())
+    for _ in range(MAX_REFERRAL_CODE_ATTEMPTS):
+        candidate = generate_referral_code_candidate()
+        if candidate in reserved_codes:
+            continue
+        if TelegramProfile.objects.filter(referral_code=candidate).exists():
+            continue
+        return candidate
+    raise RuntimeError("Unable to generate a unique referral code.")
+
+# --- ensure_referral_code (lines 81-102) ---
+def ensure_referral_code(profile, *, save: bool = True) -> str:
+    code = normalize_referral_code(getattr(profile, "referral_code", None))
+    if code and is_valid_referral_code(code):
+        if code != profile.referral_code:
+            profile.referral_code = code
+            if save and profile.pk:
+                profile.save(update_fields=["referral_code"])
+        return code
+
+    if not profile.pk and not save:
+        profile.referral_code = generate_unique_referral_code()
+        return profile.referral_code
+
+    for _ in range(MAX_REFERRAL_CODE_ATTEMPTS):
+        profile.referral_code = generate_referral_code_candidate()
+        try:
+            if save and profile.pk:
+                profile.save(update_fields=["referral_code"])
+            return profile.referral_code
+        except IntegrityError:
+            continue
+    raise RuntimeError("Unable to assign a unique referral code.")
+
+# --- build_referral_link (lines 105-112) ---
+def build_referral_link(code: str, bot_username: str) -> str:
+    normalized = normalize_referral_code(code)
+    if not is_valid_referral_code(normalized):
+        raise ValueError("Invalid referral code.")
+    username = str(bot_username or "").strip().lstrip("@")
+    if not username:
+        raise ValueError("Invalid bot username.")
+    return f"https://t.me/{username}?start={normalized}"
+
+# --- sync_referral_code_cache_on_commit (lines 131-132) ---
+def sync_referral_code_cache_on_commit(profile, redis_client) -> None:
+    transaction.on_commit(lambda: sync_referral_code_cache(profile, redis_client))
+
+# --- assign_referrer_from_code (lines 135-189) ---
+def assign_referrer_from_code(
+    *,
+    invitee_telegram_id: int,
+    referral_value,
+    profile_defaults: dict | None = None,
+):
+    from apps.telegram_airdrop.models import TelegramProfile
+
+    profile_defaults = profile_defaults or {}
+    normalized = normalize_referral_code(referral_value)
+
+    with transaction.atomic():
+        invitee = TelegramProfile.objects.select_for_update().filter(telegram_id=invitee_telegram_id).first()
+        created = False
+        previously_started = False
+        if invitee is None:
+            invitee = TelegramProfile(telegram_id=invitee_telegram_id, has_started_bot=False, **profile_defaults)
+            ensure_referral_code(invitee, save=False)
+            invitee.save()
+            created = True
+        else:
+            previously_started = invitee.has_started_bot
+            for field, value in profile_defaults.items():
+                if value not in (None, "") and hasattr(invitee, field):
+                    setattr(invitee, field, value)
+            if not normalize_referral_code(invitee.referral_code):
+                ensure_referral_code(invitee, save=False)
+
+        eligible = created or not previously_started
+        reason = "no_referral"
+        assigned = False
+
+        if invitee.referred_by_id:
+            reason = "already_referred"
+        elif not eligible:
+            reason = "already_started"
+        elif not normalized or normalized == START_REFERRAL_SENTINEL:
+            reason = "no_referral"
+        elif not is_valid_referral_code(normalized):
+            reason = "invalid_referral"
+        else:
+            referrer = TelegramProfile.objects.filter(referral_code=normalized).first()
+            if referrer is None:
+                reason = "unknown_referral"
+            elif referrer.pk == invitee.pk:
+                reason = "self_referral"
+            else:
+                invitee.referred_by = referrer
+                assigned = True
+                reason = "assigned"
+
+        invitee.has_started_bot = True
+        update_fields = ["has_started_bot", "username", "first_name", "language_code", "referral_code", "referred_by"]
+        invitee.save(update_fields=update_fields)
+        return AttributionResult(invitee.pk, invitee.telegram_id, assigned, reason)

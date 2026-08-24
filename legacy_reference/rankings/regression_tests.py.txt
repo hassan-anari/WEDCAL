@@ -1,0 +1,325 @@
+LEGACY REFERENCE — NON-AUTHORITATIVE — DO NOT IMPORT INTO PRODUCTION
+Original source: apps/telegram_airdrop/tests_leaderboard.py
+Original range: selected tests
+Classification: REUSE TEST IDEAS
+Purpose: Real-Redis ranking/tie/pagination/stale-member/rebuild/dirty-replay/lock-loss regressions.
+Warnings: Map legacy eligibility/profile fields to current Player/Season ranking projections.
+-------------------------------------------------------------------------------
+# --- LeaderboardServiceUnitTests.test_sync_profile_includes_started_zero_score_and_removes_silent (lines 38-50) ---
+    def test_sync_profile_includes_started_zero_score_and_removes_silent(self):
+        redis_client = Mock()
+        redis_client.exists.return_value = False
+        profile = TelegramProfile.objects.create(telegram_id=3, has_started_bot=True)
+        self.assertTrue(leaderboard.sync_profile(profile.pk, redis_client=redis_client))
+        redis_client.zadd.assert_called_once_with(leaderboard.LEADERBOARD_KEY, {"3": 0})
+
+        redis_client.reset_mock()
+        redis_client.exists.return_value = False
+        profile.has_started_bot = False
+        profile.save(update_fields=["has_started_bot"])
+        self.assertTrue(leaderboard.sync_profile(profile.pk, redis_client=redis_client))
+        redis_client.zrem.assert_called_once_with(leaderboard.LEADERBOARD_KEY, "3")
+
+# --- LeaderboardServiceUnitTests.test_competition_rank_uses_exclusive_zcount (lines 52-57) ---
+    def test_competition_rank_uses_exclusive_zcount(self):
+        redis_client = Mock()
+        redis_client.zscore.return_value = 100
+        redis_client.zcount.return_value = 2
+        self.assertEqual(leaderboard.get_competition_rank(1, redis_client=redis_client), 3)
+        redis_client.zcount.assert_called_once_with(leaderboard.LEADERBOARD_KEY, "(100", "+inf")
+
+# --- LeaderboardServiceUnitTests.test_top_rows_use_display_name_and_numeric_tie_order (lines 59-69) ---
+    def test_top_rows_use_display_name_and_numeric_tie_order(self):
+        TelegramProfile.objects.create(telegram_id=10, first_name="Ten", has_started_bot=True)
+        TelegramProfile.objects.create(telegram_id=2, first_name="Two", has_started_bot=True)
+        redis_client = Mock()
+        redis_client.zrevrangebyscore.return_value = [("10", 100), ("2", 100)]
+        redis_client.zrangebyscore.return_value = [("10", 100), ("2", 100)]
+        redis_client.zcount.return_value = 0
+        rows = leaderboard.get_top_rows(redis_client=redis_client)
+        self.assertEqual([row["display_name"] for row in rows], ["Two", "Ten"])
+        self.assertEqual([row["rank"] for row in rows], [1, 1])
+        self.assertNotIn("username", rows[0])
+
+# --- LeaderboardServiceUnitTests.test_top_rows_uses_bounded_zrevrangebyscore_and_stops_when_filled (lines 71-83) ---
+    def test_top_rows_uses_bounded_zrevrangebyscore_and_stops_when_filled(self):
+        for telegram_id in range(1, 11):
+            TelegramProfile.objects.create(telegram_id=telegram_id, first_name=f"User {telegram_id}", has_started_bot=True)
+        redis_client = Mock()
+        redis_client.zrevrangebyscore.return_value = [(str(telegram_id), 100 - telegram_id) for telegram_id in range(1, 11)]
+        redis_client.zrangebyscore.side_effect = lambda key, min_score, max_score, withscores=False: [(str(100 - int(min_score)), int(min_score))]
+        redis_client.zcount.return_value = 0
+
+        rows = leaderboard.get_top_rows(redis_client=redis_client, score_page_size=10)
+
+        self.assertEqual(len(rows), 10)
+        redis_client.zrevrangebyscore.assert_called_once_with(leaderboard.LEADERBOARD_KEY, "+inf", "-inf", start=0, num=10, withscores=True)
+        self.assertNotEqual(redis_client.zrevrangebyscore.call_args.args[2], -1)
+
+# --- LeaderboardServiceUnitTests.test_top_rows_continues_to_next_batch_when_stale_members_do_not_fill_limit (lines 85-96) ---
+    def test_top_rows_continues_to_next_batch_when_stale_members_do_not_fill_limit(self):
+        TelegramProfile.objects.create(telegram_id=2, first_name="Two", has_started_bot=True)
+        redis_client = Mock()
+        redis_client.zrevrangebyscore.side_effect = [[("999", 100)], [("2", 90)], []]
+        redis_client.zrangebyscore.side_effect = [[("999", 100)], [("2", 90)]]
+        redis_client.zcount.return_value = 0
+
+        rows = leaderboard.get_top_rows(limit=1, redis_client=redis_client, score_page_size=1)
+
+        self.assertEqual(rows, [{"rank": 1, "display_name": "Two", "score": 90}])
+        self.assertEqual(redis_client.zrevrangebyscore.call_count, 2)
+        self.assertTrue(all(call.args[2] != -1 for call in redis_client.zrevrangebyscore.call_args_list))
+
+# --- LeaderboardServiceUnitTests.test_top_rows_processes_tied_group_crossing_batch_boundary_once (lines 98-115) ---
+    def test_top_rows_processes_tied_group_crossing_batch_boundary_once(self):
+        TelegramProfile.objects.create(telegram_id=10, first_name="Ten", has_started_bot=True)
+        TelegramProfile.objects.create(telegram_id=2, first_name="Two", has_started_bot=True)
+        TelegramProfile.objects.create(telegram_id=5, first_name="Five", has_started_bot=True)
+        redis_client = Mock()
+        redis_client.zrevrangebyscore.side_effect = [[("10", 100)], [("2", 100)], [("5", 90)], []]
+        redis_client.zrangebyscore.side_effect = [[("10", 100), ("2", 100)], [("5", 90)]]
+        redis_client.zcount.side_effect = [0, 2]
+
+        rows = leaderboard.get_top_rows(limit=3, redis_client=redis_client, score_page_size=1)
+
+        self.assertEqual(rows, [
+            {"rank": 1, "display_name": "Two", "score": 100},
+            {"rank": 1, "display_name": "Ten", "score": 100},
+            {"rank": 3, "display_name": "Five", "score": 90},
+        ])
+        self.assertEqual(redis_client.zrangebyscore.call_count, 2)
+        redis_client.zrangebyscore.assert_any_call(leaderboard.LEADERBOARD_KEY, 100, 100, withscores=True)
+
+# --- RealRedisLeaderboardIntegrationTests.test_real_redis_competition_rank_and_exclusive_zcount (lines 285-291) ---
+    def test_real_redis_competition_rank_and_exclusive_zcount(self):
+        self.redis_client.zadd(leaderboard.LEADERBOARD_KEY, {"1": 100, "2": 100, "3": 90, "4": 80, "5": 80})
+        self.assertEqual(leaderboard.get_competition_rank(1, redis_client=self.redis_client), 1)
+        self.assertEqual(leaderboard.get_competition_rank(2, redis_client=self.redis_client), 1)
+        self.assertEqual(leaderboard.get_competition_rank(3, redis_client=self.redis_client), 3)
+        self.assertEqual(leaderboard.get_competition_rank(4, redis_client=self.redis_client), 4)
+        self.assertEqual(leaderboard.get_competition_rank(999, redis_client=self.redis_client), None)
+
+# --- RealRedisLeaderboardIntegrationTests.test_real_redis_score_cursor_survives_stale_removal_index_shift (lines 293-300) ---
+    def test_real_redis_score_cursor_survives_stale_removal_index_shift(self):
+        TelegramProfile.objects.create(telegram_id=2, first_name="Two", has_started_bot=True)
+        self.redis_client.zadd(leaderboard.LEADERBOARD_KEY, {"999": 100, "2": 90})
+
+        rows = leaderboard.get_top_rows(limit=1, redis_client=self.redis_client, score_page_size=1)
+
+        self.assertEqual(rows, [{"rank": 1, "display_name": "Two", "score": 90}])
+        self.assertIsNone(self.redis_client.zscore(leaderboard.LEADERBOARD_KEY, "999"))
+
+# --- RealRedisLeaderboardIntegrationTests.test_real_redis_score_cursor_skips_multiple_stale_pages_until_limit_filled (lines 302-312) ---
+    def test_real_redis_score_cursor_skips_multiple_stale_pages_until_limit_filled(self):
+        TelegramProfile.objects.create(telegram_id=1, first_name="One", has_started_bot=True)
+        TelegramProfile.objects.create(telegram_id=2, first_name="Two", has_started_bot=True)
+        self.redis_client.zadd(leaderboard.LEADERBOARD_KEY, {"bad": 120, "999": 110, "also_bad": 105, "1": 90, "2": 80})
+
+        rows = leaderboard.get_top_rows(limit=2, redis_client=self.redis_client, score_page_size=1)
+
+        self.assertEqual([row["display_name"] for row in rows], ["One", "Two"])
+        self.assertIsNone(self.redis_client.zscore(leaderboard.LEADERBOARD_KEY, "bad"))
+        self.assertIsNone(self.redis_client.zscore(leaderboard.LEADERBOARD_KEY, "999"))
+        self.assertIsNone(self.redis_client.zscore(leaderboard.LEADERBOARD_KEY, "also_bad"))
+
+# --- RealRedisLeaderboardIntegrationTests.test_real_redis_malformed_only_top_score_is_removed_before_rank_count (lines 314-321) ---
+    def test_real_redis_malformed_only_top_score_is_removed_before_rank_count(self):
+        TelegramProfile.objects.create(telegram_id=3, first_name="Three", has_started_bot=True)
+        self.redis_client.zadd(leaderboard.LEADERBOARD_KEY, {"bad": 100, "3": 90})
+
+        rows = leaderboard.get_top_rows(limit=1, redis_client=self.redis_client, score_page_size=1)
+
+        self.assertEqual(rows, [{"rank": 1, "display_name": "Three", "score": 90}])
+        self.assertIsNone(self.redis_client.zscore(leaderboard.LEADERBOARD_KEY, "bad"))
+
+# --- RealRedisLeaderboardIntegrationTests.test_real_redis_large_tied_group_crossing_score_pages_orders_numerically (lines 323-331) ---
+    def test_real_redis_large_tied_group_crossing_score_pages_orders_numerically(self):
+        for telegram_id in [20, 3, 10, 1, 2]:
+            TelegramProfile.objects.create(telegram_id=telegram_id, first_name=str(telegram_id), has_started_bot=True)
+        self.redis_client.zadd(leaderboard.LEADERBOARD_KEY, {"20": 100, "3": 100, "10": 100, "1": 100, "2": 100})
+
+        rows = leaderboard.get_top_rows(limit=5, redis_client=self.redis_client, score_page_size=2)
+
+        self.assertEqual([row["display_name"] for row in rows], ["1", "2", "3", "10", "20"])
+        self.assertEqual([row["rank"] for row in rows], [1, 1, 1, 1, 1])
+
+# --- RealRedisLeaderboardIntegrationTests.test_real_redis_tmp_rebuild_key_gets_finite_ttl (lines 333-345) ---
+    def test_real_redis_tmp_rebuild_key_gets_finite_ttl(self):
+        TelegramProfile.objects.create(telegram_id=90, has_started_bot=True, bonus_points=9)
+        tmp_key = f"{leaderboard.LEADERBOARD_REBUILD_TMP_PREFIX}ttl-contract"
+        token = leaderboard.acquire_rebuild_lock(redis_client=self.redis_client)
+        self.assertIsNotNone(token)
+
+        synced = leaderboard._build_tmp_leaderboard(self.redis_client, tmp_key, chunk_size=1, token=token)
+
+        self.assertEqual(synced, 1)
+        ttl = self.redis_client.ttl(tmp_key)
+        self.assertGreater(ttl, 0)
+        self.assertLessEqual(ttl, leaderboard.REBUILD_TMP_TTL_SECONDS)
+        self.redis_client.delete(tmp_key, leaderboard.LEADERBOARD_REBUILD_LOCK_KEY)
+
+# --- RealRedisLeaderboardIntegrationTests.test_real_redis_successful_rebuild_promotes_persistent_live_key (lines 347-355) ---
+    def test_real_redis_successful_rebuild_promotes_persistent_live_key(self):
+        TelegramProfile.objects.create(telegram_id=91, has_started_bot=True, bonus_points=11)
+        TelegramProfile.objects.create(telegram_id=92, has_started_bot=True, bonus_points=22)
+
+        result = leaderboard.rebuild_leaderboard(redis_client=self.redis_client, chunk_size=1)
+
+        self.assertEqual(result["synced"], 2)
+        self.assertEqual(self.redis_client.zrange(leaderboard.LEADERBOARD_KEY, 0, -1, withscores=True), [("91", 11.0), ("92", 22.0)])
+        self.assertEqual(self.redis_client.ttl(leaderboard.LEADERBOARD_KEY), -1)
+
+# --- RealRedisLeaderboardIntegrationTests.test_real_redis_rebuild_replaces_stale_data_and_keeps_live_key_persistent (lines 357-366) ---
+    def test_real_redis_rebuild_replaces_stale_data_and_keeps_live_key_persistent(self):
+        TelegramProfile.objects.create(telegram_id=93, has_started_bot=True, bonus_points=33)
+        self.redis_client.zadd(leaderboard.LEADERBOARD_KEY, {"stale": 1000})
+        self.redis_client.expire(leaderboard.LEADERBOARD_KEY, 60)
+
+        result = leaderboard.rebuild_leaderboard(redis_client=self.redis_client, chunk_size=1)
+
+        self.assertEqual(result["synced"], 1)
+        self.assertEqual(self.redis_client.zrange(leaderboard.LEADERBOARD_KEY, 0, -1, withscores=True), [("93", 33.0)])
+        self.assertEqual(self.redis_client.ttl(leaderboard.LEADERBOARD_KEY), -1)
+
+# --- RealRedisLeaderboardIntegrationTests.test_real_redis_syncing_one_eligible_user_preserves_existing_members (lines 382-390) ---
+    def test_real_redis_syncing_one_eligible_user_preserves_existing_members(self):
+        TelegramProfile.objects.create(telegram_id=96, has_started_bot=True, bonus_points=46)
+        new_profile = TelegramProfile.objects.create(telegram_id=97, has_started_bot=True, bonus_points=47)
+        self.redis_client.zadd(leaderboard.LEADERBOARD_KEY, {"96": 46})
+
+        self.assertTrue(leaderboard.sync_profile(new_profile.pk, redis_client=self.redis_client))
+
+        self.assertEqual(self.redis_client.zscore(leaderboard.LEADERBOARD_KEY, "96"), 46)
+        self.assertEqual(self.redis_client.zscore(leaderboard.LEADERBOARD_KEY, "97"), 47)
+
+# --- RealRedisLeaderboardIntegrationTests.test_real_redis_rebuild_replaces_stale_and_replays_dirty_profiles (lines 392-415) ---
+    def test_real_redis_rebuild_replaces_stale_and_replays_dirty_profiles(self):
+        TelegramProfile.objects.create(telegram_id=1, has_started_bot=True, bonus_points=10)
+        TelegramProfile.objects.create(telegram_id=2, has_started_bot=False, bonus_points=999)
+        dirty = TelegramProfile.objects.create(telegram_id=3, has_started_bot=True, bonus_points=5)
+        self.redis_client.zadd(leaderboard.LEADERBOARD_KEY, {"stale": 1000, "2": 999})
+
+        original_build = leaderboard._build_tmp_leaderboard
+
+        def build_and_dirty(client, tmp_key, *, chunk_size, token):
+            count = original_build(client, tmp_key, chunk_size=chunk_size, token=token)
+            dirty.bonus_points = 55
+            dirty.save(update_fields=["bonus_points"])
+            leaderboard.sync_profile(dirty.pk, redis_client=client)
+            return count
+
+        with patch("apps.telegram_airdrop.leaderboard._build_tmp_leaderboard", side_effect=build_and_dirty):
+            result = leaderboard.rebuild_leaderboard(redis_client=self.redis_client, chunk_size=1)
+
+        self.assertEqual(result["synced"], 2)
+        self.assertEqual(self.redis_client.zscore(leaderboard.LEADERBOARD_KEY, "1"), 10)
+        self.assertEqual(self.redis_client.zscore(leaderboard.LEADERBOARD_KEY, "2"), None)
+        self.assertEqual(self.redis_client.zscore(leaderboard.LEADERBOARD_KEY, "3"), 55)
+        self.assertEqual(self.redis_client.exists(leaderboard.LEADERBOARD_REBUILD_LOCK_KEY), 0)
+        self.assertEqual(self.redis_client.scard(leaderboard.LEADERBOARD_REBUILD_DIRTY_KEY), 0)
+
+# --- RealRedisLeaderboardIntegrationTests.test_real_redis_rebuild_replays_delete_tombstones_after_rename (lines 417-435) ---
+    def test_real_redis_rebuild_replays_delete_tombstones_after_rename(self):
+        deleted = TelegramProfile.objects.create(telegram_id=44, has_started_bot=True, bonus_points=10)
+        original_build = leaderboard._build_tmp_leaderboard
+
+        def build_and_delete(client, tmp_key, *, chunk_size, token):
+            count = original_build(client, tmp_key, chunk_size=chunk_size, token=token)
+            telegram_id = deleted.telegram_id
+            deleted.delete()
+            leaderboard.remove_telegram_ids([telegram_id], redis_client=client)
+            return count
+
+        with patch("apps.telegram_airdrop.leaderboard._build_tmp_leaderboard", side_effect=build_and_delete):
+            result = leaderboard.rebuild_leaderboard(redis_client=self.redis_client, chunk_size=1)
+
+        self.assertEqual(result["synced"], 1)
+        self.assertEqual(result["removed_replayed"], 1)
+        self.assertIsNone(self.redis_client.zscore(leaderboard.LEADERBOARD_KEY, "44"))
+        self.assertEqual(self.redis_client.exists(leaderboard.LEADERBOARD_REBUILD_LOCK_KEY), 0)
+        self.assertEqual(self.redis_client.scard(leaderboard.LEADERBOARD_REBUILD_REMOVED_KEY), 0)
+
+# --- RealRedisLeaderboardIntegrationTests.test_real_redis_lock_renewal_checks_token_and_extends_dirty_key_ttls (lines 437-461) ---
+    def test_real_redis_lock_renewal_checks_token_and_extends_dirty_key_ttls(self):
+        token = leaderboard.acquire_rebuild_lock(redis_client=self.redis_client, ttl=2)
+        self.assertIsNotNone(token)
+        self.redis_client.sadd(leaderboard.LEADERBOARD_REBUILD_DIRTY_KEY, "1")
+        self.redis_client.expire(leaderboard.LEADERBOARD_REBUILD_DIRTY_KEY, 2)
+        self.redis_client.sadd(leaderboard.LEADERBOARD_REBUILD_REMOVED_KEY, "2")
+        self.redis_client.expire(leaderboard.LEADERBOARD_REBUILD_REMOVED_KEY, 2)
+
+        before_lock_ttl = self.redis_client.ttl(leaderboard.LEADERBOARD_REBUILD_LOCK_KEY)
+        before_dirty_ttl = self.redis_client.ttl(leaderboard.LEADERBOARD_REBUILD_DIRTY_KEY)
+        before_removed_ttl = self.redis_client.ttl(leaderboard.LEADERBOARD_REBUILD_REMOVED_KEY)
+        self.assertTrue(leaderboard.renew_rebuild_lock(token, redis_client=self.redis_client, ttl=20, dirty_ttl=20, removed_ttl=20))
+        self.assertGreater(self.redis_client.ttl(leaderboard.LEADERBOARD_REBUILD_LOCK_KEY), before_lock_ttl)
+        self.assertGreater(self.redis_client.ttl(leaderboard.LEADERBOARD_REBUILD_DIRTY_KEY), before_dirty_ttl)
+        self.assertGreater(self.redis_client.ttl(leaderboard.LEADERBOARD_REBUILD_REMOVED_KEY), before_removed_ttl)
+
+        after_lock_ttl = self.redis_client.ttl(leaderboard.LEADERBOARD_REBUILD_LOCK_KEY)
+        after_dirty_ttl = self.redis_client.ttl(leaderboard.LEADERBOARD_REBUILD_DIRTY_KEY)
+        after_removed_ttl = self.redis_client.ttl(leaderboard.LEADERBOARD_REBUILD_REMOVED_KEY)
+        self.assertFalse(leaderboard.renew_rebuild_lock("wrong-token", redis_client=self.redis_client, ttl=60, dirty_ttl=60, removed_ttl=60))
+        self.assertLessEqual(self.redis_client.ttl(leaderboard.LEADERBOARD_REBUILD_LOCK_KEY), after_lock_ttl)
+        self.assertLessEqual(self.redis_client.ttl(leaderboard.LEADERBOARD_REBUILD_DIRTY_KEY), after_dirty_ttl)
+        self.assertLessEqual(self.redis_client.ttl(leaderboard.LEADERBOARD_REBUILD_REMOVED_KEY), after_removed_ttl)
+        self.redis_client.delete(leaderboard.LEADERBOARD_REBUILD_DIRTY_KEY, leaderboard.LEADERBOARD_REBUILD_REMOVED_KEY)
+        self.assertTrue(leaderboard.release_rebuild_lock_if_owned_and_clean(token, redis_client=self.redis_client))
+
+# --- RealRedisLeaderboardIntegrationTests.test_real_redis_dirty_and_removed_events_survive_renewed_long_rebuild (lines 463-487) ---
+    def test_real_redis_dirty_and_removed_events_survive_renewed_long_rebuild(self):
+        dirty = TelegramProfile.objects.create(telegram_id=70, has_started_bot=True, bonus_points=1)
+        removed = TelegramProfile.objects.create(telegram_id=71, has_started_bot=True, bonus_points=2)
+        original_build = leaderboard._build_tmp_leaderboard
+
+        def build_and_mark_events(client, tmp_key, *, chunk_size, token):
+            count = original_build(client, tmp_key, chunk_size=chunk_size, token=token)
+            dirty.bonus_points = 9
+            dirty.save(update_fields=["bonus_points"])
+            leaderboard.sync_profile(dirty.pk, redis_client=client)
+            removed_id = removed.telegram_id
+            removed.delete()
+            leaderboard.remove_telegram_ids([removed_id], redis_client=client)
+            client.expire(leaderboard.LEADERBOARD_REBUILD_DIRTY_KEY, 2)
+            client.expire(leaderboard.LEADERBOARD_REBUILD_REMOVED_KEY, 2)
+            self.assertTrue(leaderboard.renew_rebuild_lock(token, redis_client=client, ttl=20, dirty_ttl=20, removed_ttl=20))
+            return count
+
+        with patch("apps.telegram_airdrop.leaderboard._build_tmp_leaderboard", side_effect=build_and_mark_events):
+            result = leaderboard.rebuild_leaderboard(redis_client=self.redis_client, chunk_size=1)
+
+        self.assertGreaterEqual(result["dirty_replayed"], 1)
+        self.assertGreaterEqual(result["removed_replayed"], 1)
+        self.assertEqual(self.redis_client.zscore(leaderboard.LEADERBOARD_KEY, "70"), 9)
+        self.assertIsNone(self.redis_client.zscore(leaderboard.LEADERBOARD_KEY, "71"))
+
+# --- RealRedisLeaderboardIntegrationTests.test_real_redis_lost_lock_before_rename_leaves_live_key_unchanged (lines 489-505) ---
+    def test_real_redis_lost_lock_before_rename_leaves_live_key_unchanged(self):
+        TelegramProfile.objects.create(telegram_id=55, has_started_bot=True, bonus_points=55)
+        self.redis_client.zadd(leaderboard.LEADERBOARD_KEY, {"original": 1})
+        original_build = leaderboard._build_tmp_leaderboard
+
+        def build_and_steal_lock(client, tmp_key, *, chunk_size, token):
+            count = original_build(client, tmp_key, chunk_size=chunk_size, token=token)
+            client.set(leaderboard.LEADERBOARD_REBUILD_LOCK_KEY, "foreign-token", ex=30)
+            return count
+
+        with patch("apps.telegram_airdrop.leaderboard._build_tmp_leaderboard", side_effect=build_and_steal_lock):
+            with self.assertRaises(RuntimeError):
+                leaderboard.rebuild_leaderboard(redis_client=self.redis_client, chunk_size=1)
+
+        self.assertEqual(self.redis_client.zscore(leaderboard.LEADERBOARD_KEY, "original"), 1)
+        self.assertIsNone(self.redis_client.zscore(leaderboard.LEADERBOARD_KEY, "55"))
+        self.assertEqual(self.redis_client.get(leaderboard.LEADERBOARD_REBUILD_LOCK_KEY), "foreign-token")
+
+# --- RealRedisLeaderboardIntegrationTests.test_real_redis_empty_rebuild_deletes_live_key_and_lock_owner_release (lines 507-516) ---
+    def test_real_redis_empty_rebuild_deletes_live_key_and_lock_owner_release(self):
+        self.redis_client.zadd(leaderboard.LEADERBOARD_KEY, {"stale": 1})
+        result = leaderboard.rebuild_leaderboard(redis_client=self.redis_client)
+        self.assertEqual(result["synced"], 0)
+        self.assertEqual(self.redis_client.exists(leaderboard.LEADERBOARD_KEY), 0)
+
+        token = leaderboard.acquire_rebuild_lock(redis_client=self.redis_client)
+        self.assertIsNotNone(token)
+        self.assertFalse(leaderboard.release_rebuild_lock_if_owned_and_clean("wrong", redis_client=self.redis_client))
+        self.assertTrue(leaderboard.release_rebuild_lock_if_owned_and_clean(token, redis_client=self.redis_client))

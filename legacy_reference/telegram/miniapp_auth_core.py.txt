@@ -1,0 +1,87 @@
+LEGACY REFERENCE — NON-AUTHORITATIVE — DO NOT IMPORT INTO PRODUCTION
+Original source: apps/telegram_airdrop/api/authentication.py
+Original range: 24-34, 48-78, 110-146
+Classification: ADAPT
+Purpose: Telegram Mini App HMAC verification and safe auth context.
+Warnings: Do not copy DRF architecture, TelegramProfile creation, referral/cache side effects, or fixed age constants.
+-------------------------------------------------------------------------------
+class TelegramMiniAppAuth:
+    """
+    Internal marker for a Telegram Mini App request verified server-side.
+
+    This intentionally does not contain raw initData, Authorization contents,
+    hashes, bot tokens, or user payloads so request.auth can be safely inspected
+    by permissions without retaining sensitive Telegram authentication material.
+    """
+
+    telegram_id: int
+    auth_date: int
+
+        parts = auth_header.split()
+        if len(parts) != 2 or parts[0].lower() != 'tma':
+            return None
+
+        init_data = parts[1]
+
+        try:
+            parsed_data = dict(parse_qsl(init_data, keep_blank_values=True))
+            received_hash = parsed_data.pop('hash', None)
+            if not received_hash:
+                raise AuthenticationFailed("Missing hash in initData.")
+
+            auth_timestamp = self._validate_auth_date(parsed_data.get('auth_date'))
+
+            bot_token = self._get_bot_token()
+
+            data_check_string = '\n'.join(
+                f"{key}={value}" for key, value in sorted(parsed_data.items())
+            )
+            secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
+            calculated_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+
+            if not hmac.compare_digest(calculated_hash, received_hash):
+                raise AuthenticationFailed("Invalid initData signature.")
+
+            user_data = self._parse_user_data(parsed_data.get('user'))
+            telegram_id = user_data.get('id')
+            if not telegram_id:
+                raise AuthenticationFailed("Missing telegram id in user data.")
+
+            try:
+
+    def _get_bot_token(self):
+        try:
+            bot_token = config('TELEGRAM_BOT_TOKEN')
+        except UndefinedValueError:
+            logger.error("Telegram bot token is not configured", extra={"auth_stage": "configuration"})
+            raise AuthenticationFailed("Server configuration error.")
+
+        if not bot_token:
+            logger.error("Telegram bot token is empty", extra={"auth_stage": "configuration"})
+            raise AuthenticationFailed("Server configuration error.")
+        return bot_token
+
+    def _validate_auth_date(self, auth_date):
+        if not auth_date:
+            raise AuthenticationFailed("Missing auth_date in initData.")
+
+        try:
+            auth_timestamp = int(auth_date)
+        except (TypeError, ValueError):
+            raise AuthenticationFailed("Malformed auth_date in initData.")
+
+        current_timestamp = int(time.time())
+        if current_timestamp - auth_timestamp > INIT_DATA_MAX_AGE_SECONDS:
+            raise AuthenticationFailed("Token has expired.")
+        if auth_timestamp - current_timestamp > INIT_DATA_FUTURE_SKEW_SECONDS:
+            raise AuthenticationFailed("auth_date is too far in the future.")
+        return auth_timestamp
+
+    def _parse_user_data(self, user_data_str):
+        if not user_data_str:
+            raise AuthenticationFailed("Missing user data in initData.")
+
+        try:
+            user_data = json.loads(user_data_str)
+        except json.JSONDecodeError:
+            raise AuthenticationFailed("Invalid user JSON in initData.")

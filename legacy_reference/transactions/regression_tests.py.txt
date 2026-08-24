@@ -1,0 +1,130 @@
+LEGACY REFERENCE — NON-AUTHORITATIVE — DO NOT IMPORT INTO PRODUCTION
+Original source: multiple legacy test files
+Original range: selected tests
+Classification: REUSE TEST IDEAS
+Purpose: Rollback/no-partial-write, row-lock, retry/idempotency, and season-close failure scenarios.
+Warnings: The assertions about mutable archived/reset counters are historical only; current season/lifetime semantics must replace them.
+-------------------------------------------------------------------------------
+# --- Phase2BClaimTests.test_immediate_second_claim_is_rejected_without_side_effects (lines 112-125) ---
+    def test_immediate_second_claim_is_rejected_without_side_effects(self):
+        AirdropSeason.objects.create(title="Phase 2B", is_active=True, hourly_claim_reward=120)
+        self.assertEqual(self._post_claim().status_code, 200)
+        profile = self._profile()
+        first_last_claim_at = profile.last_claim_at
+
+        response = self._post_claim()
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["message"], "Cooldown active. Please wait.")
+        profile.refresh_from_db()
+        self.assertEqual(profile.bonus_points, 120)
+        self.assertEqual(profile.last_claim_at, first_last_claim_at)
+        self.assertEqual(UserActivityLog.objects.filter(user=profile).count(), 1)
+
+# --- Phase2BClaimTests.test_no_active_season_multiple_active_seasons_and_zero_reward_fail_closed (lines 141-162) ---
+    def test_no_active_season_multiple_active_seasons_and_zero_reward_fail_closed(self):
+        cases = [
+            ([], "No active airdrop season is available."),
+            ([0], "Hourly claim reward is not configured for the active season."),
+            ([100, 200], "Airdrop season configuration is invalid."),
+        ]
+        for rewards, message in cases:
+            with self.subTest(message=message):
+                AirdropSeason.objects.all().delete()
+                TelegramProfile.objects.all().delete()
+                UserActivityLog.objects.all().delete()
+                for idx, reward in enumerate(rewards):
+                    AirdropSeason.objects.create(title=f"Season {idx}", is_active=True, hourly_claim_reward=reward)
+
+                response = self._post_claim()
+
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.json()["message"], message)
+                profile = self._profile()
+                self.assertEqual(profile.bonus_points, 0)
+                self.assertIsNone(profile.last_claim_at)
+                self.assertFalse(UserActivityLog.objects.filter(user=profile).exists())
+
+# --- Phase2BClaimTests.test_transaction_rollback_prevents_partial_profile_or_activity_persistence (lines 164-175) ---
+    def test_transaction_rollback_prevents_partial_profile_or_activity_persistence(self):
+        AirdropSeason.objects.create(title="Phase 2B", is_active=True, hourly_claim_reward=90)
+
+        with patch("apps.telegram_airdrop.api.views.UserActivityLog.objects.create", side_effect=Exception("boom")):
+            response = self._post_claim()
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["message"], "Claim could not be processed.")
+        profile = self._profile()
+        self.assertEqual(profile.bonus_points, 0)
+        self.assertIsNone(profile.last_claim_at)
+        self.assertFalse(UserActivityLog.objects.filter(user=profile).exists())
+
+# --- Phase2BClaimTests.test_claim_source_uses_transaction_and_row_locks (lines 177-187) ---
+    def test_claim_source_uses_transaction_and_row_locks(self):
+        source = VIEWS_PATH.read_text()
+
+        self.assertIn("with transaction.atomic():", source)
+        self.assertIn("TelegramProfile.objects.select_for_update().get(pk=request.user.pk)", source)
+        self.assertIn("AirdropSeason.objects.get(is_active=True)", source)
+        claim_source = source.split("class ClaimView", 1)[1].split("class TasksView", 1)[0]
+        self.assertNotIn("AirdropSeason.objects.select_for_update()", claim_source)
+        self.assertNotIn("random.randint", claim_source)
+        self.assertNotIn("points_per_message", claim_source)
+        self.assertNotIn("AirdropSeason.objects.filter(is_active=True).first()", claim_source)
+
+# --- SeasonTransitionHotfixTests.test_transition_rolls_back_on_record_creation_failure (lines 121-131) ---
+    def test_transition_rolls_back_on_record_creation_failure(self):
+        season = self.expired_season()
+        profile = TelegramProfile.objects.create(telegram_id=1, activity_earned_points=10)
+        with patch("apps.telegram_airdrop.tasks.UserSeasonRecord.objects.bulk_create", side_effect=IntegrityError("boom")):
+            with self.assertRaises(IntegrityError):
+                check_and_transition_season()
+        season.refresh_from_db(); profile.refresh_from_db()
+        self.assertTrue(season.is_active)
+        self.assertEqual(profile.activity_earned_points, 10)
+        self.assertEqual(profile.total_archived_points, 0)
+        self.assertEqual(UserSeasonRecord.objects.count(), 0)
+
+# --- SeasonTransitionHotfixTests.test_transition_rolls_back_on_profile_reset_failure (lines 133-143) ---
+    def test_transition_rolls_back_on_profile_reset_failure(self):
+        season = self.expired_season()
+        profile = TelegramProfile.objects.create(telegram_id=1, activity_earned_points=10)
+        with patch("apps.telegram_airdrop.models.TelegramProfile.save", side_effect=DatabaseError("reset boom")):
+            with self.assertRaises(DatabaseError):
+                check_and_transition_season()
+        season.refresh_from_db(); profile.refresh_from_db()
+        self.assertTrue(season.is_active)
+        self.assertEqual(profile.activity_earned_points, 10)
+        self.assertEqual(profile.total_archived_points, 0)
+        self.assertEqual(UserSeasonRecord.objects.count(), 0)
+
+# --- SeasonTransitionHotfixTests.test_successful_retry_is_idempotent_and_current_season_only (lines 145-157) ---
+    def test_successful_retry_is_idempotent_and_current_season_only(self):
+        season = self.expired_season()
+        profile = TelegramProfile.objects.create(telegram_id=1, total_archived_points=1000, activity_earned_points=3, group_earned_points=4, referral_earned_points=2, bonus_points=1)
+        with patch("apps.telegram_airdrop.tasks.UserSeasonRecord.objects.bulk_create", side_effect=IntegrityError("first")):
+            with self.assertRaises(IntegrityError):
+                check_and_transition_season()
+        self.assertIn("ended and archived", check_and_transition_season())
+        profile.refresh_from_db(); season.refresh_from_db()
+        record = UserSeasonRecord.objects.get(user=profile, season=season)
+        self.assertEqual(record.total_points, 10)
+        self.assertEqual(profile.total_archived_points, 1010)
+        self.assertEqual(profile.activity_earned_points, 0)
+        self.assertFalse(season.is_active)
+
+# --- SeasonTransitionHotfixTests.test_second_season_records_only_second_season_earnings (lines 159-172) ---
+    def test_second_season_records_only_second_season_earnings(self):
+        first = self.expired_season("First")
+        profile = TelegramProfile.objects.create(telegram_id=1, activity_earned_points=10)
+        check_and_transition_season()
+        second = self.expired_season("Second")
+        profile.refresh_from_db()
+        profile.activity_earned_points = 7
+        profile.group_earned_points = 3
+        profile.save(update_fields=["activity_earned_points", "group_earned_points"])
+        check_and_transition_season()
+        self.assertEqual(UserSeasonRecord.objects.get(user=profile, season=first).total_points, 10)
+        self.assertEqual(UserSeasonRecord.objects.get(user=profile, season=second).total_points, 10)
+        profile.refresh_from_db()
+        self.assertEqual(profile.total_archived_points, 20)

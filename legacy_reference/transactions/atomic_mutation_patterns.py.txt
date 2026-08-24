@@ -1,0 +1,132 @@
+LEGACY REFERENCE — NON-AUTHORITATIVE — DO NOT IMPORT INTO PRODUCTION
+Original source: apps/telegram_airdrop/api/views.py
+Original range: 104-166, 203-263
+Classification: ADAPT
+Purpose: Examples of transaction.atomic + select_for_update + unique completion/audit + transaction.on_commit projection.
+Warnings: Direct bonus_points mutation, hourly claim rule, and task product semantics are rejected; use RewardLedger/idempotency in new code.
+-------------------------------------------------------------------------------
+class ClaimView(TelegramBaseView):
+    CLAIM_COOLDOWN_SECONDS = 3600
+
+    def post(self, request):
+        try:
+            with transaction.atomic():
+                profile = TelegramProfile.objects.select_for_update().get(pk=request.user.pk)
+                now = timezone.now()
+
+                if profile.last_claim_at:
+                    time_since_claim = (now - profile.last_claim_at).total_seconds()
+                    if time_since_claim < self.CLAIM_COOLDOWN_SECONDS:
+                        return generate_error_response(
+                            exception=ValidationError("Cooldown active. Please wait."),
+                            fallback_status=400,
+                        )
+
+                try:
+                    season = AirdropSeason.objects.get(is_active=True)
+                except AirdropSeason.DoesNotExist:
+                    return generate_error_response(
+                        exception=ValidationError("No active airdrop season is available."),
+                        fallback_status=400,
+                    )
+                except AirdropSeason.MultipleObjectsReturned:
+                    return generate_error_response(
+                        exception=ValidationError("Airdrop season configuration is invalid."),
+                        fallback_status=400,
+                    )
+
+                final_reward = season.hourly_claim_reward
+                if final_reward <= 0:
+                    return generate_error_response(
+                        exception=ValidationError("Hourly claim reward is not configured for the active season."),
+                        fallback_status=400,
+                    )
+
+                profile.bonus_points += final_reward
+                profile.last_claim_at = now
+                profile.save(update_fields=['bonus_points', 'last_claim_at'])
+
+                UserActivityLog.objects.create(
+                    user=profile,
+                    activity_type='hourly_claim',
+                    points_awarded=final_reward,
+                    description=f"Awarded {final_reward} DLX for hourly claim."
+                )
+                leaderboard.sync_profile_on_commit(profile.pk, redis_client=redis_client)
+
+            return CustomResponse(
+                data={
+                    'reward': final_reward,
+                    'new_bonus_points': profile.bonus_points,
+                    'next_claim_cooldown': self.CLAIM_COOLDOWN_SECONDS,
+                },
+                message="Claim successful.",
+            )
+        except Exception:
+            logger.exception("Hourly claim failed", extra={"claim_stage": "transaction"})
+            return generate_error_response(
+                exception=APIException("Claim could not be processed."),
+                fallback_status=500,
+            )
+
+class TasksVerifyView(TelegramBaseView):
+    def post(self, request):
+        task_id = request.data.get('task_id')
+
+        if not task_id:
+            return generate_error_response(detail="Task ID is required.", fallback_status=400)
+
+        try:
+            with transaction.atomic():
+                profile = TelegramProfile.objects.select_for_update().get(pk=request.user.pk)
+                try:
+                    task = AirdropTask.objects.get(id=task_id)
+                except AirdropTask.DoesNotExist:
+                    return generate_error_response(detail="Task not found.", fallback_status=404)
+
+                if UserTaskLog.objects.select_for_update().filter(user=profile, task=task).exists():
+                    return generate_error_response(detail="Task already completed.", fallback_status=400)
+
+                UserTaskLog.objects.create(user=profile, task=task)
+
+                TelegramProfile.objects.filter(pk=profile.pk).update(
+                    bonus_points=F('bonus_points') + task.reward
+                )
+
+                UserActivityLog.objects.create(
+                    user=profile,
+                    activity_type='task_completed',
+                    points_awarded=task.reward,
+                    description=f"Completed task: {task.title}"
+                )
+
+                main_tasks = AirdropTask.objects.filter(is_main=True)
+                main_task_ids = set(main_tasks.values_list('id', flat=True))
+                completed_main_task_ids = set(UserTaskLog.objects.filter(user=profile, task__is_main=True).values_list('task_id', flat=True))
+
+                bonus_awarded = False
+                if main_task_ids and main_task_ids.issubset(completed_main_task_ids):
+                    if not UserActivityLog.objects.filter(user=profile, activity_type='main_tasks_bonus').exists():
+                        season = AirdropSeason.objects.filter(is_active=True).first()
+                        if season and season.main_tasks_bonus > 0:
+                            TelegramProfile.objects.filter(pk=profile.pk).update(
+                                bonus_points=F('bonus_points') + season.main_tasks_bonus
+                            )
+                            UserActivityLog.objects.create(
+                                user=profile,
+                                activity_type='main_tasks_bonus',
+                                points_awarded=season.main_tasks_bonus,
+                                description="Completed all main tasks."
+                            )
+                            bonus_awarded = True
+
+                leaderboard.sync_profile_on_commit(profile.pk, redis_client=redis_client)
+
+            profile.refresh_from_db()
+            return CustomResponse(data={'reward': task.reward, 'bonus_awarded': bonus_awarded, 'new_bonus_points': profile.bonus_points}, message="Task verified.")
+        except Exception:
+            logger.exception("Task verification failed")
+            return generate_error_response(
+                exception=APIException("Task could not be verified."),
+                fallback_status=500,
+            )

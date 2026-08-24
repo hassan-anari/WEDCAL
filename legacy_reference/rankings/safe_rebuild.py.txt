@@ -1,0 +1,226 @@
+LEGACY REFERENCE — NON-AUTHORITATIVE — DO NOT IMPORT INTO PRODUCTION
+Original source: apps/telegram_airdrop/leaderboard.py
+Original range: 13-66, 313-475
+Classification: REUSE/ADAPT
+Purpose: Lock-token ownership, temp ZSET build, atomic promotion, dirty replay, removal tombstones, TTL renewal, and safe cleanup during rebuild.
+Warnings: Replace legacy score/profile fields with current ranking projection. Redis remains disposable.
+-------------------------------------------------------------------------------
+from django.db import transaction
+
+from apps.telegram_airdrop.models import TelegramProfile
+from apps.telegram_airdrop.scoring import coerce_leaderboard_score, current_season_points
+
+logger = logging.getLogger(__name__)
+
+LEADERBOARD_KEY = "airdrop:leaderboard"
+LEADERBOARD_REBUILD_LOCK_KEY = "airdrop:leaderboard:rebuild:lock"
+LEADERBOARD_REBUILD_DIRTY_KEY = "airdrop:leaderboard:rebuild:dirty"
+LEADERBOARD_REBUILD_REMOVED_KEY = "airdrop:leaderboard:rebuild:removed"
+LEADERBOARD_REBUILD_TMP_PREFIX = "airdrop:leaderboard:rebuild:"
+REBUILD_LOCK_TTL_SECONDS = 900
+REBUILD_TMP_TTL_SECONDS = 900
+REBUILD_DIRTY_TTL_SECONDS = 900
+REBUILD_REMOVED_TTL_SECONDS = 900
+DEFAULT_TOP_LIMIT = 10
+
+_acquire_rebuild_lock_script = """
+if redis.call('exists', KEYS[1]) == 0 then
+    redis.call('set', KEYS[1], ARGV[1], 'EX', ARGV[2])
+    redis.call('del', KEYS[2])
+    redis.call('del', KEYS[3])
+    redis.call('expire', KEYS[2], ARGV[3])
+    redis.call('expire', KEYS[3], ARGV[4])
+    return 1
+end
+return 0
+"""
+
+_renew_rebuild_lock_script = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    redis.call('expire', KEYS[1], ARGV[2])
+    if redis.call('exists', KEYS[2]) == 1 then
+        redis.call('expire', KEYS[2], ARGV[3])
+    end
+    if redis.call('exists', KEYS[3]) == 1 then
+        redis.call('expire', KEYS[3], ARGV[4])
+    end
+    return 1
+end
+return 0
+"""
+
+_release_lock_if_owned_and_clean_script = """
+if redis.call('get', KEYS[1]) == ARGV[1]
+   and redis.call('scard', KEYS[2]) == 0
+   and redis.call('scard', KEYS[3]) == 0 then
+    redis.call('del', KEYS[1])
+    redis.call('del', KEYS[2])
+    redis.call('del', KEYS[3])
+    return 1
+end
+return 0
+
+# --- acquire_rebuild_lock (lines 313-327) ---
+def acquire_rebuild_lock(*, redis_client=None, ttl: int = REBUILD_LOCK_TTL_SECONDS) -> str | None:
+    client = _client(redis_client)
+    token = uuid.uuid4().hex
+    acquired = client.eval(
+        _acquire_rebuild_lock_script,
+        3,
+        LEADERBOARD_REBUILD_LOCK_KEY,
+        LEADERBOARD_REBUILD_DIRTY_KEY,
+        LEADERBOARD_REBUILD_REMOVED_KEY,
+        token,
+        int(ttl),
+        REBUILD_DIRTY_TTL_SECONDS,
+        REBUILD_REMOVED_TTL_SECONDS,
+    )
+    return token if acquired else None
+
+# --- renew_rebuild_lock (lines 330-350) ---
+def renew_rebuild_lock(
+    token: str,
+    *,
+    redis_client=None,
+    ttl: int = REBUILD_LOCK_TTL_SECONDS,
+    dirty_ttl: int | None = None,
+    removed_ttl: int | None = None,
+) -> bool:
+    client = _client(redis_client)
+    result = client.eval(
+        _renew_rebuild_lock_script,
+        3,
+        LEADERBOARD_REBUILD_LOCK_KEY,
+        LEADERBOARD_REBUILD_DIRTY_KEY,
+        LEADERBOARD_REBUILD_REMOVED_KEY,
+        token,
+        int(ttl),
+        int(dirty_ttl or REBUILD_DIRTY_TTL_SECONDS),
+        int(removed_ttl or REBUILD_REMOVED_TTL_SECONDS),
+    )
+    return bool(result)
+
+# --- ensure_rebuild_lock_owned (lines 353-355) ---
+def ensure_rebuild_lock_owned(token: str, *, redis_client=None) -> None:
+    if not renew_rebuild_lock(token, redis_client=redis_client):
+        raise RuntimeError("Telegram airdrop leaderboard rebuild lock ownership was lost")
+
+# --- _build_tmp_leaderboard (lines 358-383) ---
+def _build_tmp_leaderboard(client, tmp_key: str, *, chunk_size: int, token: str) -> int:
+    synced = 0
+    pipe = client.pipeline()
+    pending = 0
+    queryset = TelegramProfile.objects.filter(has_started_bot=True).only(
+        "id",
+        "telegram_id",
+        "activity_earned_points",
+        "group_earned_points",
+        "referral_earned_points",
+        "bonus_points",
+    ).order_by("id")
+    for profile in queryset.iterator(chunk_size=chunk_size):
+        pipe.zadd(tmp_key, {leaderboard_member(profile.telegram_id): current_score(profile)})
+        synced += 1
+        pending += 1
+        if pending >= chunk_size:
+            pipe.execute()
+            ensure_rebuild_lock_owned(token, redis_client=client)
+            pipe = client.pipeline()
+            pending = 0
+    if pending:
+        pipe.execute()
+        ensure_rebuild_lock_owned(token, redis_client=client)
+    client.expire(tmp_key, REBUILD_TMP_TTL_SECONDS)
+    return synced
+
+# --- _promote_tmp_leaderboard (lines 386-390) ---
+def _promote_tmp_leaderboard(client, tmp_key: str) -> None:
+    pipe = client.pipeline(transaction=True)
+    pipe.rename(tmp_key, LEADERBOARD_KEY)
+    pipe.persist(LEADERBOARD_KEY)
+    pipe.execute()
+
+# --- _drain_dirty_changes (lines 393-414) ---
+def _drain_dirty_changes(client, *, max_rounds: int = 100) -> dict[str, int]:
+    totals = {"profiles": 0, "removed": 0}
+    for _ in range(max_rounds):
+        dirty_ids = client.smembers(LEADERBOARD_REBUILD_DIRTY_KEY)
+        removed_ids = client.smembers(LEADERBOARD_REBUILD_REMOVED_KEY)
+        if not dirty_ids and not removed_ids:
+            return totals
+        if dirty_ids:
+            client.srem(LEADERBOARD_REBUILD_DIRTY_KEY, *dirty_ids)
+            profile_ids = []
+            for value in dirty_ids:
+                try:
+                    profile_ids.append(int(value))
+                except (TypeError, ValueError):
+                    continue
+            sync_profiles(profile_ids, redis_client=client, mark_dirty=False)
+            totals["profiles"] += len(profile_ids)
+        if removed_ids:
+            client.srem(LEADERBOARD_REBUILD_REMOVED_KEY, *removed_ids)
+            client.zrem(LEADERBOARD_KEY, *removed_ids)
+            totals["removed"] += len(removed_ids)
+    raise RuntimeError("Unable to drain leaderboard dirty changes before max rounds")
+
+# --- release_rebuild_lock_if_owned_and_clean (lines 417-427) ---
+def release_rebuild_lock_if_owned_and_clean(token: str, *, redis_client=None) -> bool:
+    client = _client(redis_client)
+    result = client.eval(
+        _release_lock_if_owned_and_clean_script,
+        3,
+        LEADERBOARD_REBUILD_LOCK_KEY,
+        LEADERBOARD_REBUILD_DIRTY_KEY,
+        LEADERBOARD_REBUILD_REMOVED_KEY,
+        token,
+    )
+    return bool(result)
+
+# --- rebuild_leaderboard (lines 430-475) ---
+def rebuild_leaderboard(*, redis_client=None, chunk_size: int = 1000) -> dict[str, Any]:
+    client = _client(redis_client)
+    token = acquire_rebuild_lock(redis_client=client)
+    if not token:
+        raise RuntimeError("Telegram airdrop leaderboard rebuild is already running")
+
+    tmp_key = f"{LEADERBOARD_REBUILD_TMP_PREFIX}{uuid.uuid4().hex}"
+    started = time.monotonic()
+    synced = 0
+    dirty_replayed = 0
+    removed_replayed = 0
+    renamed = False
+    try:
+        client.delete(tmp_key)
+        synced = _build_tmp_leaderboard(client, tmp_key, chunk_size=chunk_size, token=token)
+        ensure_rebuild_lock_owned(token, redis_client=client)
+        if synced == 0:
+            client.delete(tmp_key)
+            client.delete(LEADERBOARD_KEY)
+        else:
+            _promote_tmp_leaderboard(client, tmp_key)
+            renamed = True
+        drained = _drain_dirty_changes(client)
+        dirty_replayed += drained["profiles"]
+        removed_replayed += drained["removed"]
+        while not release_rebuild_lock_if_owned_and_clean(token, redis_client=client):
+            if client.get(LEADERBOARD_REBUILD_LOCK_KEY) != token:
+                break
+            drained = _drain_dirty_changes(client)
+            dirty_replayed += drained["profiles"]
+            removed_replayed += drained["removed"]
+        return {
+            "synced": synced,
+            "dirty_replayed": dirty_replayed,
+            "removed_replayed": removed_replayed,
+            "renamed": renamed,
+            "duration_seconds": round(time.monotonic() - started, 3),
+        }
+    except Exception:
+        logger.warning("Telegram leaderboard rebuild failed", exc_info=True)
+        raise
+    finally:
+        try:
+            client.delete(tmp_key)
+        except Exception:
+            logger.warning("Unable to clean temporary Telegram leaderboard key", exc_info=True, extra={"tmp_key": tmp_key})

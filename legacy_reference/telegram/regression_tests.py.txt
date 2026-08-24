@@ -1,0 +1,317 @@
+LEGACY REFERENCE — NON-AUTHORITATIVE — DO NOT IMPORT INTO PRODUCTION
+Original source: multiple legacy test files
+Original range: selected tests
+Classification: REUSE TEST IDEAS
+Purpose: Regression scenarios for auth boundary, webhook side-effect ordering, start parsing, Telegram API failure sanitization, and group/private separation.
+Warnings: Rewrite for current Django/Ninja architecture; old activity scoring assertions are only boundary lessons.
+-------------------------------------------------------------------------------
+# --- test_correct_secret_accepts_request (lines 104-111) ---
+def test_correct_secret_accepts_request(client, webhook_module):
+    response = post_update(client, message_update(update_id=1, user_id=222, text="/start"))
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    webhook_module.redis_client.set.assert_awaited_once()
+    webhook_module.redis_client.hset.assert_awaited()
+    webhook_module.call_telegram_api.assert_awaited()
+
+# --- test_missing_or_incorrect_secret_rejected_before_side_effects (lines 115-119) ---
+def test_missing_or_incorrect_secret_rejected_before_side_effects(client, webhook_module, headers):
+    response = post_update(client, message_update(), headers=headers)
+
+    assert response.status_code == 403
+    assert_no_side_effects(webhook_module)
+
+# --- test_missing_or_empty_configured_secret_returns_503 (lines 123-132) ---
+def test_missing_or_empty_configured_secret_returns_503(client, webhook_module, monkeypatch, configured):
+    if configured is None:
+        monkeypatch.delenv("TELEGRAM_SECRET_TOKEN", raising=False)
+    else:
+        monkeypatch.setenv("TELEGRAM_SECRET_TOKEN", configured)
+
+    response = post_update(client, message_update(), headers=auth_headers())
+
+    assert response.status_code == 503
+    assert_no_side_effects(webhook_module)
+
+# --- test_invalid_secret_with_malformed_json_rejects_before_body_parsing (lines 146-154) ---
+def test_invalid_secret_with_malformed_json_rejects_before_body_parsing(client, webhook_module):
+    response = client.post(
+        "/api/webhook/telegram",
+        content="{not-json",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "wrong-secret"},
+    )
+
+    assert response.status_code == 403
+    assert_no_side_effects(webhook_module)
+
+# --- test_private_ordinary_text_is_not_activity (lines 261-268) ---
+def test_private_ordinary_text_is_not_activity(client, webhook_module):
+    response = post_update(client, message_update(update_id=60, user_id=222, text="hello bot", chat_type="private"))
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ignored"}
+    webhook_module.redis_client.incr.assert_not_called()
+    webhook_module.redis_client.hset.assert_not_called()
+    webhook_module.redis_client.hincrby.assert_not_called()
+
+# --- test_private_command_is_not_activity (lines 271-277) ---
+def test_private_command_is_not_activity(client, webhook_module):
+    response = post_update(client, message_update(update_id=61, user_id=222, text="/help", chat_type="private"))
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ignored"}
+    webhook_module.redis_client.incr.assert_not_called()
+    webhook_module.redis_client.hincrby.assert_not_called()
+
+# --- test_start_does_not_touch_activity_counters (lines 280-285) ---
+def test_start_does_not_touch_activity_counters(client, webhook_module):
+    response = post_update(client, message_update(update_id=62, user_id=222, text="/start", chat_type="private"))
+
+    assert response.status_code == 200
+    webhook_module.redis_client.incr.assert_not_called()
+    webhook_module.redis_client.hincrby.assert_not_called()
+
+# --- test_callback_query_does_not_touch_activity_counters (lines 288-293) ---
+def test_callback_query_does_not_touch_activity_counters(client, webhook_module):
+    response = post_update(client, callback_update(update_id=63, user_id=222, data="my_stats"))
+
+    assert response.status_code == 200
+    webhook_module.redis_client.incr.assert_not_called()
+    webhook_module.redis_client.hincrby.assert_not_called()
+
+# --- test_group_and_supergroup_text_count_once_with_exact_chars (lines 297-306) ---
+def test_group_and_supergroup_text_count_once_with_exact_chars(client, webhook_module, chat_type):
+    text = "eligible group text"
+    response = post_update(client, message_update(update_id=64 if chat_type == "group" else 65, user_id=222, text=text, chat_type=chat_type))
+
+    assert response.status_code == 200
+    webhook_module.redis_client.incr.assert_awaited_once_with("airdrop:rl:222")
+    webhook_module.redis_client.hset.assert_awaited()
+    webhook_module.redis_client.hincrby.assert_any_await("airdrop:buffer:user:222", "msg_count", 1)
+    webhook_module.redis_client.hincrby.assert_any_await("airdrop:buffer:user:222", "char_count", len(text))
+    assert webhook_module.redis_client.hincrby.await_count == 2
+
+# --- test_empty_or_non_text_group_messages_do_not_increment (lines 320-330) ---
+def test_empty_or_non_text_group_messages_do_not_increment(client, webhook_module, message_patch):
+    update = message_update(update_id=67, user_id=222, text="will be replaced", chat_type="group")
+    update["message"].pop("text", None)
+    update["message"].update(message_patch)
+
+    response = post_update(client, update)
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ignored"}
+    webhook_module.redis_client.incr.assert_not_called()
+    webhook_module.redis_client.hincrby.assert_not_called()
+
+# --- test_group_rate_limit_remains_operational (lines 342-349) ---
+def test_group_rate_limit_remains_operational(client, webhook_module):
+    webhook_module.redis_client.incr.return_value = 6
+
+    response = post_update(client, message_update(update_id=69, user_id=222, text="spam", chat_type="group"))
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "rate_limited"}
+    webhook_module.redis_client.hincrby.assert_not_called()
+
+# --- test_start_referral_first_touch_unchanged_before_welcome (lines 361-367) ---
+def test_start_referral_first_touch_unchanged_before_welcome(client, webhook_module):
+    response = post_update(client, message_update(update_id=71, user_id=222, text="/start abcdefghijkl2345", chat_type="private"))
+
+    assert response.status_code == 200
+    webhook_module.redis_client.hset.assert_awaited()
+    webhook_module.redis_client.hsetnx.assert_awaited_with("airdrop:buffer:user:222", "start_referral_value", "abcdefghijkl2345")
+    webhook_module.redis_client.hincrby.assert_not_called()
+
+# --- test_http_200_ok_true_returns_success (lines 49-57) ---
+async def test_http_200_ok_true_returns_success(caplog):
+    caplog.set_level(logging.WARNING, logger="telegram_api")
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json={"ok": True, "result": {"message_id": 1}}))
+
+    result = await call_with_transport(transport, caplog=caplog)
+
+    assert result.ok is True
+    assert result.status_code == 200
+    assert caplog.text == ""
+
+# --- test_http_and_telegram_failures_return_controlled_result_and_sanitized_logs (lines 78-93) ---
+async def test_http_and_telegram_failures_return_controlled_result_and_sanitized_logs(
+    caplog, status, body, category, error_code, retry_after
+):
+    caplog.set_level(logging.WARNING, logger="telegram_api")
+    transport = httpx.MockTransport(lambda request: httpx.Response(status, json=body))
+
+    result = await call_with_transport(transport, caplog=caplog)
+
+    assert result.ok is False
+    assert result.category == category
+    assert result.status_code == status
+    assert result.telegram_error_code == error_code
+    assert result.retry_after == retry_after
+    assert "telegram_api_failure" in caplog.text
+    assert category in caplog.text
+    assert_logs_are_sanitized(caplog)
+
+# --- test_non_json_response_is_detected (lines 97-107) ---
+async def test_non_json_response_is_detected(caplog):
+    caplog.set_level(logging.WARNING, logger="telegram_api")
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, content=b"not-json"))
+
+    result = await call_with_transport(transport, caplog=caplog)
+
+    assert result.ok is False
+    assert result.category == "non_json_response"
+    assert result.status_code == 200
+    assert "non_json_response" in caplog.text
+    assert_logs_are_sanitized(caplog)
+
+# --- test_network_timeout_is_detected_without_logging_url (lines 111-122) ---
+async def test_network_timeout_is_detected_without_logging_url(caplog):
+    caplog.set_level(logging.WARNING, logger="telegram_api")
+
+    def handler(request):
+        raise httpx.TimeoutException("timeout without url")
+
+    result = await call_with_transport(httpx.MockTransport(handler), caplog=caplog)
+
+    assert result.ok is False
+    assert result.category == "timeout"
+    assert "TimeoutException" in caplog.records[0].__dict__["exception_class"]
+    assert_logs_are_sanitized(caplog)
+
+# --- test_connection_error_is_detected_without_logging_url (lines 126-137) ---
+async def test_connection_error_is_detected_without_logging_url(caplog):
+    caplog.set_level(logging.WARNING, logger="telegram_api")
+
+    def handler(request):
+        raise httpx.ConnectError("connect failed", request=request)
+
+    result = await call_with_transport(httpx.MockTransport(handler), caplog=caplog)
+
+    assert result.ok is False
+    assert result.category == "connection_error"
+    assert "ConnectError" in caplog.records[0].__dict__["exception_class"]
+    assert_logs_are_sanitized(caplog)
+
+# --- test_missing_bot_token_returns_configuration_error_and_sanitized_log (lines 141-154) ---
+async def test_missing_bot_token_returns_configuration_error_and_sanitized_log(caplog):
+    caplog.set_level(logging.WARNING, logger="telegram_api")
+
+    result = await telegram_api.call_telegram_api(
+        "sendMessage",
+        {"chat_id": 123, "text": MESSAGE_TEXT},
+        context={"update_id": 999, "action": "test_action"},
+        bot_token="",
+    )
+
+    assert result.ok is False
+    assert result.category == "configuration_error"
+    assert "configuration_error" in caplog.text
+    assert_logs_are_sanitized(caplog)
+
+# --- test_plain_log_redacts_sensitive_description_fragments (lines 174-200) ---
+async def test_plain_log_redacts_sensitive_description_fragments(caplog):
+    caplog.set_level(logging.WARNING, logger="telegram_api")
+    chat_id = "987654321"
+    user_id = "222333444"
+    referral_code = "abcdefghijkl2345"
+    raw_text = "raw outbound welcome text"
+    payload = {"chat_id": chat_id, "text": raw_text, "metadata": {"user_id": user_id, "ref": referral_code}}
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            400,
+            json={
+                "ok": False,
+                "error_code": 400,
+                "description": f"Bad {TOKEN} {chat_id} {user_id} {referral_code} {raw_text}",
+            },
+        )
+    )
+
+    await call_with_transport(transport, caplog=caplog, payload=payload)
+
+    assert "description=Bad" in caplog.text
+    assert TOKEN not in caplog.text
+    assert chat_id not in caplog.text
+    assert user_id not in caplog.text
+    assert referral_code not in caplog.text
+    assert raw_text not in caplog.text
+    assert FULL_UPDATE_FRAGMENT not in caplog.text
+
+# --- test_start_parser_is_strict_and_normalizes (lines 22-28) ---
+def test_start_parser_is_strict_and_normalizes(webhook_module, text, expected):
+    is_start, value = webhook_module.parse_start_referral_value(text)
+    if expected is False:
+        assert not is_start
+    else:
+        assert is_start
+        assert value == expected
+
+# --- test_start_stores_first_touch_sentinel_for_no_payload (lines 31-35) ---
+def test_start_stores_first_touch_sentinel_for_no_payload(client, webhook_module):
+    response = post_update(client, message_update(update_id=301, user_id=222, text="/start"))
+
+    assert response.status_code == 200
+    webhook_module.redis_client.hsetnx.assert_awaited_with("airdrop:buffer:user:222", "start_referral_value", "-")
+
+# --- test_start_stores_first_touch_sentinel_for_invalid_payload (lines 38-42) ---
+def test_start_stores_first_touch_sentinel_for_invalid_payload(client, webhook_module):
+    response = post_update(client, message_update(update_id=302, user_id=222, text="/start INVALID!"))
+
+    assert response.status_code == 200
+    webhook_module.redis_client.hsetnx.assert_awaited_with("airdrop:buffer:user:222", "start_referral_value", "-")
+
+# --- test_start_stores_normalized_valid_payload (lines 45-49) ---
+def test_start_stores_normalized_valid_payload(client, webhook_module):
+    response = post_update(client, message_update(update_id=303, user_id=222, text=f"/start {VALID_CODE.upper()}"))
+
+    assert response.status_code == 200
+    webhook_module.redis_client.hsetnx.assert_awaited_with("airdrop:buffer:user:222", "start_referral_value", VALID_CODE)
+
+# --- test_start_user_fallback_only_for_confirmed_http_400 (lines 123-131) ---
+def test_start_user_fallback_only_for_confirmed_http_400(client, webhook_module, monkeypatch, result):
+    monkeypatch.setenv("WEBAPP_URL", "https://example.com/app")
+    webhook_module.call_telegram_api.return_value = result(webhook_module)
+
+    response = post_update(client, message_update(update_id=308, user_id=222, text="/start"))
+
+    assert response.status_code == 200
+    assert webhook_module.call_telegram_api.await_count == 1
+    assert webhook_module.call_telegram_api.await_args.kwargs["context"]["action"] == "start_user"
+
+# --- test_unusable_webapp_url_sends_no_reply_markup (lines 138-152) ---
+def test_unusable_webapp_url_sends_no_reply_markup(client, webhook_module, monkeypatch, caplog, url):
+    monkeypatch.setenv("WEBAPP_URL", url)
+    monkeypatch.setenv("BOT_USERNAME", "dalexio_test_bot")
+    caplog.set_level("WARNING", logger="main")
+
+    response = post_update(client, message_update(update_id=309, user_id=222, text="/start"))
+
+    assert response.status_code == 200
+    assert webhook_module.call_telegram_api.await_count == 1
+    call = webhook_module.call_telegram_api.await_args
+    assert call.kwargs["context"]["action"] == "start_user_fallback"
+    assert call.args[1]["text"] == webhook_module.WELCOME_TEXT
+    assert "reply_markup" not in call.args[1]
+    assert "?startapp" not in str(call.args[1])
+    assert "telegram_start_webapp_url_unusable" in caplog.text
+
+# --- test_valid_webapp_url_creates_single_web_app_keyboard_button (lines 155-171) ---
+def test_valid_webapp_url_creates_single_web_app_keyboard_button(client, webhook_module, monkeypatch):
+    webapp_url = "https://example.com/app"
+    monkeypatch.setenv("WEBAPP_URL", webapp_url)
+
+    response = post_update(client, message_update(update_id=310, user_id=222, text="/start"))
+
+    assert response.status_code == 200
+    payload = webhook_module.call_telegram_api.await_args.args[1]
+    keyboard = payload["reply_markup"]["inline_keyboard"]
+    assert len(keyboard) == 1
+    assert len(keyboard[0]) == 1
+    assert keyboard[0][0] == {"text": "🚀 Open Dalexio Mini App", "web_app": {"url": webapp_url}}
+    keyboard_text = str(payload["reply_markup"])
+    assert "my_stats" not in keyboard_text
+    assert "invite" not in keyboard_text
+    assert "wallet" not in keyboard_text
+    assert "?startapp" not in str(payload)

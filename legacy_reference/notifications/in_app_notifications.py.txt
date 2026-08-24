@@ -1,0 +1,162 @@
+LEGACY REFERENCE — NON-AUTHORITATIVE — DO NOT IMPORT INTO PRODUCTION
+Original source: apps/notification/models.py + views.py + apps/utils/notification_service.py
+Original range: selected/full small files
+Classification: ADAPT
+Purpose: Persistent in-app notification, unread index/count, per-item/all read semantics, and fallback notification creation.
+Warnings: Bind to canonical Player, add current notification categories/audit/idempotency, and do not couple to old exchange User/email model.
+-------------------------------------------------------------------------------
+
+# --- model ---
+from django.db import models
+from django.conf import settings
+
+class Notification(models.Model):
+    """
+    Represents the Notification entity in the database.
+    """
+    class NotificationType(models.TextChoices):
+        """
+        Provides utility functions for NotificationType.
+        """
+        SECURITY = 'SECURITY', 'Security'
+        TRANSACTION = 'TRANSACTION', 'Transaction'
+        SYSTEM = 'SYSTEM', 'System'
+        ANNOUNCEMENT = 'ANNOUNCEMENT', 'Announcement'
+        SUPPORT = 'SUPPORT', 'Support'
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notifications')
+    title = models.CharField(max_length=255)
+    message = models.TextField()
+    notification_type = models.CharField(max_length=20, choices=NotificationType.choices)
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        """
+        Provides utility functions for Meta.
+        """
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'is_read']),
+        ]
+
+    def __str__(self):
+        return f"{self.title} - {self.user.username}"
+
+# --- list/read views ---
+from rest_framework import generics, status
+from rest_framework.views import APIView
+from apps.utils.rest_api import CustomIsAuthenticated, CustomResponse
+from .models import Notification
+from .serializers import NotificationSerializer
+
+class NotificationListView(generics.ListAPIView):
+    serializer_class = NotificationSerializer
+    permission_classes = [CustomIsAuthenticated]
+
+    def get_queryset(self):
+        queryset = Notification.objects.filter(user=self.request.user)
+        is_read = self.request.query_params.get('is_read', None)
+        if is_read is not None:
+            if is_read.lower() == 'true':
+                queryset = queryset.filter(is_read=True)
+            elif is_read.lower() == 'false':
+                queryset = queryset.filter(is_read=False)
+        return queryset
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        unread_count = Notification.objects.filter(user=request.user, is_read=False).count()
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            response = self.get_paginated_response(serializer.data)
+            # Inject unread_count into the paginated response
+            response.data['unread_count'] = unread_count
+            return response
+
+        serializer = self.get_serializer(queryset, many=True)
+        return CustomResponse(
+            success=True,
+            data={
+                "unread_count": unread_count,
+                "notifications": serializer.data
+            },
+            code=200
+        )
+
+class NotificationReadView(APIView):
+    permission_classes = [CustomIsAuthenticated]
+
+    def post(self, request):
+        notification_id = request.data.get('notification_id')
+
+        if notification_id:
+            try:
+                notification = Notification.objects.get(pk=notification_id, user=request.user)
+                if not notification.is_read:
+                    notification.is_read = True
+                    notification.save(update_fields=['is_read'])
+                return CustomResponse(success=True, message="Notification marked as read.", code=200)
+            except Notification.DoesNotExist:
+                return CustomResponse(success=False, errors=[{"message": "Notification not found"}], code=404)
+        else:
+            updated_count = Notification.objects.filter(user=request.user, is_read=False).update(is_read=True)
+            return CustomResponse(success=True, message="All notifications marked as read.", data={"updated_count": updated_count}, code=200)
+
+# --- creation helper ---
+import logging
+from apps.utils.email import send_email, render_email_template
+from apps.notification.models import Notification
+
+logger = logging.getLogger(__name__)
+
+def create_in_app_notification(user, title, message, notification_type):
+    """
+    Creates an in-app notification for the user.
+    """
+    if not user:
+        logger.warning("Cannot create notification: no user provided.")
+        return None
+
+    try:
+        return Notification.objects.create(
+            user=user,
+            title=title,
+            message=message,
+            notification_type=notification_type
+        )
+    except Exception as e:
+        logger.error(f"Failed to create in-app notification for user {user}: {e}")
+        return None
+
+def send_security_notification_email(user, title, message):
+    """
+    Sends a generic security notification email to the user,
+    and also creates an in-app notification.
+    Can easily be converted to a Celery task by adding @shared_task later.
+    """
+    create_in_app_notification(user, title, message, Notification.NotificationType.SECURITY)
+
+    if not user or not user.email:
+        logger.warning(f"Cannot send notification to user {user}: no email address.")
+        return False
+
+    context = {
+        "title": title,
+        "message": message,
+    }
+
+    html_body = render_email_template("emails/notification.html", context)
+
+    if not html_body:
+        logger.error(f"Failed to render notification template for user {user.email}")
+        return False
+
+    return send_email(
+        to_email=user.email,
+        subject=title,
+        html_body=html_body
+    )

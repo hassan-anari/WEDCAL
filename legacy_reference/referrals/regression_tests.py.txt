@@ -1,0 +1,116 @@
+LEGACY REFERENCE — NON-AUTHORITATIVE — DO NOT IMPORT INTO PRODUCTION
+Original source: apps/telegram_airdrop/tests_phase3_referrals.py
+Original range: selected tests
+Classification: REUSE TEST IDEAS
+Purpose: Code uniqueness/collision, first-touch immutability, self/unknown handling, cache idempotency, and migration preservation.
+Warnings: Drop old `already_started` eligibility semantics where they conflict with the new pending activation contract.
+-------------------------------------------------------------------------------
+# --- ReferralCodeServiceTests.test_normal_profile_gets_valid_immutable_code (lines 54-62) ---
+    def test_normal_profile_gets_valid_immutable_code(self):
+        profile = TelegramProfile.objects.create(telegram_id=1001)
+        self.assertRegex(profile.referral_code, VALID_RE)
+        self.assertNotEqual(profile.referral_code, str(profile.telegram_id))
+        original = profile.referral_code
+        profile.username = "changed"
+        profile.save(update_fields=["username"])
+        profile.refresh_from_db()
+        self.assertEqual(profile.referral_code, original)
+
+# --- ReferralCodeServiceTests.test_claim_style_update_fields_does_not_call_ensure_referral_code (lines 64-69) ---
+    def test_claim_style_update_fields_does_not_call_ensure_referral_code(self):
+        profile = TelegramProfile.objects.create(telegram_id=1002)
+        with patch("apps.telegram_airdrop.referrals.generate_unique_referral_code") as generator:
+            profile.bonus_points = 10
+            profile.save(update_fields=["bonus_points"])
+        generator.assert_not_called()
+
+# --- ReferralCodeServiceTests.test_collision_retry_is_bounded_and_safe (lines 71-79) ---
+    def test_collision_retry_is_bounded_and_safe(self):
+        TelegramProfile.objects.create(telegram_id=1, referral_code="abcdefghijkl2345")
+        profile = TelegramProfile(telegram_id=2)
+        with patch(
+            "apps.telegram_airdrop.referrals.generate_referral_code_candidate",
+            side_effect=["abcdefghijkl2345", "bcdefghijklm2345"],
+        ):
+            code = ensure_referral_code(profile, save=False)
+        self.assertEqual(code, "bcdefghijklm2345")
+
+# --- ReferralCodeServiceTests.test_build_referral_link_validates_code (lines 81-87) ---
+    def test_build_referral_link_validates_code(self):
+        self.assertEqual(
+            build_referral_link("ABCDEFGHIJKL2345", "@dalexio_bot"),
+            "https://t.me/dalexio_bot?start=abcdefghijkl2345",
+        )
+        with self.assertRaises(ValueError):
+            build_referral_link("123", "dalexio_bot")
+
+# --- AttributionTests.test_new_start_user_is_attributed_before_started_state (lines 94-99) ---
+    def test_new_start_user_is_attributed_before_started_state(self):
+        result = assign_referrer_from_code(invitee_telegram_id=9002, referral_value=self.referrer.referral_code)
+        invitee = TelegramProfile.objects.get(telegram_id=9002)
+        self.assertTrue(result.assigned)
+        self.assertTrue(invitee.has_started_bot)
+        self.assertEqual(invitee.referred_by, self.referrer)
+
+# --- AttributionTests.test_silent_onboarding_profile_can_be_attributed (lines 101-107) ---
+    def test_silent_onboarding_profile_can_be_attributed(self):
+        invitee = TelegramProfile.objects.create(telegram_id=9003, has_started_bot=False)
+        result = assign_referrer_from_code(invitee_telegram_id=9003, referral_value=self.referrer.referral_code.upper())
+        invitee.refresh_from_db()
+        self.assertTrue(result.assigned)
+        self.assertEqual(invitee.referred_by, self.referrer)
+        self.assertTrue(invitee.has_started_bot)
+
+# --- AttributionTests.test_already_started_profile_is_not_attributed (lines 109-114) ---
+    def test_already_started_profile_is_not_attributed(self):
+        invitee = TelegramProfile.objects.create(telegram_id=9004, has_started_bot=True)
+        result = assign_referrer_from_code(invitee_telegram_id=9004, referral_value=self.referrer.referral_code)
+        invitee.refresh_from_db()
+        self.assertFalse(result.assigned)
+        self.assertIsNone(invitee.referred_by)
+
+# --- AttributionTests.test_existing_referred_by_is_never_overwritten (lines 116-123) ---
+    def test_existing_referred_by_is_never_overwritten(self):
+        first = self.referrer
+        second = TelegramProfile.objects.create(telegram_id=9005)
+        invitee = TelegramProfile.objects.create(telegram_id=9006, has_started_bot=False, referred_by=first)
+        result = assign_referrer_from_code(invitee_telegram_id=9006, referral_value=second.referral_code)
+        invitee.refresh_from_db()
+        self.assertFalse(result.assigned)
+        self.assertEqual(invitee.referred_by, first)
+
+# --- AttributionTests.test_self_unknown_malformed_and_sentinel_are_ignored (lines 125-135) ---
+    def test_self_unknown_malformed_and_sentinel_are_ignored(self):
+        for value in [self.referrer.referral_code, "unknownunknown22", "INVALID!", START_REFERRAL_SENTINEL]:
+            with self.subTest(value=value):
+                target_id = self.referrer.telegram_id if value == self.referrer.referral_code else 9100 + len(str(value))
+                if target_id != self.referrer.telegram_id:
+                    TelegramProfile.objects.filter(telegram_id=target_id).delete()
+                result = assign_referrer_from_code(invitee_telegram_id=target_id, referral_value=value)
+                profile = TelegramProfile.objects.get(telegram_id=target_id)
+                self.assertFalse(result.assigned)
+                if target_id == self.referrer.telegram_id:
+                    self.assertIsNone(profile.referred_by)
+
+# --- CacheWarmCommandTests.test_cache_warm_is_idempotent_and_preserves_referred_by (lines 217-228) ---
+    def test_cache_warm_is_idempotent_and_preserves_referred_by(self):
+        referrer = TelegramProfile.objects.create(telegram_id=8001)
+        invitee = TelegramProfile.objects.create(telegram_id=8002, referred_by=referrer)
+        redis = Mock()
+        pipe = Mock()
+        redis.pipeline.return_value = pipe
+        with patch("apps.telegram_airdrop.management.commands.sync_telegram_referral_code_cache.redis_client", redis):
+            call_command("sync_telegram_referral_code_cache", verbosity=0)
+            call_command("sync_telegram_referral_code_cache", verbosity=0)
+        invitee.refresh_from_db()
+        self.assertEqual(invitee.referred_by, referrer)
+        self.assertGreaterEqual(pipe.set.call_count, 4)
+
+# --- MigrationBackfillTests.test_migration_backfills_missing_only_and_preserves_relationships (lines 254-260) ---
+    def test_migration_backfills_missing_only_and_preserves_relationships(self):
+        profiles = {p.telegram_id: p for p in self.Profile.objects.filter(telegram_id__in=[6001, 6002, 6003])}
+        self.assertEqual(profiles[6001].referral_code, "abcdefghijkl2345")
+        self.assertRegex(profiles[6002].referral_code, VALID_RE)
+        self.assertRegex(profiles[6003].referral_code, VALID_RE)
+        self.assertEqual(profiles[6002].referred_by_id, profiles[6001].id)
+        self.assertNotEqual(profiles[6002].referral_code, profiles[6003].referral_code)

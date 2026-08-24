@@ -1,0 +1,152 @@
+LEGACY REFERENCE — NON-AUTHORITATIVE — DO NOT IMPORT INTO PRODUCTION
+Original source: apps/telegram_airdrop/tests.py
+Original range: selected tests
+Classification: REUSE TEST IDEAS
+Purpose: Broadcast copy/copyMessages contract, bounded albums, Telegram ok=false, 403/429, missing token, ownership validation, cleanup and broker failure.
+Warnings: Current target eligibility and notification persistence rules must come from the Source of Truth.
+-------------------------------------------------------------------------------
+# --- AdminBroadcastCopyTasksTests.test_users_audience_uses_copy_message_for_started_users_only (lines 321-329) ---
+    def test_users_audience_uses_copy_message_for_started_users_only(self, post, _sleep):
+        post.return_value = Mock(ok=True, status_code=200, json=lambda: {"ok": True})
+
+        result = admin_broadcast("users", 111, [55])
+
+        self.assertEqual(result["success_count"], 1)
+        self.assertEqual(post.call_count, 1)
+        self.assertTrue(post.call_args.args[0].endswith("/copyMessage"))
+        self.assertEqual(post.call_args.kwargs["json"], {"chat_id": 1001, "from_chat_id": 111, "message_id": 55})
+
+# --- AdminBroadcastCopyTasksTests.test_groups_audience_uses_copy_message_for_active_groups_only (lines 334-340) ---
+    def test_groups_audience_uses_copy_message_for_active_groups_only(self, post, _sleep):
+        post.return_value = Mock(ok=True, status_code=200, json=lambda: {"ok": True})
+
+        result = admin_broadcast("groups", 111, [56])
+
+        self.assertEqual(result["success_count"], 1)
+        self.assertEqual(post.call_args.kwargs["json"], {"chat_id": -2001, "from_chat_id": 111, "message_id": 56})
+
+# --- AdminBroadcastCopyTasksTests.test_album_uses_copy_messages_sorted_and_deduplicated (lines 345-351) ---
+    def test_album_uses_copy_messages_sorted_and_deduplicated(self, post, _sleep):
+        post.return_value = Mock(ok=True, status_code=200, json=lambda: {"ok": True})
+
+        admin_broadcast("users", 111, [9, 7, 7, 8])
+
+        self.assertTrue(post.call_args.args[0].endswith("/copyMessages"))
+        self.assertEqual(post.call_args.kwargs["json"]["message_ids"], [7, 8, 9])
+
+# --- AdminBroadcastCopyTasksTests.test_more_than_100_message_ids_is_rejected (lines 353-355) ---
+    def test_more_than_100_message_ids_is_rejected(self):
+        with self.assertRaises(ValueError):
+            admin_broadcast("users", 111, list(range(1, 102)))
+
+# --- AdminBroadcastCopyTasksTests.test_http_200_ok_false_counts_failure (lines 360-366) ---
+    def test_http_200_ok_false_counts_failure(self, post, _sleep):
+        post.return_value = Mock(ok=True, status_code=200, json=lambda: {"ok": False, "description": "bad request"})
+
+        result = admin_broadcast("users", 111, [55])
+
+        self.assertEqual(result["success_count"], 0)
+        self.assertEqual(result["failure_count"], 1)
+
+# --- AdminBroadcastCopyTasksTests.test_403_blocked_user_marks_inactive_and_syncs_leaderboard (lines 372-379) ---
+    def test_403_blocked_user_marks_inactive_and_syncs_leaderboard(self, post, _sleep, sync_profiles):
+        post.return_value = Mock(ok=False, status_code=403, json=lambda: {"ok": False, "description": "Forbidden: bot was blocked by the user"})
+
+        result = admin_broadcast("users", 111, [55])
+
+        self.assertEqual(result["blocked_users_count"], 1)
+        self.assertFalse(TelegramProfile.objects.get(telegram_id=1001).has_started_bot)
+        sync_profiles.assert_called_once()
+
+# --- AdminBroadcastCopyTasksTests.test_429_retries_once (lines 384-394) ---
+    def test_429_retries_once(self, post, sleep):
+        post.side_effect = [
+            Mock(ok=False, status_code=429, json=lambda: {"ok": False, "parameters": {"retry_after": 2}}),
+            Mock(ok=True, status_code=200, json=lambda: {"ok": True}),
+        ]
+
+        result = admin_broadcast("users", 111, [55])
+
+        self.assertEqual(result["success_count"], 1)
+        self.assertEqual(result["rate_limit_retries"], 1)
+        sleep.assert_any_call(2)
+
+# --- AdminBroadcastCopyTasksTests.test_missing_bot_token_returns_safe_summary (lines 397-401) ---
+    def test_missing_bot_token_returns_safe_summary(self):
+        result = admin_broadcast("users", 111, [55])
+
+        self.assertEqual(result["error"], "TELEGRAM_BOT_TOKEN not configured")
+        self.assertEqual(result["failure_count"], 1)
+
+# --- AdminBroadcastAlbumFinalizerTests.test_finalizer_reads_sorted_ids_queues_once_and_cleans_up (lines 439-455) ---
+    def test_finalizer_reads_sorted_ids_queues_once_and_cleans_up(self, redis, apply_async, post):
+        redis.get.return_value = json.dumps(self.metadata)
+        redis.zrange.return_value = ["9", "7", "7", "8"]
+        apply_async.return_value = Mock(id="album-task")
+        post.return_value = Mock(ok=True, json=lambda: {"ok": True})
+
+        result = finalize_admin_broadcast_album(self.admin_id, self.media_group_id)
+
+        self.assertEqual(result["status"], "queued")
+        apply_async.assert_called_once_with(
+            kwargs={
+                "target_audience": "users",
+                "source_chat_id": self.admin_id,
+                "source_message_ids": [7, 8, 9],
+            }
+        )
+        redis.delete.assert_called_once_with(self.meta_key, self.messages_key, self.finalize_key)
+
+# --- AdminBroadcastAlbumFinalizerTests.test_missing_album_is_safe_and_clears_finalize_key (lines 458-464) ---
+    def test_missing_album_is_safe_and_clears_finalize_key(self, redis):
+        redis.get.return_value = None
+
+        result = finalize_admin_broadcast_album(self.admin_id, self.media_group_id)
+
+        self.assertEqual(result["status"], "missing")
+        redis.delete.assert_called_once_with(self.finalize_key)
+
+# --- AdminBroadcastAlbumFinalizerTests.test_malformed_album_is_cleaned (lines 467-473) ---
+    def test_malformed_album_is_cleaned(self, redis):
+        redis.get.return_value = "{bad-json"
+
+        result = finalize_admin_broadcast_album(self.admin_id, self.media_group_id)
+
+        self.assertEqual(result["status"], "invalid")
+        redis.delete.assert_called_once_with(self.meta_key, self.messages_key, self.finalize_key)
+
+# --- AdminBroadcastAlbumFinalizerTests.test_ownership_mismatch_is_rejected_and_cleaned (lines 476-485) ---
+    def test_ownership_mismatch_is_rejected_and_cleaned(self, redis):
+        metadata = dict(self.metadata, source_chat_id=999)
+        redis.get.return_value = json.dumps(metadata)
+        redis.zrange.return_value = ["1", "2"]
+
+        result = finalize_admin_broadcast_album(self.admin_id, self.media_group_id)
+
+        self.assertEqual(result["status"], "invalid")
+        self.assertEqual(result["reason"], "validation_failed")
+        redis.delete.assert_called_once_with(self.meta_key, self.messages_key, self.finalize_key)
+
+# --- AdminBroadcastAlbumFinalizerTests.test_more_than_100_album_ids_is_rejected_and_cleaned (lines 490-499) ---
+    def test_more_than_100_album_ids_is_rejected_and_cleaned(self, redis, post):
+        redis.get.return_value = json.dumps(self.metadata)
+        redis.zrange.return_value = [str(i) for i in range(1, 102)]
+        post.return_value = Mock(ok=True, json=lambda: {"ok": True})
+
+        result = finalize_admin_broadcast_album(self.admin_id, self.media_group_id)
+
+        self.assertEqual(result["status"], "invalid")
+        self.assertEqual(result["reason"], "too_many_messages")
+        redis.delete.assert_called_once_with(self.meta_key, self.messages_key, self.finalize_key)
+
+# --- AdminBroadcastAlbumFinalizerTests.test_queue_failure_cleans_and_sends_failure_feedback (lines 505-514) ---
+    def test_queue_failure_cleans_and_sends_failure_feedback(self, redis, _apply_async, post):
+        redis.get.return_value = json.dumps(self.metadata)
+        redis.zrange.return_value = ["1", "2"]
+        post.return_value = Mock(ok=True, json=lambda: {"ok": True})
+
+        result = finalize_admin_broadcast_album(self.admin_id, self.media_group_id)
+
+        self.assertEqual(result["status"], "queue_failed")
+        redis.delete.assert_called_once_with(self.meta_key, self.messages_key, self.finalize_key)
+        self.assertEqual(post.call_args.kwargs["json"]["text"], "Broadcast could not be queued. Please try again.")

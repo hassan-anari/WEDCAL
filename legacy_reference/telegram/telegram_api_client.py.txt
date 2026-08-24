@@ -1,0 +1,221 @@
+LEGACY REFERENCE — NON-AUTHORITATIVE — DO NOT IMPORT INTO PRODUCTION
+Original source: services/fastapi_webhook/telegram_api.py
+Original range: 1-214
+Classification: ADAPT
+Purpose: Outbound Telegram Bot API timeout, structured result, failure classification, retry_after extraction, and log sanitization.
+Warnings: Port to the current HTTP/client/logging stack; never log bot-token URLs or sensitive payload values.
+-------------------------------------------------------------------------------
+import logging
+import os
+from dataclasses import dataclass
+from typing import Any, Mapping, Optional
+
+import httpx
+
+logger = logging.getLogger(__name__)
+
+TELEGRAM_API_TIMEOUT_SECONDS = 5.0
+MAX_DESCRIPTION_LENGTH = 160
+
+
+@dataclass(frozen=True)
+class TelegramApiResult:
+    ok: bool
+    method: str
+    category: Optional[str] = None
+    status_code: Optional[int] = None
+    telegram_error_code: Optional[int] = None
+    retry_after: Optional[int] = None
+
+
+def _safe_context(context: Optional[Mapping[str, Any]]) -> dict[str, Any]:
+    context = context or {}
+    safe: dict[str, Any] = {}
+    for key in ("update_id", "action"):
+        value = context.get(key)
+        if value is not None:
+            safe[key] = value
+    return safe
+
+
+def _iter_payload_strings(value: Any):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, Mapping):
+        for item in value.values():
+            yield from _iter_payload_strings(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            yield from _iter_payload_strings(item)
+
+
+def _sanitize_description(description: Any, payload: Mapping[str, Any], bot_token: str) -> Optional[str]:
+    if description is None:
+        return None
+    safe = str(description)
+    if bot_token:
+        safe = safe.replace(bot_token, "[redacted]")
+    for value in _iter_payload_strings(payload):
+        if value:
+            safe = safe.replace(value, "[redacted]")
+    return safe[:MAX_DESCRIPTION_LENGTH]
+
+
+def _log_failure(
+    *,
+    method: str,
+    category: str,
+    context: Optional[Mapping[str, Any]],
+    status_code: Optional[int] = None,
+    telegram_error_code: Optional[int] = None,
+    retry_after: Optional[int] = None,
+    description: Optional[str] = None,
+    exception_class: Optional[str] = None,
+) -> None:
+    extra = {
+        "event": "telegram_api_failure",
+        "telegram_method": method,
+        "category": category,
+        **_safe_context(context),
+    }
+    if status_code is not None:
+        extra["status"] = status_code
+    if telegram_error_code is not None:
+        extra["telegram_error_code"] = telegram_error_code
+    if retry_after is not None:
+        extra["retry_after"] = retry_after
+    if description:
+        extra["telegram_description"] = description
+    if exception_class:
+        extra["exception_class"] = exception_class
+
+    logger.warning(
+        "telegram_api_failure method=%s category=%s action=%s update_id=%s status=%s telegram_error_code=%s retry_after=%s description=%s",
+        method,
+        category,
+        extra.get("action"),
+        extra.get("update_id"),
+        status_code,
+        telegram_error_code,
+        retry_after,
+        description,
+        extra=extra,
+    )
+
+
+async def call_telegram_api(
+    method: str,
+    payload: Mapping[str, Any],
+    *,
+    context: Optional[Mapping[str, Any]] = None,
+    client: Optional[httpx.AsyncClient] = None,
+    bot_token: Optional[str] = None,
+) -> TelegramApiResult:
+    """Call a Telegram Bot API method and log sanitized failures."""
+    token = bot_token if bot_token is not None else os.getenv("TELEGRAM_BOT_TOKEN", "")
+    if not token:
+        _log_failure(method=method, category="configuration_error", context=context)
+        return TelegramApiResult(ok=False, method=method, category="configuration_error")
+
+    url = f"https://api.telegram.org/bot{token}/{method}"
+    close_client = client is None
+    active_client = client or httpx.AsyncClient(timeout=TELEGRAM_API_TIMEOUT_SECONDS)
+
+    try:
+        try:
+            response = await active_client.post(url, json=dict(payload))
+        except httpx.TimeoutException as exc:
+            _log_failure(
+                method=method,
+                category="timeout",
+                context=context,
+                exception_class=exc.__class__.__name__,
+            )
+            return TelegramApiResult(ok=False, method=method, category="timeout")
+        except httpx.RequestError as exc:
+            _log_failure(
+                method=method,
+                category="connection_error",
+                context=context,
+                exception_class=exc.__class__.__name__,
+            )
+            return TelegramApiResult(ok=False, method=method, category="connection_error")
+
+        status_code = response.status_code
+        try:
+            data = response.json()
+        except ValueError:
+            _log_failure(
+                method=method,
+                category="non_json_response",
+                context=context,
+                status_code=status_code,
+            )
+            return TelegramApiResult(
+                ok=False,
+                method=method,
+                category="non_json_response",
+                status_code=status_code,
+            )
+
+        if not isinstance(data, Mapping):
+            _log_failure(
+                method=method,
+                category="non_json_response",
+                context=context,
+                status_code=status_code,
+            )
+            return TelegramApiResult(
+                ok=False,
+                method=method,
+                category="non_json_response",
+                status_code=status_code,
+            )
+
+        parameters = data.get("parameters") if isinstance(data.get("parameters"), Mapping) else {}
+        retry_after = parameters.get("retry_after") if isinstance(parameters, Mapping) else None
+        error_code = data.get("error_code")
+        description = _sanitize_description(data.get("description"), payload, token)
+
+        if status_code >= 400:
+            _log_failure(
+                method=method,
+                category="http_error",
+                context=context,
+                status_code=status_code,
+                telegram_error_code=error_code if isinstance(error_code, int) else None,
+                retry_after=retry_after if isinstance(retry_after, int) else None,
+                description=description,
+            )
+            return TelegramApiResult(
+                ok=False,
+                method=method,
+                category="http_error",
+                status_code=status_code,
+                telegram_error_code=error_code if isinstance(error_code, int) else None,
+                retry_after=retry_after if isinstance(retry_after, int) else None,
+            )
+
+        if data.get("ok") is not True:
+            _log_failure(
+                method=method,
+                category="telegram_not_ok",
+                context=context,
+                status_code=status_code,
+                telegram_error_code=error_code if isinstance(error_code, int) else None,
+                retry_after=retry_after if isinstance(retry_after, int) else None,
+                description=description,
+            )
+            return TelegramApiResult(
+                ok=False,
+                method=method,
+                category="telegram_not_ok",
+                status_code=status_code,
+                telegram_error_code=error_code if isinstance(error_code, int) else None,
+                retry_after=retry_after if isinstance(retry_after, int) else None,
+            )
+
+        return TelegramApiResult(ok=True, method=method, status_code=status_code)
+    finally:
+        if close_client:
+            await active_client.aclose()

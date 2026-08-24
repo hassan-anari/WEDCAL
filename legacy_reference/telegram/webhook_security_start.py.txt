@@ -1,0 +1,66 @@
+LEGACY REFERENCE — NON-AUTHORITATIVE — DO NOT IMPORT INTO PRODUCTION
+Original source: services/fastapi_webhook/main.py
+Original range: 256-257, 334-340, 343-369, 385-386, 389-400
+Classification: ADAPT
+Purpose: Webhook secret validation, strict /start parsing, group chat type guard.
+Warnings: The old webhook Redis dedupe/buffer and FastAPI architecture are rejected.
+-------------------------------------------------------------------------------
+# --- is_group_chat_type (lines 256-257) ---
+def is_group_chat_type(chat_type: str | None) -> bool:
+    return chat_type in ("group", "supergroup")
+
+# --- normalize_referral_code (lines 334-340) ---
+def normalize_referral_code(value: str | None) -> str | None:
+    if value is None:
+        return None
+    value = str(value).strip().lower()
+    if not value:
+        return None
+    return value if REFERRAL_CODE_PATTERN.fullmatch(value) else None
+
+# --- parse_start_referral_value (lines 343-369) ---
+def parse_start_referral_value(text: str | None) -> tuple[bool, str]:
+    if not text:
+        return False, START_REFERRAL_SENTINEL
+    parts = text.strip().split()
+    if not parts:
+        return False, START_REFERRAL_SENTINEL
+
+    command = parts[0]
+    if command == "/start":
+        pass
+    elif command.startswith("/start@"):
+        suffix = command[len("/start@"):]
+        if not suffix or not re.fullmatch(r"[A-Za-z0-9_]{1,64}", suffix):
+            return False, START_REFERRAL_SENTINEL
+    else:
+        return False, START_REFERRAL_SENTINEL
+
+    if len(parts) == 1:
+        return True, START_REFERRAL_SENTINEL
+    if len(parts) != 2:
+        return True, START_REFERRAL_SENTINEL
+
+    candidate = parts[1].strip()
+    if len(candidate) > 64:
+        return True, START_REFERRAL_SENTINEL
+    normalized = normalize_referral_code(candidate)
+    return True, normalized or START_REFERRAL_SENTINEL
+
+# --- get_telegram_secret_token (lines 385-386) ---
+def get_telegram_secret_token() -> str:
+    return os.getenv("TELEGRAM_SECRET_TOKEN", "")
+
+# --- validate_telegram_webhook_secret (lines 389-400) ---
+def validate_telegram_webhook_secret(
+    x_telegram_bot_api_secret_token: str | None = Header(
+        default=None, alias="X-Telegram-Bot-Api-Secret-Token"
+    ),
+) -> None:
+    expected_secret = get_telegram_secret_token()
+    if not expected_secret:
+        raise HTTPException(status_code=503, detail="Webhook authentication unavailable")
+    if not x_telegram_bot_api_secret_token or not secrets.compare_digest(
+        x_telegram_bot_api_secret_token, expected_secret
+    ):
+        raise HTTPException(status_code=403, detail="Forbidden")

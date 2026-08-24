@@ -1,0 +1,56 @@
+LEGACY REFERENCE — NON-AUTHORITATIVE — DO NOT IMPORT INTO PRODUCTION
+Original source: apps/telegram_airdrop/migrations/0004_backfill_referral_codes.py
+Original range: 1-49
+Classification: ADAPT
+Purpose: Historical-model RunPython backfill with bounded collision retries and preservation of existing values.
+Warnings: Use deterministic/current domain rules and consider scale/chunking for production data volume.
+-------------------------------------------------------------------------------
+import secrets
+
+from django.db import migrations
+from django.db.models import Q
+
+ALPHABET = "abcdefghijklmnopqrstuvwxyz234567"
+CODE_LENGTH = 16
+MAX_ATTEMPTS = 32
+
+
+def generate_candidate():
+    return "".join(secrets.choice(ALPHABET) for _ in range(CODE_LENGTH))
+
+
+def backfill_referral_codes(apps, schema_editor):
+    TelegramProfile = apps.get_model("telegram_airdrop", "TelegramProfile")
+    existing_codes = set(
+        TelegramProfile.objects.exclude(referral_code__isnull=True)
+        .exclude(referral_code="")
+        .values_list("referral_code", flat=True)
+    )
+
+    for profile in TelegramProfile.objects.filter(Q(referral_code__isnull=True) | Q(referral_code="")).iterator():
+        for _ in range(MAX_ATTEMPTS):
+            code = generate_candidate()
+            if code in existing_codes:
+                continue
+            if TelegramProfile.objects.filter(referral_code=code).exists():
+                continue
+            profile.referral_code = code
+            profile.save(update_fields=["referral_code"])
+            existing_codes.add(code)
+            break
+        else:
+            raise RuntimeError("Unable to backfill a unique referral code.")
+
+
+def noop_reverse(apps, schema_editor):
+    pass
+
+
+class Migration(migrations.Migration):
+    dependencies = [
+        ("telegram_airdrop", "0003_airdropseason_hourly_claim_reward"),
+    ]
+
+    operations = [
+        migrations.RunPython(backfill_referral_codes, noop_reverse),
+    ]
