@@ -14,6 +14,8 @@ REQUIRED_PRODUCTION_ENVIRONMENT = {
     "POSTGRES_PORT": "5432",
     "REDIS_URL": "redis://redis.example.com:6379/0",
     "CELERY_BROKER_URL": "amqp://user:password@rabbitmq.example.com:5672//",
+    "TELEGRAM_BOT_TOKEN": "production-bot-token-placeholder",
+    "TELEGRAM_WEBHOOK_SECRET": "production-webhook-secret-placeholder",
 }
 
 

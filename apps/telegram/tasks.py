@@ -1,0 +1,26 @@
+from celery import shared_task
+
+from apps.telegram.services import (
+    process_inbound_update,
+    purge_expired_ingress_payloads,
+    record_processing_failure,
+)
+
+
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 5},
+)  # type: ignore[untyped-decorator]
+def process_telegram_update(inbound_id: int) -> None:
+    try:
+        process_inbound_update(inbound_id)
+    except Exception as exc:
+        record_processing_failure(inbound_id, exc)
+        raise
+
+
+@shared_task  # type: ignore[untyped-decorator]
+def purge_expired_telegram_payloads() -> int:
+    return purge_expired_ingress_payloads()

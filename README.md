@@ -82,3 +82,64 @@ uses `dexo_land.settings.production` and refuses to load without `DJANGO_SECRET_
 `DJANGO_ALLOWED_HOSTS`, complete `POSTGRES_*` connection settings, `REDIS_URL`, and
 `CELERY_BROKER_URL`. Runtime entry points also require `DJANGO_SETTINGS_MODULE` explicitly;
 only `manage.py` defaults to local settings for developer convenience.
+
+## Phase 2: Telegram identity and durable ingestion
+
+Phase 2 adds two deliberately separate modules: `apps.players` owns the canonical Player
+identity, while `apps.telegram` owns Telegram authentication, transport state, normalization,
+groups, memberships, and the durable inbox. It does not score messages or implement referrals,
+Clans, rewards, seasons, missions, or any other game economy.
+
+### Telegram configuration
+
+Configure these environment variables before accepting Telegram traffic:
+
+- `TELEGRAM_BOT_TOKEN`: bot token used only to verify Mini App `initData`; it is mandatory in
+  production and must never be logged.
+- `TELEGRAM_WEBHOOK_SECRET`: secret configured with Telegram's webhook and required in the
+  `X-Telegram-Bot-Api-Secret-Token` header; it is mandatory in production.
+- `TELEGRAM_BOT_ID`: optional expected numeric identity for `my_chat_member` observations.
+  Mismatching observations are ignored rather than mutating group state.
+- `TELEGRAM_INIT_DATA_MAX_AGE_SECONDS`: maximum accepted Mini App authentication age.
+- `TELEGRAM_INGRESS_RETENTION_SECONDS`: lifetime of sensitive raw inbox payloads. Run the
+  `apps.telegram.tasks.purge_expired_telegram_payloads` Celery task on an operational schedule;
+  it clears expired payloads while retaining update IDs and processing audit state.
+
+The Mini App sends raw, unmodified Telegram `initData` to:
+
+```text
+POST /api/v1/auth/telegram
+```
+
+No separate Telegram user ID is accepted as proof of identity. The webhook endpoint is:
+
+```text
+POST /api/v1/telegram/webhook
+X-Telegram-Bot-Api-Secret-Token: <configured secret>
+```
+
+The webhook verifies the secret, validates `update_id`, commits the unique PostgreSQL inbox row,
+then publishes its database ID to RabbitMQ. A publication failure returns HTTP 503 but leaves the
+pending row durable; Telegram's retry reuses and redispatches it. Workers lock and process each row
+transactionally, so duplicate deliveries or worker retries produce one logical durable result.
+Unknown update types are recorded as ignored.
+
+Private `/start`, valid Mini App authentication, and a non-bot message in an explicitly monitored
+group are the only Player first-seen paths. Monitoring is enabled internally through
+`apps.telegram.services.set_group_monitoring`; merely observing a group does not enroll its users.
+`chat_member` records Telegram's observed membership without creating a Player. Telegram group
+membership is transport state only and is **not** future Dexo Land Clan membership or an invite.
+
+### Local Telegram tests
+
+Start the Compose dependencies, apply migrations, and run the focused suite against PostgreSQL:
+
+```bash
+docker compose up -d postgres redis rabbitmq
+uv run python manage.py migrate --noinput
+uv run pytest apps/telegram
+```
+
+The concurrency tests use independent database connections and therefore require PostgreSQL; the
+project intentionally has no SQLite fallback. Raw Telegram inbox payloads are operationally
+sensitive and are neither returned by public APIs nor displayed in Django admin.

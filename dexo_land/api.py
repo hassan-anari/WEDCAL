@@ -1,3 +1,7 @@
 from ninja import NinjaAPI
 
+from apps.telegram.api import auth_router, webhook_router
+
 api = NinjaAPI(title="Dexo Land API", version="1.0.0", urls_namespace="api-v1")
+api.add_router("/auth", auth_router)
+api.add_router("/telegram", webhook_router)
