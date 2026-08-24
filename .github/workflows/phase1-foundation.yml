@@ -11,20 +11,13 @@ permissions:
 
 env:
   UV_FROZEN: "1"
-  DJANGO_SETTINGS_MODULE: dexo_land.settings.test
-  DJANGO_SECRET_KEY: ci-only-secret
-  DJANGO_ALLOWED_HOSTS: localhost
-  POSTGRES_DB: dexo_land_test
-  POSTGRES_USER: dexo_land
-  POSTGRES_PASSWORD: ci-password
-  POSTGRES_HOST: localhost
-  REDIS_URL: redis://localhost:6379/0
-  CELERY_BROKER_URL: amqp://dexo_land:ci-password@localhost:5672//
 
 jobs:
   quality:
     name: quality
     runs-on: ubuntu-latest
+    env:
+      DJANGO_SETTINGS_MODULE: dexo_land.settings.test
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -41,6 +34,16 @@ jobs:
   test:
     name: test
     runs-on: ubuntu-latest
+    env:
+      DJANGO_SETTINGS_MODULE: dexo_land.settings.test
+      DJANGO_SECRET_KEY: ci-only-secret
+      DJANGO_ALLOWED_HOSTS: localhost
+      POSTGRES_DB: dexo_land_test
+      POSTGRES_USER: dexo_land
+      POSTGRES_PASSWORD: ci-password
+      POSTGRES_HOST: localhost
+      REDIS_URL: redis://localhost:6379/0
+      CELERY_BROKER_URL: amqp://dexo_land:ci-password@localhost:5672//
     services:
       postgres:
         image: postgres:17-alpine
