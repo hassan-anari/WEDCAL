@@ -30,6 +30,10 @@ INSTALLED_APPS = [
     "apps.core",
     "apps.players",
     "apps.telegram",
+    "apps.game_config",
+    "apps.seasons",
+    "apps.progression",
+    "apps.rewards",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
