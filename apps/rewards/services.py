@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Any
 
 import structlog
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Sum
 
 from apps.game_config.models import GameConfigVersion
@@ -90,21 +90,45 @@ def settle_player_reward(
             logger.info("reward_duplicate", player_id=player.pk, reward_id=existing.pk)
             return existing, False
         config_model = GameConfigVersion.objects.get(pk=resolved_config.id)
-        ledger = RewardLedger.objects.create(
-            player=locked_player,
-            season=season,
-            source_type=source_type,
-            source_id=source_id,
-            context=context,
-            gross_amount=amount,
-            player_amount=amount,
-            clan_treasury_amount=0,
-            referral_amount=0,
-            config_version=config_model,
-            idempotency_key=idempotency_key,
-            metadata=metadata or {},
-            occurred_at=occurred_at,
-        )
+        try:
+            with transaction.atomic():
+                ledger = RewardLedger.objects.create(
+                    player=locked_player,
+                    season=season,
+                    source_type=source_type,
+                    source_id=source_id,
+                    context=context,
+                    gross_amount=amount,
+                    player_amount=amount,
+                    clan_treasury_amount=0,
+                    referral_amount=0,
+                    config_version=config_model,
+                    idempotency_key=idempotency_key,
+                    metadata=metadata or {},
+                    occurred_at=occurred_at,
+                )
+        except IntegrityError:
+            existing = RewardLedger.objects.filter(idempotency_key=idempotency_key).first()
+            if existing is None:
+                raise
+            if not _matches(
+                existing,
+                player=locked_player,
+                season_id=season.pk,
+                source_type=source_type,
+                source_id=source_id,
+                context=context,
+                amount=amount,
+                config_id=resolved_config.id,
+            ):
+                logger.warning(
+                    "reward_idempotency_conflict", player_id=player.pk, source_type=source_type
+                )
+                raise IdempotencyConflict(
+                    "Idempotency key belongs to a different settlement"
+                ) from None
+            logger.info("reward_duplicate", player_id=player.pk, reward_id=existing.pk)
+            return existing, False
         if after_ledger_hook:
             after_ledger_hook()
         progression, _ = PlayerProgression.objects.get_or_create(

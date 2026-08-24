@@ -91,16 +91,23 @@ def publish_game_config(
         if config.status != GameConfigVersion.Status.DRAFT:
             raise ValidationError("Only draft configurations can be published")
         parse_progression(config.payload)
-        if GameConfigVersion.objects.filter(
-            status=GameConfigVersion.Status.PUBLISHED, effective_at__gte=config.effective_at
-        ).exists():
+        publication_time = published_at or timezone.now()
+        published_configs = GameConfigVersion.objects.select_for_update().filter(
+            status=GameConfigVersion.Status.PUBLISHED
+        )
+        timeline_exists = published_configs.exists()
+        if timeline_exists and config.effective_at < publication_time:
+            raise ValidationError(
+                "A subsequent configuration cannot become effective before publication"
+            )
+        if published_configs.filter(effective_at__gte=config.effective_at).exists():
             raise ValidationError(
                 "Publishing would rewrite or ambiguate established config history"
             )
         canonical = json.dumps(config.payload, sort_keys=True, separators=(",", ":")).encode()
         config.payload_checksum = hashlib.sha256(canonical).hexdigest()
         config.status = GameConfigVersion.Status.PUBLISHED
-        config.published_at = published_at or timezone.now()
+        config.published_at = publication_time
         config.save(update_fields=["payload_checksum", "status", "published_at", "updated_at"])
     logger.info("game_config_published", config_version=config.version)
     return config

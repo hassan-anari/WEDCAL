@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 import structlog
+from django.db import transaction
 
 from apps.game_config.models import GameConfigVersion
 from apps.game_config.services import ProgressionConfig, ResolvedGameConfig
@@ -47,26 +48,31 @@ def calculate_progression(points: int, config: ProgressionConfig) -> Progression
 def refresh_player_progression(
     player: Player, resolved: ResolvedGameConfig, *, force: bool = False
 ) -> tuple[PlayerProgression, ProgressionResult]:
-    config_model = GameConfigVersion.objects.get(pk=resolved.id)
-    projection, _ = PlayerProgression.objects.get_or_create(
-        player=player,
-        defaults={
-            "config_version": config_model,
-            "dexo_stage": resolved.progression.dexo_stages[0].key,
-        },
-    )
-    result = calculate_progression(projection.lifetime_points, resolved.progression)
-    if (
-        force
-        or projection.config_version_id != resolved.id
-        or projection.level != result.level
-        or projection.dexo_stage != result.dexo_stage
-    ):
-        projection.level = result.level
-        projection.dexo_stage = result.dexo_stage
-        projection.config_version = config_model
-        projection.save(update_fields=["level", "dexo_stage", "config_version", "updated_at"])
-        logger.info(
-            "progression_projection_refreshed", player_id=player.pk, config_version=resolved.version
+    with transaction.atomic():
+        locked_player = Player.objects.select_for_update().get(pk=player.pk)
+        config_model = GameConfigVersion.objects.get(pk=resolved.id)
+        projection, _ = PlayerProgression.objects.get_or_create(
+            player=locked_player,
+            defaults={
+                "config_version": config_model,
+                "dexo_stage": resolved.progression.dexo_stages[0].key,
+            },
         )
+        projection = PlayerProgression.objects.select_for_update().get(pk=projection.pk)
+        result = calculate_progression(projection.lifetime_points, resolved.progression)
+        if (
+            force
+            or projection.config_version_id != resolved.id
+            or projection.level != result.level
+            or projection.dexo_stage != result.dexo_stage
+        ):
+            projection.level = result.level
+            projection.dexo_stage = result.dexo_stage
+            projection.config_version = config_model
+            projection.save(update_fields=["level", "dexo_stage", "config_version", "updated_at"])
+            logger.info(
+                "progression_projection_refreshed",
+                player_id=player.pk,
+                config_version=resolved.version,
+            )
     return projection, result

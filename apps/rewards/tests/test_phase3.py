@@ -1,8 +1,9 @@
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from threading import Barrier, Thread
+from threading import Barrier, Event, Thread, current_thread
+from time import monotonic, sleep
 from typing import Any
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 from django.core.exceptions import ValidationError
@@ -105,6 +106,48 @@ def test_config_validation_publish_resolution_and_immutability() -> None:
     assert resolve_effective_game_config(timezone.now()).id == config.pk
     with pytest.raises(GameConfigUnavailable):
         resolve_effective_game_config(config.effective_at - timedelta(seconds=1))
+
+
+@pytest.mark.django_db
+def test_config_publication_cannot_rewrite_established_history() -> None:
+    initial_effective_at = datetime(2026, 1, 1, tzinfo=UTC)
+    first_publication = datetime(2026, 1, 2, tzinfo=UTC)
+    historical_timestamp = datetime(2026, 1, 10, tzinfo=UTC)
+    first = GameConfigVersion.objects.create(
+        version="history-v1", effective_at=initial_effective_at, payload=payload()
+    )
+    publish_game_config(first, published_at=first_publication)
+
+    second_publication = datetime(2026, 2, 1, tzinfo=UTC)
+    retroactive = GameConfigVersion.objects.create(
+        version="history-v2",
+        effective_at=datetime(2026, 1, 5, tzinfo=UTC),
+        payload=payload(50),
+    )
+    with pytest.raises(ValidationError, match="before publication"):
+        publish_game_config(retroactive, published_at=second_publication)
+
+    assert resolve_effective_game_config(historical_timestamp).id == first.pk
+    retroactive.refresh_from_db()
+    assert retroactive.status == GameConfigVersion.Status.DRAFT
+
+
+@pytest.mark.django_db
+def test_scheduled_config_changes_resolution_only_at_effective_time() -> None:
+    first = GameConfigVersion.objects.create(
+        version="scheduled-v1",
+        effective_at=datetime(2026, 1, 1, tzinfo=UTC),
+        payload=payload(),
+    )
+    publish_game_config(first, published_at=datetime(2026, 1, 2, tzinfo=UTC))
+    effective_at = datetime(2026, 2, 1, tzinfo=UTC)
+    second = GameConfigVersion.objects.create(
+        version="scheduled-v2", effective_at=effective_at, payload=payload(50)
+    )
+    publish_game_config(second, published_at=datetime(2026, 1, 15, tzinfo=UTC))
+
+    assert resolve_effective_game_config(effective_at - timedelta(microseconds=1)).id == first.pk
+    assert resolve_effective_game_config(effective_at).id == second.pk
 
 
 @pytest.mark.django_db
@@ -303,6 +346,176 @@ def test_concurrent_distinct_rewards_do_not_lose_updates() -> None:
     assert RewardLedger.objects.count() == 2
     assert PlayerProgression.objects.get(player=person).lifetime_points == 20
     assert PlayerSeason.objects.get(player=person).season_points == 20
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_same_key_settles_once_without_database_error() -> None:
+    config = published()
+    active_season(config)
+    person = player()
+    resolved = resolve_effective_game_config(timezone.now())
+    occurred_at = timezone.now()
+    barrier = Barrier(2)
+    results: list[tuple[int, bool]] = []
+    errors: list[BaseException] = []
+
+    def run() -> None:
+        close_old_connections()
+        try:
+            barrier.wait()
+            entry, created = settle_player_reward(
+                player=person,
+                source_type="TEST",
+                source_id="same-source",
+                context="TEST",
+                amount=10,
+                idempotency_key="same-key",
+                occurred_at=occurred_at,
+                resolved_config=resolved,
+            )
+            results.append((entry.pk, created))
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            close_old_connections()
+
+    threads = [Thread(target=run) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == []
+    assert len(results) == 2
+    assert len({entry_id for entry_id, _ in results}) == 1
+    assert sorted(created for _, created in results) == [False, True]
+    assert RewardLedger.objects.filter(idempotency_key="same-key").count() == 1
+    assert PlayerProgression.objects.get(player=person).lifetime_points == 10
+    assert PlayerSeason.objects.get(player=person).season_points == 10
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_global_key_conflict_is_a_domain_error() -> None:
+    config = published()
+    active_season(config)
+    players = (player(1), player(2))
+    resolved = resolve_effective_game_config(timezone.now())
+    occurred_at = timezone.now()
+    barrier = Barrier(2)
+    successes: list[int] = []
+    errors: list[BaseException] = []
+
+    def run(person: Player) -> None:
+        close_old_connections()
+        try:
+            barrier.wait()
+            entry, _ = settle_player_reward(
+                player=person,
+                source_type="TEST",
+                source_id="global-source",
+                context="TEST",
+                amount=10,
+                idempotency_key="global-key",
+                occurred_at=occurred_at,
+                resolved_config=resolved,
+            )
+            successes.append(entry.player_id)
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            close_old_connections()
+
+    threads = [Thread(target=run, args=(person,)) for person in players]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert len(successes) == 1
+    assert len(errors) == 1
+    assert isinstance(errors[0], IdempotencyConflict)
+    assert RewardLedger.objects.filter(idempotency_key="global-key").count() == 1
+    assert (
+        sum(
+            PlayerProgression.objects.filter(player__in=players).values_list(
+                "lifetime_points", flat=True
+            )
+        )
+        == 10
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_refresh_cannot_overwrite_reward_progression() -> None:
+    config = published()
+    active_season(config)
+    person = player()
+    resolved = resolve_effective_game_config(timezone.now())
+    projection, _ = refresh_player_progression(person, resolved)
+    projection.lifetime_points = 90
+    projection.save(update_fields=["lifetime_points"])
+    refresh_calculating = Event()
+    allow_refresh = Event()
+    original_calculator = calculate_progression
+    errors: list[BaseException] = []
+
+    def controlled_calculator(points: int, progression_config: Any) -> Any:
+        if current_thread().name == "projection-refresh":
+            refresh_calculating.set()
+            assert allow_refresh.wait(timeout=5)
+        return original_calculator(points, progression_config)
+
+    def refresh() -> None:
+        close_old_connections()
+        try:
+            refresh_player_progression(person, resolved, force=True)
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            close_old_connections()
+
+    def reward() -> None:
+        close_old_connections()
+        try:
+            settle_player_reward(
+                player=person,
+                source_type="TEST",
+                source_id="threshold",
+                context="TEST",
+                amount=10,
+                idempotency_key="threshold",
+                occurred_at=timezone.now(),
+                resolved_config=resolved,
+            )
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            close_old_connections()
+
+    with patch(
+        "apps.progression.services.calculate_progression", side_effect=controlled_calculator
+    ):
+        refresh_thread = Thread(target=refresh, name="projection-refresh")
+        reward_thread = Thread(target=reward, name="reward-settlement")
+        refresh_thread.start()
+        assert refresh_calculating.wait(timeout=5)
+        reward_thread.start()
+        deadline = monotonic() + 0.5
+        while (
+            monotonic() < deadline
+            and not RewardLedger.objects.filter(idempotency_key="threshold").exists()
+        ):
+            sleep(0.01)
+        allow_refresh.set()
+        refresh_thread.join()
+        reward_thread.join()
+
+    assert errors == []
+    final = PlayerProgression.objects.get(player=person)
+    assert final.lifetime_points == 100
+    assert final.level == 2
+    assert final.dexo_stage == "egg"
+    assert final.config_version_id == config.pk
 
 
 @pytest.mark.django_db
