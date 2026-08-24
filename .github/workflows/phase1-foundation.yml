@@ -1,0 +1,103 @@
+name: Phase 1 Foundation
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  UV_FROZEN: "1"
+
+jobs:
+  quality:
+    name: quality
+    runs-on: ubuntu-latest
+    env:
+      DJANGO_SETTINGS_MODULE: dexo_land.settings.test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.7.22"
+          enable-cache: true
+      - run: uv python install 3.13
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy .
+      - run: uv run python manage.py check
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    env:
+      DJANGO_SETTINGS_MODULE: dexo_land.settings.test
+      DJANGO_SECRET_KEY: ci-only-secret
+      DJANGO_ALLOWED_HOSTS: localhost
+      POSTGRES_DB: dexo_land_test
+      POSTGRES_USER: dexo_land
+      POSTGRES_PASSWORD: ci-password
+      POSTGRES_HOST: localhost
+      REDIS_URL: redis://localhost:6379/0
+      CELERY_BROKER_URL: amqp://dexo_land:ci-password@localhost:5672//
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: dexo_land_test
+          POSTGRES_USER: dexo_land
+          POSTGRES_PASSWORD: ci-password
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U dexo_land -d dexo_land_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:8-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+      rabbitmq:
+        image: rabbitmq:4.3-management-alpine
+        env:
+          RABBITMQ_DEFAULT_USER: dexo_land
+          RABBITMQ_DEFAULT_PASS: ci-password
+        ports: ["5672:5672"]
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping" --health-interval 5s
+          --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.7.22"
+          enable-cache: true
+      - run: uv python install 3.13
+      - run: uv sync --frozen
+      - run: uv run python manage.py migrate --noinput
+      - run: uv run python manage.py makemigrations --check --dry-run
+      - run: uv run pytest
+
+  docker-build:
+    name: docker-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp .env.example .env
+      - run: docker compose config --quiet
+      - run: docker build --tag dexo-land:${{ github.sha }} .
+      - name: Start and smoke test application services
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'docker compose logs; docker compose down --volumes' EXIT
+          docker compose up --build --detach --wait
+          sleep 10
+          test "$(docker compose ps --status running --services | grep -Ec '^(api|worker|beat)$')" -eq 3
+          docker compose exec -T beat test -w /app/run
+          curl --fail --silent --show-error http://localhost:8000/health/live
+          curl --fail --silent --show-error http://localhost:8000/health/ready
