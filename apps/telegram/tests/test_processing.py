@@ -1,12 +1,16 @@
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from django.utils import timezone
 
 from apps.players.models import Player
 from apps.telegram.models import TelegramGroup, TelegramInboundUpdate, TelegramUserMembership
-from apps.telegram.services import process_inbound_update, set_group_monitoring
+from apps.telegram.services import (
+    process_inbound_update,
+    purge_expired_ingress_payloads,
+    set_group_monitoring,
+)
 
 NOW = int(datetime.now(tz=UTC).timestamp())
 
@@ -134,3 +138,153 @@ def test_unknown_update_is_safely_ignored() -> None:
     process_inbound_update(update.pk)
     update.refresh_from_db()
     assert update.state == TelegramInboundUpdate.State.IGNORED
+
+
+@pytest.mark.django_db
+def test_older_bot_membership_update_cannot_regress_newer_state(settings) -> None:  # type: ignore[no-untyped-def]
+    settings.TELEGRAM_BOT_ID = 500
+
+    def change(update_id: int, status: str, title: str) -> TelegramInboundUpdate:
+        return inbound(
+            update_id,
+            {
+                "my_chat_member": {
+                    "date": NOW + update_id,
+                    "chat": {"id": -30, "type": "supergroup", "title": title},
+                    "new_chat_member": {"status": status, "user": {"id": 500}},
+                }
+            },
+        )
+
+    process_inbound_update(change(200, "administrator", "New title").pk)
+    process_inbound_update(change(100, "kicked", "Old title").pk)
+
+    group = TelegramGroup.objects.get(telegram_chat_id=-30)
+    assert group.bot_membership_status == "administrator"
+    assert group.bot_is_admin is True
+    assert group.bot_membership_last_update_id == 200
+    assert group.title == "New title"
+
+
+@pytest.mark.django_db
+def test_older_user_membership_update_cannot_regress_newer_state() -> None:
+    def change(update_id: int, status: str) -> TelegramInboundUpdate:
+        return inbound(
+            update_id,
+            {
+                "chat_member": {
+                    "date": NOW + update_id,
+                    "chat": {"id": -40, "type": "supergroup", "title": "Membership"},
+                    "new_chat_member": {"status": status, "user": {"id": 900}},
+                }
+            },
+        )
+
+    process_inbound_update(change(300, "creator").pk)
+    process_inbound_update(change(250, "left").pk)
+
+    membership = TelegramUserMembership.objects.get(telegram_user_id=900)
+    assert membership.status == "creator"
+    assert membership.is_admin is False
+    assert membership.is_owner is True
+    assert membership.last_update_id == 300
+
+
+@pytest.mark.django_db
+def test_older_message_cannot_replace_newer_player_or_group_metadata() -> None:
+    group = TelegramGroup.objects.create(
+        telegram_chat_id=-45,
+        chat_type="supergroup",
+        is_monitored=True,
+        first_seen_at=timezone.now(),
+        last_seen_at=timezone.now(),
+    )
+
+    def observation(update_id: int, first_name: str, title: str) -> TelegramInboundUpdate:
+        return inbound(
+            update_id,
+            {
+                "message": {
+                    "message_id": update_id,
+                    "date": NOW + update_id,
+                    "chat": {"id": -45, "type": "supergroup", "title": title},
+                    "from": {"id": 902, "first_name": first_name},
+                    "text": "message",
+                }
+            },
+        )
+
+    process_inbound_update(observation(350, "New name", "New group title").pk)
+    process_inbound_update(observation(340, "Old name", "Old group title").pk)
+
+    group.refresh_from_db()
+    player = Player.objects.get(telegram_user_id=902)
+    assert player.first_name == "New name"
+    assert player.profile_last_telegram_update_id == 350
+    assert group.title == "New group title"
+    assert group.metadata_last_update_id == 350
+
+
+@pytest.mark.django_db(transaction=True)
+def test_existing_membership_links_when_player_is_later_created() -> None:
+    membership_update = inbound(
+        400,
+        {
+            "chat_member": {
+                "date": NOW,
+                "chat": {"id": -50, "type": "supergroup", "title": "Reconcile"},
+                "new_chat_member": {"status": "member", "user": {"id": 901}},
+            }
+        },
+    )
+    process_inbound_update(membership_update.pk)
+    membership = TelegramUserMembership.objects.get(telegram_user_id=901)
+    assert membership.player is None
+
+    start = inbound(
+        401,
+        {
+            "message": {
+                "message_id": 1,
+                "date": NOW + 1,
+                "chat": {"id": 901, "type": "private"},
+                "from": {"id": 901, "first_name": "Linked"},
+                "text": "/start",
+            }
+        },
+    )
+    process_inbound_update(start.pk)
+
+    membership.refresh_from_db()
+    player = Player.objects.get(telegram_user_id=901)
+    assert membership.player == player
+    assert Player.objects.filter(telegram_user_id=901).count() == 1
+
+
+@pytest.mark.django_db
+def test_retention_purges_only_expired_terminal_payloads() -> None:
+    expired_at = timezone.now() - timedelta(seconds=1)
+    processed = inbound(500, {"poll": {"id": "processed"}})
+    ignored = inbound(501, {"poll": {"id": "ignored"}})
+    pending = inbound(502, {"poll": {"id": "pending"}})
+    failed = inbound(503, {"poll": {"id": "failed"}})
+    TelegramInboundUpdate.objects.filter(
+        pk__in=(processed.pk, ignored.pk, pending.pk, failed.pk)
+    ).update(payload_expires_at=expired_at)
+    TelegramInboundUpdate.objects.filter(pk=processed.pk).update(
+        state=TelegramInboundUpdate.State.PROCESSED
+    )
+    TelegramInboundUpdate.objects.filter(pk=ignored.pk).update(
+        state=TelegramInboundUpdate.State.IGNORED
+    )
+    TelegramInboundUpdate.objects.filter(pk=failed.pk).update(
+        state=TelegramInboundUpdate.State.FAILED
+    )
+
+    assert purge_expired_ingress_payloads() == 2
+    for update in (processed, ignored, pending, failed):
+        update.refresh_from_db()
+    assert processed.payload == {}
+    assert ignored.payload == {}
+    assert pending.payload != {}
+    assert failed.payload != {}

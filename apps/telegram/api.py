@@ -7,7 +7,6 @@ from django.http import HttpRequest
 from ninja import Router, Schema, Status
 
 from apps.players.models import Player
-from apps.players.services import resolve_player
 from apps.telegram.auth import TelegramAuthError, verify_init_data
 from apps.telegram.models import TelegramInboundUpdate
 from apps.telegram.services import (
@@ -15,6 +14,7 @@ from apps.telegram.services import (
     dispatch_inbound_update,
     mark_dispatch_failed,
     persist_inbound_update,
+    resolve_telegram_player,
     verify_webhook_secret,
 )
 
@@ -52,7 +52,7 @@ def authenticate_telegram(
         )
     except TelegramAuthError:
         return Status(401, {"detail": "Invalid Telegram authentication"})
-    resolution = resolve_player(
+    resolution = resolve_telegram_player(
         verified.profile,
         Player.FirstSeenSource.MINI_APP,
         mini_app=True,

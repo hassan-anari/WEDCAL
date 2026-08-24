@@ -9,7 +9,7 @@ from django.db.models import F
 from django.utils import timezone
 
 from apps.players.models import Player
-from apps.players.services import resolve_player
+from apps.players.services import PlayerResolution, TelegramProfile, resolve_player
 from apps.telegram.events import (
     BotMembershipChanged,
     BotStarted,
@@ -87,7 +87,7 @@ def process_inbound_update(inbound_id: int) -> None:
     if event is None:
         inbound.state = TelegramInboundUpdate.State.IGNORED
     else:
-        _apply_event(event)
+        _apply_event(event, telegram_update_id=inbound.update_id)
         inbound.state = TelegramInboundUpdate.State.PROCESSED
     inbound.processed_at = timezone.now()
     inbound.last_error_category = ""
@@ -121,30 +121,74 @@ def set_group_monitoring(group: TelegramGroup, *, enabled: bool) -> TelegramGrou
 def purge_expired_ingress_payloads() -> int:
     """Remove sensitive raw payloads while retaining dedupe/audit metadata."""
     return (
-        TelegramInboundUpdate.objects.filter(payload_expires_at__lte=timezone.now())
+        TelegramInboundUpdate.objects.filter(
+            payload_expires_at__lte=timezone.now(),
+            state__in=(
+                TelegramInboundUpdate.State.PROCESSED,
+                TelegramInboundUpdate.State.IGNORED,
+            ),
+        )
         .exclude(payload={})
         .update(payload={})
     )
 
 
-def _apply_event(event: object) -> None:
+@transaction.atomic
+def resolve_telegram_player(
+    profile: TelegramProfile,
+    source: Player.FirstSeenSource,
+    *,
+    observed_at: datetime | None = None,
+    private_contact: bool = False,
+    mini_app: bool = False,
+    start_parameter: str | None = None,
+    telegram_update_id: int | None = None,
+) -> PlayerResolution:
+    _lock_telegram_user(profile.telegram_user_id)
+    resolution = resolve_player(
+        profile,
+        source,
+        observed_at=observed_at,
+        private_contact=private_contact,
+        mini_app=mini_app,
+        start_parameter=start_parameter,
+        telegram_update_id=telegram_update_id,
+    )
+    TelegramUserMembership.objects.filter(
+        telegram_user_id=profile.telegram_user_id, player__isnull=True
+    ).update(player=resolution.player)
+    return resolution
+
+
+def _lock_telegram_user(telegram_user_id: int) -> None:
+    """Serialize only identity/membership reconciliation for one Telegram user."""
+    from django.db import connection
+
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(%s)", [telegram_user_id])
+
+
+def _apply_event(event: object, *, telegram_update_id: int) -> None:
     if isinstance(event, BotStarted):
-        resolve_player(
+        resolve_telegram_player(
             event.user,
             Player.FirstSeenSource.BOT_START,
             observed_at=event.observed_at,
             private_contact=True,
             start_parameter=event.parameter,
+            telegram_update_id=telegram_update_id,
         )
     elif isinstance(event, TelegramMessageObserved):
-        _observe_message(event)
+        _observe_message(event, telegram_update_id)
     elif isinstance(event, BotMembershipChanged):
-        _observe_bot_membership(event)
+        _observe_bot_membership(event, telegram_update_id)
     elif isinstance(event, UserMembershipChanged):
-        _observe_user_membership(event)
+        _observe_user_membership(event, telegram_update_id)
 
 
-def _upsert_group(chat: dict[str, Any], observed_at: datetime) -> TelegramGroup:
+def _upsert_group(
+    chat: dict[str, Any], observed_at: datetime, telegram_update_id: int
+) -> TelegramGroup:
     chat_id = int(chat["id"])
     chat_type = str(chat["type"])
     if chat_type not in TelegramGroup.ChatType.values:
@@ -157,20 +201,33 @@ def _upsert_group(chat: dict[str, Any], observed_at: datetime) -> TelegramGroup:
             "username": str(chat.get("username", "")),
             "first_seen_at": observed_at,
             "last_seen_at": observed_at,
+            "metadata_last_update_id": telegram_update_id,
         },
     )
+    group = TelegramGroup.objects.select_for_update().get(pk=group.pk)
     changed: list[str] = []
+    metadata_is_newer = (
+        group.metadata_last_update_id is None or telegram_update_id > group.metadata_last_update_id
+    )
     for field, value in (
         ("chat_type", chat_type),
         ("title", chat.get("title")),
         ("username", chat.get("username")),
     ):
-        if value is not None and str(value) != getattr(group, field):
+        current_value = getattr(group, field)
+        if (
+            value is not None
+            and str(value) != current_value
+            and (metadata_is_newer or not current_value)
+        ):
             setattr(group, field, str(value))
             changed.append(field)
     if observed_at > group.last_seen_at:
         group.last_seen_at = observed_at
         changed.append("last_seen_at")
+    if metadata_is_newer:
+        group.metadata_last_update_id = telegram_update_id
+        changed.append("metadata_last_update_id")
     if changed:
         group.save(update_fields=(*changed, "updated_at"))
     if created:
@@ -178,33 +235,48 @@ def _upsert_group(chat: dict[str, Any], observed_at: datetime) -> TelegramGroup:
     return group
 
 
-def _observe_message(event: TelegramMessageObserved) -> None:
+def _observe_message(event: TelegramMessageObserved, telegram_update_id: int) -> None:
     if event.chat_type not in TelegramGroup.ChatType.values:
         return
-    group = _upsert_group(event.chat, event.observed_at)
+    group = _upsert_group(event.chat, event.observed_at, telegram_update_id)
     if group.is_monitored and event.sender and not event.sender_is_bot:
-        resolve_player(
+        resolve_telegram_player(
             event.sender,
             Player.FirstSeenSource.GROUP_ACTIVITY,
             observed_at=event.observed_at,
+            telegram_update_id=telegram_update_id,
         )
 
 
-def _observe_bot_membership(event: BotMembershipChanged) -> None:
+def _observe_bot_membership(event: BotMembershipChanged, telegram_update_id: int) -> None:
     expected_bot_id = settings.TELEGRAM_BOT_ID
     if expected_bot_id is not None and event.bot_user_id != expected_bot_id:
         logger.warning("telegram_bot_identity_mismatch")
         return
-    group = _upsert_group(event.chat, event.observed_at)
+    group = _upsert_group(event.chat, event.observed_at, telegram_update_id)
+    if (
+        group.bot_membership_last_update_id is not None
+        and telegram_update_id <= group.bot_membership_last_update_id
+    ):
+        return
     group.bot_membership_status = event.status
     group.bot_is_admin = event.status == "administrator"
-    group.save(update_fields=("bot_membership_status", "bot_is_admin", "updated_at"))
+    group.bot_membership_last_update_id = telegram_update_id
+    group.save(
+        update_fields=(
+            "bot_membership_status",
+            "bot_is_admin",
+            "bot_membership_last_update_id",
+            "updated_at",
+        )
+    )
 
 
-def _observe_user_membership(event: UserMembershipChanged) -> None:
-    group = _upsert_group(event.chat, event.observed_at)
+def _observe_user_membership(event: UserMembershipChanged, telegram_update_id: int) -> None:
+    group = _upsert_group(event.chat, event.observed_at, telegram_update_id)
+    _lock_telegram_user(event.telegram_user_id)
     player = Player.objects.filter(telegram_user_id=event.telegram_user_id).first()
-    TelegramUserMembership.objects.update_or_create(
+    membership, created = TelegramUserMembership.objects.select_for_update().get_or_create(
         group=group,
         telegram_user_id=event.telegram_user_id,
         defaults={
@@ -213,5 +285,25 @@ def _observe_user_membership(event: UserMembershipChanged) -> None:
             "is_admin": event.status == "administrator",
             "is_owner": event.status == "creator",
             "observed_at": event.observed_at,
+            "last_update_id": telegram_update_id,
         },
+    )
+    if created or telegram_update_id <= membership.last_update_id:
+        return
+    membership.player = player
+    membership.status = event.status
+    membership.is_admin = event.status == "administrator"
+    membership.is_owner = event.status == "creator"
+    membership.observed_at = event.observed_at
+    membership.last_update_id = telegram_update_id
+    membership.save(
+        update_fields=(
+            "player",
+            "status",
+            "is_admin",
+            "is_owner",
+            "observed_at",
+            "last_update_id",
+            "updated_at",
+        )
     )

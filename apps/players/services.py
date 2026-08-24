@@ -34,6 +34,7 @@ def resolve_player(
     private_contact: bool = False,
     mini_app: bool = False,
     start_parameter: str | None = None,
+    telegram_update_id: int | None = None,
 ) -> PlayerResolution:
     """Resolve by DB-enforced Telegram identity and enrich without wiping omitted data."""
     observed_at = observed_at or timezone.now()
@@ -41,6 +42,8 @@ def resolve_player(
         "first_seen_at": observed_at,
         "first_seen_source": source,
         "last_seen_at": observed_at,
+        "profile_observed_at": observed_at,
+        "profile_last_telegram_update_id": telegram_update_id,
     }
     try:
         with transaction.atomic():
@@ -56,11 +59,32 @@ def resolve_player(
     with transaction.atomic():
         player = Player.objects.select_for_update().get(pk=player.pk)
         changed: list[str] = []
+        profile_is_newer = (
+            telegram_update_id is not None
+            and (
+                player.profile_last_telegram_update_id is None
+                or telegram_update_id > player.profile_last_telegram_update_id
+            )
+        ) or (
+            telegram_update_id is None
+            and (player.profile_observed_at is None or observed_at > player.profile_observed_at)
+        )
         for field in ("first_name", "last_name", "username", "language_code", "photo_url"):
             value = getattr(profile, field)
-            if value is not None and value != getattr(player, field):
+            current_value = getattr(player, field)
+            if (
+                value is not None
+                and value != current_value
+                and (profile_is_newer or not current_value)
+            ):
                 setattr(player, field, value)
                 changed.append(field)
+        if profile_is_newer:
+            player.profile_observed_at = observed_at
+            changed.append("profile_observed_at")
+            if telegram_update_id is not None:
+                player.profile_last_telegram_update_id = telegram_update_id
+                changed.append("profile_last_telegram_update_id")
         if observed_at > player.last_seen_at:
             player.last_seen_at = observed_at
             changed.append("last_seen_at")

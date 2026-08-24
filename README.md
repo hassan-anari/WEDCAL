@@ -101,9 +101,12 @@ Configure these environment variables before accepting Telegram traffic:
 - `TELEGRAM_BOT_ID`: optional expected numeric identity for `my_chat_member` observations.
   Mismatching observations are ignored rather than mutating group state.
 - `TELEGRAM_INIT_DATA_MAX_AGE_SECONDS`: maximum accepted Mini App authentication age.
-- `TELEGRAM_INGRESS_RETENTION_SECONDS`: lifetime of sensitive raw inbox payloads. Run the
-  `apps.telegram.tasks.purge_expired_telegram_payloads` Celery task on an operational schedule;
-  it clears expired payloads while retaining update IDs and processing audit state.
+- `TELEGRAM_INGRESS_RETENTION_SECONDS`: lifetime of sensitive raw inbox payloads. The
+  `apps.telegram.tasks.purge_expired_telegram_payloads` Celery task clears expired terminal
+  payloads while retaining update IDs and processing audit state. Pending and failed recovery
+  payloads are retained.
+- `TELEGRAM_INGRESS_PURGE_INTERVAL_SECONDS`: Celery Beat interval that automatically runs the
+  ingress payload purge task.
 
 The Mini App sends raw, unmodified Telegram `initData` to:
 

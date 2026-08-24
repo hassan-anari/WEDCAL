@@ -13,6 +13,8 @@ class Player(models.Model):
     username = models.CharField(max_length=255, blank=True)
     language_code = models.CharField(max_length=35, blank=True)
     photo_url = models.URLField(max_length=2048, blank=True)
+    profile_observed_at = models.DateTimeField(null=True, blank=True)
+    profile_last_telegram_update_id = models.BigIntegerField(null=True, blank=True)
     first_seen_at = models.DateTimeField()
     first_seen_source = models.CharField(max_length=20, choices=FirstSeenSource.choices)
     first_private_contact_at = models.DateTimeField(null=True, blank=True)
