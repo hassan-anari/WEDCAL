@@ -2577,7 +2577,24 @@ Rule classification and configurable thresholds must have deterministic tests.
 
 # 52. GitHub Actions / PR quality gate
 
-Every PR should run the checks appropriate to its scope. The baseline should include:
+Every development phase is a hard-gated delivery unit. GitHub Actions is mandatory for every phase, and every phase must have its own dedicated pull request with CI coverage appropriate to that phase's scope.
+
+Required progression:
+
+```text
+implementation
+→ dedicated pull request
+→ GitHub Actions
+→ every required check green
+→ repository owner review
+→ independent PR/CI review
+→ explicit owner approval
+→ only then may the next phase begin
+```
+
+A pull request with any failing, cancelled, missing or required-skipped check is incomplete. CI failures must be corrected in the same phase and pull request. Passing CI is necessary but does not authorize progression by itself. Once all required checks are green, the coding agent must stop; it must not merge the pull request or start the next phase unless the repository owner explicitly authorizes that action. The owner provides the green pull request URL to an independent reviewer before approving merge or progression.
+
+As later phases introduce the application stack, their baseline checks should include, as appropriate:
 
 - formatting/lint
 - static/type checks as chosen for Python project
@@ -2598,11 +2615,21 @@ No PR should be merged solely because happy-path tests pass when it changes rewa
 
 War/Defence is deliberately absent.
 
-## Phase 0 — Contract files
+## Phase 0 — Contract and Delivery Gate
 
-- this Source of Truth
+Scope:
+
+- Source of Truth
 - root `AGENTS.md`
-- repository/branch conventions
+- branch conventions
+- Phase 0 GitHub Actions validation
+- mandatory phase CI + owner approval rule
+
+Phase 0 ends only after:
+
+1. its pull request exists;
+2. all required CI checks are green;
+3. the repository owner approves it.
 
 ## Phase 1 — Foundation
 

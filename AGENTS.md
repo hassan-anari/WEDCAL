@@ -157,6 +157,35 @@ If two implementations solve the same contract slice differently, choose one int
 
 Prefer small PR-sized slices.
 
+### 6.1 Mandatory phase delivery gate
+
+Every development phase is a hard-gated delivery unit.
+
+Required flow:
+
+```text
+implementation
+→ dedicated pull request
+→ GitHub Actions
+→ every required check green
+→ repository owner review
+→ independent PR/CI review
+→ explicit owner approval
+→ only then may the next phase begin
+```
+
+- Every phase, including Phase 0, MUST have GitHub Actions coverage appropriate to its scope.
+- Every phase MUST use a dedicated pull request.
+- A pull request with failing, cancelled, missing or required-skipped checks is incomplete.
+- CI failures must be fixed inside the same phase and pull request.
+- Passing CI is necessary, but it is not sufficient to begin another phase.
+- After the pull request's required checks become green, the coding agent MUST STOP.
+- The coding agent MUST NOT begin the next phase automatically.
+- The next phase may start only after the repository owner explicitly authorizes it.
+- Agents MUST NOT merge pull requests unless the repository owner explicitly asks them to.
+
+The owner provides the green pull request URL to an independent reviewer before authorizing merge or the next phase.
+
 Recommended branch naming:
 
 ```text
@@ -710,6 +739,10 @@ Before saying a task is complete, the agent must verify:
 - [ ] I ran the relevant local checks.
 - [ ] I documented API/config/migration changes in the PR description.
 - [ ] I called out any contract conflict instead of silently resolving it.
+- [ ] This phase has a dedicated PR with appropriate GitHub Actions coverage.
+- [ ] Every required CI check is green; no required check is failing, cancelled, missing or skipped.
+- [ ] I stopped after the green PR and did not begin the next phase without explicit repository owner authorization.
+- [ ] I did not merge the PR unless the repository owner explicitly asked me to.
 
 ---
 
