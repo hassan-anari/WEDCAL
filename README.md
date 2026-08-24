@@ -146,3 +146,35 @@ uv run pytest apps/telegram
 The concurrency tests use independent database connections and therefore require PostgreSQL; the
 project intentionally has no SQLite fallback. Raw Telegram inbox payloads are operationally
 sensitive and are neither returned by public APIs nor displayed in Django admin.
+
+## Phase 3 economic and progression foundation
+
+Phase 3 adds explicit `DRAFT`, `ACTIVE`, `CLOSED`, and `ARCHIVED` Season records. A
+PostgreSQL partial unique constraint permits at most one active Season, and reward settlement
+also requires the event time to be inside its half-open `[starts_at, ends_at)` window. Season
+activation is an explicit service/admin operation; automatic transition and season close are
+not included.
+
+One append-only `RewardLedger` row is the canonical point event. Its `player_amount` updates
+both the persistent Lifetime Points projection and that event's `PlayerSeason.season_points`
+projection in one database transaction. Season changes never reset or copy points into
+Lifetime Points. Globally unique idempotency keys make matching retries safe; reuse with a
+materially different player, source, context, amount, Season, or config version is rejected.
+PostgreSQL row locks serialize a player's projection updates, and reconciliation can rebuild
+both projections solely from the ledger.
+
+`GameConfigVersion` stores complete effective-dated snapshots. Publishing validates integer,
+ascending Level and Dexo thresholds and records a canonical checksum. Published identity,
+effective time, and payload are immutable. Level, integer progress-to-next-Level values, and
+Dexo stage are derived from Lifetime Points and the effective snapshot; stale per-player
+derived projections refresh lazily without rewriting the ledger.
+
+Protected Mini App reads use `Authorization: tma <raw Telegram initData>`. The server verifies
+Telegram's signature and age and resolves the canonical Player; no client-supplied Player ID
+is accepted. `GET /api/v1/bootstrap` returns only current Player, progression, active Season,
+and safe config-version state. `GET /api/v1/rewards/history` provides bounded, stable,
+Player-private ledger pagination without config payloads, idempotency keys, or metadata.
+
+Season-close orchestration, ranking freeze, and final DLX allocation are explicitly not part
+of Phase 3. Daily, Mission, Typing, Referral, Clan, Treasury, and ranking reward products are
+also deferred to their approved later phases.
