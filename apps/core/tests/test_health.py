@@ -1,9 +1,13 @@
+import asyncio
 from unittest.mock import patch
 
 import pytest
-from django.test import Client
+import structlog
+from django.http import HttpRequest, HttpResponse
+from django.test import AsyncClient, Client
 
 from apps.core.health import readiness_status
+from apps.core.middleware import RequestContextMiddleware
 
 
 def test_liveness_is_independent_and_deterministic(client: Client) -> None:
@@ -47,3 +51,51 @@ def test_dependency_exception_details_are_not_returned() -> None:
 def test_request_id_is_bounded(client: Client) -> None:
     response = client.get("/health/live", headers={"X-Request-ID": "x" * 1000})
     assert len(response.headers["X-Request-ID"]) == 32
+
+
+def test_request_context_is_cleared_when_sync_handler_raises() -> None:
+    request = HttpRequest()
+
+    def failing_handler(request: HttpRequest) -> HttpResponse:
+        assert structlog.contextvars.get_contextvars()["request_id"]
+        raise RuntimeError("downstream failure")
+
+    middleware = RequestContextMiddleware(failing_handler)
+    with pytest.raises(RuntimeError, match="downstream failure"):
+        middleware(request)
+    assert structlog.contextvars.get_contextvars() == {}
+
+
+def test_request_context_supports_async_handler_and_cleans_up() -> None:
+    request = HttpRequest()
+    request.META["HTTP_X_REQUEST_ID"] = "safe-async-request-id"
+
+    async def async_handler(request: HttpRequest) -> HttpResponse:
+        assert structlog.contextvars.get_contextvars()["request_id"] == "safe-async-request-id"
+        return HttpResponse()
+
+    middleware = RequestContextMiddleware(async_handler)
+    response = asyncio.run(middleware(request))
+    assert response.headers["X-Request-ID"] == "safe-async-request-id"
+    assert structlog.contextvars.get_contextvars() == {}
+
+
+def test_request_context_middleware_preserves_async_request_stack() -> None:
+    async def request_live() -> None:
+        response = await AsyncClient().get(
+            "/health/live", headers={"X-Request-ID": "async-stack-request"}
+        )
+        assert response.status_code == 200
+        assert response.headers["X-Request-ID"] == "async-stack-request"
+
+    asyncio.run(request_live())
+
+
+@pytest.mark.django_db
+def test_real_readiness_integration(client: Client) -> None:
+    response = client.get("/health/ready")
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ready",
+        "dependencies": {"postgresql": "ok", "redis": "ok", "rabbitmq": "ok"},
+    }

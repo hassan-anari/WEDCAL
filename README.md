@@ -79,4 +79,6 @@ does not fall back to SQLite.
 
 To apply formatting intentionally, run `uv run ruff format .`. Never commit `.env`; production
 uses `dexo_land.settings.production` and refuses to load without `DJANGO_SECRET_KEY` and
-`DJANGO_ALLOWED_HOSTS`.
+`DJANGO_ALLOWED_HOSTS`, complete `POSTGRES_*` connection settings, `REDIS_URL`, and
+`CELERY_BROKER_URL`. Runtime entry points also require `DJANGO_SETTINGS_MODULE` explicitly;
+only `manage.py` defaults to local settings for developer convenience.

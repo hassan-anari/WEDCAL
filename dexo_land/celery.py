@@ -2,7 +2,7 @@ import os
 
 from celery import Celery
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dexo_land.settings.local")
+os.environ["DJANGO_SETTINGS_MODULE"]
 
 app = Celery("dexo_land")
 app.config_from_object("django.conf:settings", namespace="CELERY")

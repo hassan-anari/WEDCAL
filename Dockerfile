@@ -9,7 +9,10 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 FROM python:3.13-slim AS runtime
 ENV PATH="/app/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
-RUN groupadd --system app && useradd --system --gid app --home-dir /app app
+RUN groupadd --system app \
+    && useradd --system --gid app --home-dir /app app \
+    && mkdir -p /app/run \
+    && chown app:app /app/run
 WORKDIR /app
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 COPY --chown=app:app . .

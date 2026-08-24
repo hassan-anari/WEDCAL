@@ -87,3 +87,14 @@ jobs:
       - run: cp .env.example .env
       - run: docker compose config --quiet
       - run: docker build --tag dexo-land:${{ github.sha }} .
+      - name: Start and smoke test application services
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'docker compose logs; docker compose down --volumes' EXIT
+          docker compose up --build --detach --wait
+          sleep 10
+          test "$(docker compose ps --status running --services | grep -Ec '^(api|worker|beat)$')" -eq 3
+          docker compose exec -T beat test -w /app/run
+          curl --fail --silent --show-error http://localhost:8000/health/live
+          curl --fail --silent --show-error http://localhost:8000/health/ready
