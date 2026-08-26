@@ -38,6 +38,7 @@ class CreatorGroupRegistration(models.Model):
     creator_verified_at = models.DateTimeField(null=True, blank=True)
     last_verification_error = models.CharField(max_length=100, blank=True)
     next_verification_at = models.DateTimeField(default=timezone.now, db_index=True)
+    reward_eligible_since = models.DateTimeField(null=True, blank=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

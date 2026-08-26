@@ -11,11 +11,6 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="player",
-            name="anti_sybil_passed",
-            field=models.BooleanField(default=True),
-        ),
-        migrations.AddField(
-            model_name="player",
             name="moderation_state",
             field=models.CharField(
                 choices=[

@@ -2,7 +2,7 @@ import copy
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from django.core.exceptions import ValidationError
@@ -199,7 +199,10 @@ def test_network_boundaries_duplicates_self_and_retention(world) -> None:  # typ
         last_seen_at=AT,
     )
     registration = CreatorGroupRegistration.objects.create(
-        creator=creator, group=group, state=CreatorGroupRegistration.State.ACTIVE
+        creator=creator,
+        group=group,
+        state=CreatorGroupRegistration.State.ACTIVE,
+        reward_eligible_since=AT - timedelta(days=1),
     )
     short = record_activity(
         registration=registration,
@@ -321,7 +324,10 @@ def test_creator_scheduler_settles_600_chars_with_two_speakers_once(world) -> No
         last_seen_at=AT,
     )
     registration = CreatorGroupRegistration.objects.create(
-        creator=creator, group=group, state=CreatorGroupRegistration.State.ACTIVE
+        creator=creator,
+        group=group,
+        state=CreatorGroupRegistration.State.ACTIVE,
+        reward_eligible_since=AT - timedelta(days=1),
     )
     for message_id, sender in enumerate((first, first, second), start=1):
         activity = record_activity(
@@ -350,7 +356,10 @@ def test_out_of_order_future_message_does_not_create_duplicate_signal(world) -> 
         last_seen_at=AT,
     )
     registration = CreatorGroupRegistration.objects.create(
-        creator=creator, group=group, state=CreatorGroupRegistration.State.ACTIVE
+        creator=creator,
+        group=group,
+        state=CreatorGroupRegistration.State.ACTIVE,
+        reward_eligible_since=AT - timedelta(days=1),
     )
     newer = record_activity(
         registration=registration,
@@ -384,7 +393,10 @@ def test_late_activity_is_explicit_after_grace_finalization(world) -> None:  # t
         last_seen_at=AT,
     )
     registration = CreatorGroupRegistration.objects.create(
-        creator=creator, group=group, state=CreatorGroupRegistration.State.ACTIVE
+        creator=creator,
+        group=group,
+        state=CreatorGroupRegistration.State.ACTIVE,
+        reward_eligible_since=AT - timedelta(days=1),
     )
     for message_id, sender in ((1, first), (2, second)):
         record_activity(
@@ -420,7 +432,10 @@ def test_closed_season_window_has_durable_deferred_outcome(world) -> None:  # ty
         last_seen_at=AT,
     )
     registration = CreatorGroupRegistration.objects.create(
-        creator=creator, group=group, state=CreatorGroupRegistration.State.ACTIVE
+        creator=creator,
+        group=group,
+        state=CreatorGroupRegistration.State.ACTIVE,
+        reward_eligible_since=AT - timedelta(days=1),
     )
     record_activity(
         registration=registration,
@@ -504,7 +519,10 @@ def test_future_speaker_reward_is_deterministic_and_referral_ineligible(world) -
         last_seen_at=AT,
     )
     registration = CreatorGroupRegistration.objects.create(
-        creator=creator, group=group, state=CreatorGroupRegistration.State.ACTIVE
+        creator=creator,
+        group=group,
+        state=CreatorGroupRegistration.State.ACTIVE,
+        reward_eligible_since=AT - timedelta(days=1),
     )
     activity = record_activity(
         registration=registration,
@@ -564,3 +582,176 @@ def test_transient_creator_verification_persists_retry_schedule(world, monkeypat
     registration.refresh_from_db()
     assert registration.last_verification_error == "timeout"
     assert registration.next_verification_at == AT + timedelta(minutes=5)
+
+
+@pytest.mark.django_db
+def test_delayed_closed_season_activity_preserves_historical_season(world) -> None:  # type: ignore[no-untyped-def]
+    config, season, player = world
+    creator, speaker = player(1801), player(1802)
+    group = TelegramGroup.objects.create(
+        telegram_chat_id=-1801,
+        chat_type="supergroup",
+        is_monitored=True,
+        first_seen_at=AT,
+        last_seen_at=AT,
+    )
+    registration = CreatorGroupRegistration.objects.create(
+        creator=creator,
+        group=group,
+        state=CreatorGroupRegistration.State.ACTIVE,
+        reward_eligible_since=AT - timedelta(days=1),
+    )
+    Season.objects.filter(pk=season.pk).update(status=Season.Status.CLOSED)
+    activity = record_activity(
+        registration=registration,
+        sender=speaker,
+        message_id=1,
+        update_id=1,
+        text="historical delayed activity",
+        observed_at=AT,
+    )
+    assert activity and activity.season_id == season.pk
+    assert settle_completed_windows(now=AT + timedelta(minutes=26)) == 1
+    outcome = CreatorWindowSettlement.objects.get(
+        registration=registration, season=season, config_version=config
+    )
+    assert outcome.state == CreatorWindowSettlement.State.DEFERRED_SEASON_CLOSE
+
+
+@pytest.mark.django_db
+def test_event_time_creator_eligibility_fails_closed_before_activation_and_after_pause(
+    world: Any,
+) -> None:
+    _, _, player = world
+    creator, speaker = player(1811), player(1812)
+    group = TelegramGroup.objects.create(
+        telegram_chat_id=-1811,
+        chat_type="supergroup",
+        is_monitored=True,
+        first_seen_at=AT,
+        last_seen_at=AT,
+    )
+    registration = CreatorGroupRegistration.objects.create(
+        creator=creator,
+        group=group,
+        state=CreatorGroupRegistration.State.ACTIVE,
+        reward_eligible_since=AT + timedelta(minutes=5),
+    )
+    before = record_activity(
+        registration=registration,
+        sender=speaker,
+        message_id=1,
+        update_id=1,
+        text="observed before activation",
+        observed_at=AT,
+    )
+    assert before and before.rewardable_chars == 0 and not before.program_active
+    registration.state = CreatorGroupRegistration.State.ADMIN_REQUIRED
+    registration.reward_eligible_since = None
+    registration.save(update_fields=("state", "reward_eligible_since", "updated_at"))
+    after = record_activity(
+        registration=registration,
+        sender=speaker,
+        message_id=2,
+        update_id=2,
+        text="observed after pause state",
+        observed_at=AT + timedelta(minutes=6),
+    )
+    assert after and after.rewardable_chars == 0 and not after.program_active
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("blocked_party", "state"),
+    [
+        ("inviter", Player.ModerationState.SUSPENDED),
+        ("inviter", Player.ModerationState.BANNED),
+        ("invitee", Player.ModerationState.SUSPENDED),
+        ("invitee", Player.ModerationState.BANNED),
+    ],
+)
+def test_referral_activation_blocks_moderated_party(world, blocked_party: str, state: str) -> None:  # type: ignore[no-untyped-def]
+    config, _, player = world
+    inviter, invitee = player(1821), player(1822)
+    relation = attribute_start(invitee, get_or_create_code(inviter).code, at=AT)
+    assert relation
+    PlayerProgression.objects.create(
+        player=invitee,
+        lifetime_points=2500,
+        level=5,
+        dexo_stage="explorer",
+        config_version=config,
+    )
+    blocked = inviter if blocked_party == "inviter" else invitee
+    blocked.moderation_state = state
+    blocked.save(update_fields=("moderation_state",))
+    assert activate_relation(relation.pk, at=AT) is False
+    assert RewardLedger.objects.count() == 0
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("blocked_party", "state"),
+    [
+        ("inviter", Player.ModerationState.SUSPENDED),
+        ("inviter", Player.ModerationState.BANNED),
+        ("invitee", Player.ModerationState.SUSPENDED),
+        ("invitee", Player.ModerationState.BANNED),
+    ],
+)
+def test_passive_share_blocks_moderated_party_and_uses_source_config(
+    world: Any, blocked_party: str, state: str
+) -> None:
+    config, season, player = world
+    inviter, invitee = player(1831), player(1832)
+    ReferralRelation.objects.create(
+        inviter=inviter,
+        invitee=invitee,
+        status=ReferralRelation.Status.VERIFIED,
+        attributed_at=AT - timedelta(days=2),
+        verified_at=AT - timedelta(days=1),
+        verified_config=config,
+    )
+    blocked = inviter if blocked_party == "inviter" else invitee
+    blocked.moderation_state = state
+    blocked.save(update_fields=("moderation_state",))
+    source = RewardLedger.objects.create(
+        player=invitee,
+        season=season,
+        source_type="DAILY",
+        source_id=f"blocked-{blocked_party}-{state}",
+        context="DAILY",
+        gross_amount=100,
+        player_amount=100,
+        config_version=config,
+        idempotency_key=f"blocked-{blocked_party}-{state}",
+        occurred_at=AT,
+    )
+    outcome = process_source_reward(source)
+    assert outcome.amount == 0 and outcome.share_reward is None
+    assert outcome.source_reward.config_version_id == config.pk
+
+
+@pytest.mark.django_db
+def test_referral_api_tiers_are_derived_from_effective_config(world, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from django.http import HttpRequest
+
+    from apps.referrals.api import referrals as referral_api
+
+    _, _, player = world
+    inviter = player(1841)
+    for offset in range(5):
+        ReferralRelation.objects.create(
+            inviter=inviter,
+            invitee=player(1850 + offset),
+            status=ReferralRelation.Status.VERIFIED,
+            attributed_at=AT,
+            verified_at=AT,
+        )
+    monkeypatch.setattr("apps.referrals.services.settings.TELEGRAM_BOT_USERNAME", "dexo_bot")
+    request = HttpRequest()
+    request.auth = inviter  # type: ignore[attr-defined]
+    payload = referral_api(request)
+    assert payload["current_tier"] == "SILVER"
+    assert payload["current_share_bps"] == 500
+    assert payload["next_tier"] == {"key": "GOLD", "min_verified_referrals": 15, "share_bps": 700}

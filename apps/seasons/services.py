@@ -34,6 +34,23 @@ def resolve_current_season(*, at: datetime, required: bool = True) -> Season | N
     return season
 
 
+def resolve_historical_season(*, at: datetime, required: bool = True) -> Season | None:
+    seasons = list(
+        Season.objects.filter(
+            starts_at__lte=at,
+            ends_at__gt=at,
+            status__in=(Season.Status.ACTIVE, Season.Status.CLOSED, Season.Status.ARCHIVED),
+        ).order_by("pk")[:2]
+    )
+    if len(seasons) > 1:
+        raise ValidationError("More than one historical Season contains the timestamp")
+    if not seasons:
+        if required:
+            raise NoActiveSeason("No historical Season contains the timestamp")
+        return None
+    return seasons[0]
+
+
 def activate_season(season: Season) -> Season:
     with transaction.atomic():
         season = (

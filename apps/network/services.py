@@ -4,13 +4,17 @@ import unicodedata
 from datetime import UTC, datetime, timedelta
 
 from django.conf import settings
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models import Sum
 from django.utils import timezone
 
 from apps.core.periods import resolve_daily_period
 from apps.game_config.models import GameConfigVersion
-from apps.game_config.services import resolve_effective_game_config, resolve_game_config_version
+from apps.game_config.services import (
+    ResolvedGameConfig,
+    resolve_effective_game_config,
+    resolve_game_config_version,
+)
 from apps.network.models import (
     CreatorDailyAllowance,
     CreatorGroupRegistration,
@@ -21,7 +25,7 @@ from apps.network.models import (
 from apps.players.models import Player
 from apps.rewards.services import settle_player_reward
 from apps.seasons.models import Season
-from apps.seasons.services import resolve_current_season
+from apps.seasons.services import resolve_current_season, resolve_historical_season
 from apps.telegram.bot_api import get_chat_member
 from apps.telegram.models import TelegramGroup
 
@@ -153,6 +157,11 @@ def verify_registration(registration_id: int) -> str:
         ):
             state = CreatorGroupRegistration.State.ADMIN_REQUIRED
         locked.state = state
+        if state == CreatorGroupRegistration.State.ACTIVE:
+            if locked.reward_eligible_since is None:
+                locked.reward_eligible_since = timezone.now()
+        else:
+            locked.reward_eligible_since = None
         locked.next_verification_at = timezone.now() + timedelta(minutes=5)
         locked.last_verification_error = ""
         if state == CreatorGroupRegistration.State.ACTIVE:
@@ -170,6 +179,23 @@ def fingerprints(text: str) -> tuple[str, str]:
     ).hexdigest()
 
 
+def _window_lock_key(
+    registration_id: int, season_id: int | None, config_id: int, window_start: datetime
+) -> int:
+    raw = f"{registration_id}:{season_id or 0}:{config_id}:{window_start.isoformat()}".encode()
+    return int.from_bytes(hashlib.sha256(raw).digest()[:8], "big", signed=True)
+
+
+def _lock_window(
+    registration_id: int, season_id: int | None, config_id: int, window_start: datetime
+) -> None:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(%s)",
+            [_window_lock_key(registration_id, season_id, config_id, window_start)],
+        )
+
+
 def record_activity(
     *,
     registration: CreatorGroupRegistration,
@@ -182,13 +208,50 @@ def record_activity(
     control: bool = False,
 ) -> NetworkActivity | None:
     config = resolve_effective_game_config(observed_at)
-    season = resolve_current_season(at=observed_at, required=False)
+    season = resolve_historical_season(at=observed_at, required=False)
+    start = window_start_for(observed_at, config.network.window_seconds)
+    with transaction.atomic():
+        _lock_window(registration.pk, season.pk if season else None, config.id, start)
+        return _record_activity_locked(
+            registration=registration,
+            sender=sender,
+            message_id=message_id,
+            update_id=update_id,
+            text=text,
+            observed_at=observed_at,
+            sender_is_bot=sender_is_bot,
+            control=control,
+            config=config,
+            season=season,
+            start=start,
+        )
+
+
+def _record_activity_locked(
+    *,
+    registration: CreatorGroupRegistration,
+    sender: Player | None,
+    message_id: int,
+    update_id: int,
+    text: str | None,
+    observed_at: datetime,
+    sender_is_bot: bool,
+    control: bool,
+    config: ResolvedGameConfig,
+    season: Season | None,
+    start: datetime,
+) -> NetworkActivity | None:
     body = text or ""
     exact, normalized = fingerprints(body) if body else ("", "")
     classification = NetworkActivity.Classification.REJECTED
     rewardable = 0
-    active = config.network.enabled and registration.state == CreatorGroupRegistration.State.ACTIVE
-    start = window_start_for(observed_at, config.network.window_seconds)
+    registration = CreatorGroupRegistration.objects.get(pk=registration.pk)
+    active = bool(
+        config.network.enabled
+        and registration.state == CreatorGroupRegistration.State.ACTIVE
+        and registration.reward_eligible_since
+        and observed_at >= registration.reward_eligible_since
+    )
     finalized = CreatorWindowSettlement.objects.filter(
         registration=registration,
         season=season,
@@ -274,6 +337,7 @@ def record_activity(
                 and rewardable > 0
                 and sender
                 and season
+                and season.status == Season.Status.ACTIVE
             ):
                 reward, _ = settle_player_reward(
                     player=sender,
@@ -295,6 +359,14 @@ def record_activity(
 
 
 def settle_window(
+    registration_id: int, window_start: datetime, config_id: int, season_id: int
+) -> CreatorWindowSettlement:
+    with transaction.atomic():
+        _lock_window(registration_id, season_id, config_id, window_start)
+        return _settle_window_locked(registration_id, window_start, config_id, season_id)
+
+
+def _settle_window_locked(
     registration_id: int, window_start: datetime, config_id: int, season_id: int
 ) -> CreatorWindowSettlement:
     config_model = GameConfigVersion.objects.get(pk=config_id)

@@ -5,7 +5,11 @@ from django.conf import settings
 from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
 
-from apps.game_config.services import ResolvedGameConfig, resolve_effective_game_config
+from apps.game_config.services import (
+    ResolvedGameConfig,
+    resolve_effective_game_config,
+    resolve_game_config_version,
+)
 from apps.players.models import Player
 from apps.progression.models import PlayerProgression
 from apps.progression.services import calculate_progression
@@ -168,6 +172,11 @@ def referral_activation_is_safe(
         and relation.invitee.first_seen_at
         <= at - timedelta(hours=config.referral.min_account_age_hours)
         and relation.invitee.moderation_state not in config.referral.blocked_moderation_states
+        and relation.inviter.moderation_state not in config.referral.blocked_moderation_states
+        and relation.invitee.moderation_state
+        not in {Player.ModerationState.SUSPENDED, Player.ModerationState.BANNED}
+        and relation.inviter.moderation_state
+        not in {Player.ModerationState.SUSPENDED, Player.ModerationState.BANNED}
     )
 
 
@@ -184,11 +193,22 @@ def process_source_reward(source: RewardLedger) -> ReferralShareOutcome:
         )
         .first()
     )
-    config = resolve_effective_game_config(source.occurred_at)
+    config = resolve_game_config_version(source.config_version_id)
     if (
         not config.referral.enabled
         or source.source_type in {"REFERRAL", "CREATOR", "NETWORK_SPEAKER"}
         or source.season.status != "ACTIVE"
+        or source.player.moderation_state in config.referral.blocked_moderation_states
+        or source.player.moderation_state
+        in {Player.ModerationState.SUSPENDED, Player.ModerationState.BANNED}
+        or (
+            relation
+            and (
+                relation.inviter.moderation_state in config.referral.blocked_moderation_states
+                or relation.inviter.moderation_state
+                in {Player.ModerationState.SUSPENDED, Player.ModerationState.BANNED}
+            )
+        )
     ):
         if source.season.status != "ACTIVE":
             raise DeferredReferralSettlement("Source Season is closed")

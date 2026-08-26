@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("game_config", "0001_initial"),
-        ("players", "0003_player_anti_sybil_passed_player_moderation_state"),
+        ("players", "0003_player_moderation_state"),
         ("rewards", "0003_rewardsettlementoutbox"),
     ]
 

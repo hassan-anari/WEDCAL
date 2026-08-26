@@ -315,7 +315,10 @@ def _observe_bot_membership(event: BotMembershipChanged, telegram_update_id: int
 
         CreatorGroupRegistration.objects.filter(
             group=group, state=CreatorGroupRegistration.State.ACTIVE
-        ).update(state=CreatorGroupRegistration.State.ADMIN_REQUIRED)
+        ).update(
+            state=CreatorGroupRegistration.State.ADMIN_REQUIRED,
+            reward_eligible_since=None,
+        )
 
 
 def _observe_user_membership(event: UserMembershipChanged, telegram_update_id: int) -> None:
@@ -366,4 +369,7 @@ def _observe_user_membership(event: UserMembershipChanged, telegram_update_id: i
 
         CreatorGroupRegistration.objects.filter(
             pk=registration.pk, state=CreatorGroupRegistration.State.ACTIVE
-        ).update(state=CreatorGroupRegistration.State.ADMIN_REQUIRED)
+        ).update(
+            state=CreatorGroupRegistration.State.ADMIN_REQUIRED,
+            reward_eligible_since=None,
+        )
