@@ -3,8 +3,14 @@ name: Phase 1 Foundation
 on:
   pull_request:
     branches: [main]
+
   push:
-    branches: [main, "codex/**", "ai/**"]
+    branches:
+      - main
+      - "codex/**"
+      - "ai/**"
+
+  workflow_dispatch:ذر
 
 permissions:
   contents: read
