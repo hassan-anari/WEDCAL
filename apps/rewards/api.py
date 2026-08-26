@@ -76,6 +76,42 @@ def bootstrap(request: HttpRequest) -> dict[str, Any]:
             "ends_at": season.ends_at,
             "season_points": player_season.season_points if player_season else 0,
         }
+    daily_data = None
+    typing_data = None
+    missions_data = None
+    if season and resolved.daily.enabled:
+        from apps.daily.services import get_daily_state
+
+        daily = get_daily_state(player, now, resolved)
+        daily_data = {
+            "claimable": daily.claimable,
+            "streak": daily.streak,
+            "cycle_day": daily.cycle_day,
+            "reward_amount": daily.reward_amount,
+            "next_reset": daily.period_end,
+        }
+    if season and resolved.typing.enabled:
+        from apps.typing_game.services import get_typing_state
+
+        typing = get_typing_state(player, now)
+        typing_data = {
+            "attempts_used": typing.attempts_used,
+            "attempts_remaining": typing.attempts_remaining,
+            "claimable_balance": typing.claimable_balance,
+        }
+    if season and resolved.missions.enabled:
+        from apps.missions.models import PlayerMission
+        from apps.missions.services import list_missions
+
+        missions = list_missions(player, now)
+        ready = PlayerMission.objects.filter(
+            player=player, status=PlayerMission.Status.REWARD_READY
+        ).count()
+        missions_data = {
+            "available_count": sum(item["state"] == "AVAILABLE" for item in missions),
+            "reward_ready_count": ready,
+            "unclaimed_count": ready,
+        }
     return {
         "player": {
             "telegram_user_id": player.telegram_user_id,
@@ -94,4 +130,7 @@ def bootstrap(request: HttpRequest) -> dict[str, Any]:
         },
         "season": season_data,
         "config": {"version": resolved.version, "effective_at": resolved.effective_at},
+        "daily": daily_data,
+        "typing": typing_data,
+        "missions": missions_data,
     }

@@ -1,0 +1,22 @@
+from django.contrib import admin
+
+from apps.missions.models import MissionDefinition, PlayerMission
+
+
+@admin.register(MissionDefinition)
+class MissionDefinitionAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
+    list_display = ("key", "version", "verification_family", "repeat_policy", "enabled")
+    list_filter = ("enabled", "verification_family", "repeat_policy")
+
+
+@admin.register(PlayerMission)
+class PlayerMissionAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
+    list_display = ("player", "definition", "eligibility_period", "status", "reward_amount")
+    list_filter = ("status", "definition__verification_family", "season", "config_version")
+    readonly_fields = tuple(field.name for field in PlayerMission._meta.fields)
+
+    def has_add_permission(self, request):  # type: ignore[no-untyped-def]
+        return False
+
+    def has_delete_permission(self, request, obj=None):  # type: ignore[no-untyped-def]
+        return False

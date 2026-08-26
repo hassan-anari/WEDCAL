@@ -1,0 +1,284 @@
+import hashlib
+import secrets
+from dataclasses import dataclass
+from datetime import datetime
+
+import structlog
+from django.db import transaction
+from django.db.models import Q
+
+from apps.core.periods import resolve_daily_period
+from apps.game_config.models import GameConfigVersion
+from apps.game_config.services import resolve_effective_game_config
+from apps.missions.models import MissionDefinition, PlayerMission
+from apps.players.models import Player
+from apps.rewards.services import settle_player_reward
+from apps.seasons.services import resolve_current_season
+from apps.telegram.bot_api import TelegramResult, get_chat_member
+from apps.typing_game.models import TypingAttempt
+
+logger = structlog.get_logger(__name__)
+
+
+class MissionUnavailable(LookupError):
+    pass
+
+
+class MissionVerificationUnavailable(RuntimeError):
+    def __init__(self, category: str, retry_after: int | None = None):
+        self.category, self.retry_after = category, retry_after
+        super().__init__("Mission verification is temporarily unavailable")
+
+
+@dataclass(frozen=True, slots=True)
+class MissionStart:
+    progress: PlayerMission
+    open_token: str | None
+    destination_url: str | None
+
+
+def _definition(key: str, at: datetime) -> MissionDefinition:
+    definition = (
+        MissionDefinition.objects.filter(key=key, enabled=True)
+        .filter(
+            Q(available_from__isnull=True) | Q(available_from__lte=at),
+            Q(available_until__isnull=True) | Q(available_until__gt=at),
+        )
+        .order_by("-version")
+        .first()
+    )
+    if definition is None:
+        raise MissionUnavailable("Mission is unavailable")
+    return definition
+
+
+def _eligibility(definition: MissionDefinition, at: datetime, timezone_name: str) -> str:
+    if definition.repeat_policy == MissionDefinition.Repeat.DAILY:
+        return resolve_daily_period(at, timezone_name).key
+    return "definition"
+
+
+def list_missions(player: Player, at: datetime) -> list[dict[str, object]]:
+    resolved = resolve_effective_game_config(at)
+    if not resolved.missions.enabled:
+        raise MissionUnavailable("Missions are unavailable in the effective configuration")
+    definitions = list(
+        MissionDefinition.objects.filter(enabled=True)
+        .filter(
+            Q(available_from__isnull=True) | Q(available_from__lte=at),
+            Q(available_until__isnull=True) | Q(available_until__gt=at),
+        )
+        .order_by("key", "-version")
+    )
+    latest: dict[str, MissionDefinition] = {}
+    for definition in definitions:
+        latest.setdefault(definition.key, definition)
+    identities = [
+        (row.pk, _eligibility(row, at, resolved.daily.reset_timezone)) for row in latest.values()
+    ]
+    progress = {
+        (row.definition_id, row.eligibility_period): row
+        for row in PlayerMission.objects.filter(
+            player=player, definition_id__in=[x[0] for x in identities]
+        )
+    }
+    result = []
+    for definition in latest.values():
+        rule = resolved.missions.definition(definition.key)
+        period = _eligibility(definition, at, resolved.daily.reset_timezone)
+        row = progress.get((definition.pk, period))
+        result.append(
+            {
+                "key": definition.key,
+                "version": definition.version,
+                "title": definition.title,
+                "description": definition.description,
+                "verification_family": definition.verification_family,
+                "repeat_policy": definition.repeat_policy,
+                "reward_amount": rule.reward_points,
+                "state": row.status if row else "AVAILABLE",
+            }
+        )
+    return result
+
+
+def start_mission(player: Player, key: str, at: datetime) -> MissionStart:
+    resolved = resolve_effective_game_config(at)
+    if not resolved.missions.enabled:
+        raise MissionUnavailable("Missions are unavailable in the effective configuration")
+    definition = _definition(key, at)
+    resolved.missions.definition(key)
+    eligibility = _eligibility(definition, at, resolved.daily.reset_timezone)
+    with transaction.atomic():
+        player = Player.objects.select_for_update().get(pk=player.pk)
+        progress, created = PlayerMission.objects.get_or_create(
+            player=player, definition=definition, eligibility_period=eligibility
+        )
+        token = None
+        if (
+            definition.verification_family == MissionDefinition.Verification.TIMED_EXTERNAL
+            and progress.status == PlayerMission.Status.IN_PROGRESS
+        ):
+            token = secrets.token_urlsafe(32)
+            if created:
+                progress.opened_at = at
+            progress.open_token_hash = hashlib.sha256(token.encode()).hexdigest()
+            progress.save(update_fields=["opened_at", "open_token_hash", "updated_at"])
+    logger.info(
+        "mission_started",
+        player_id=player.pk,
+        mission_key=key,
+        definition_version=definition.version,
+    )
+    return MissionStart(
+        progress,
+        token,
+        definition.verification_parameters.get("destination_url")
+        if definition.verification_family == MissionDefinition.Verification.TIMED_EXTERNAL
+        else None,
+    )
+
+
+def _mark_ready(player: Player, progress_id: int, at: datetime) -> PlayerMission:
+    resolved = resolve_effective_game_config(at)
+    season = resolve_current_season(at=at)
+    with transaction.atomic():
+        player = Player.objects.select_for_update().get(pk=player.pk)
+        progress = (
+            PlayerMission.objects.select_for_update()
+            .select_related("definition")
+            .get(pk=progress_id, player=player)
+        )
+        if progress.status in (PlayerMission.Status.REWARD_READY, PlayerMission.Status.CLAIMED):
+            return progress
+        rule = resolved.missions.definition(progress.definition.key)
+        progress.status = PlayerMission.Status.REWARD_READY
+        progress.season, progress.config_version = (
+            season,
+            GameConfigVersion.objects.get(pk=resolved.id),
+        )
+        progress.reward_amount, progress.verified_at = rule.reward_points, at
+        progress.save(
+            update_fields=[
+                "status",
+                "season",
+                "config_version",
+                "reward_amount",
+                "verified_at",
+                "updated_at",
+            ]
+        )
+    logger.info("mission_verified", player_id=player.pk, mission_key=progress.definition.key)
+    return progress
+
+
+def verify_mission(
+    player: Player, key: str, at: datetime, token: str | None = None
+) -> PlayerMission:
+    resolved = resolve_effective_game_config(at)
+    definition = _definition(key, at)
+    eligibility = _eligibility(definition, at, resolved.daily.reset_timezone)
+    progress = (
+        PlayerMission.objects.select_related("definition")
+        .filter(player=player, definition=definition, eligibility_period=eligibility)
+        .first()
+    )
+    if progress is None:
+        progress = start_mission(player, key, at).progress
+    if progress.status != PlayerMission.Status.IN_PROGRESS:
+        return progress
+    if definition.verification_family == MissionDefinition.Verification.TIMED_EXTERNAL:
+        if not token or not secrets.compare_digest(
+            hashlib.sha256(token.encode()).hexdigest(), progress.open_token_hash
+        ):
+            raise ValueError("Invalid mission open token")
+        if (
+            progress.opened_at is None
+            or (at - progress.opened_at).total_seconds()
+            < resolved.missions.timed_external_min_dwell_seconds
+        ):
+            return progress
+    elif definition.verification_family == MissionDefinition.Verification.TELEGRAM:
+        chat_id = definition.verification_parameters.get("telegram_chat_id")
+        if type(chat_id) is not int:
+            raise MissionUnavailable("Telegram target is not configured")
+        result: TelegramResult = get_chat_member(chat_id, player.telegram_user_id)
+        if not result.ok:
+            logger.warning(
+                "telegram_mission_verification_unavailable",
+                player_id=player.pk,
+                mission_key=key,
+                category=result.category,
+            )
+            raise MissionVerificationUnavailable(result.category or "unknown", result.retry_after)
+        member = result.result or {}
+        user = member.get("user")
+        if not isinstance(user, dict) or user.get("id") != player.telegram_user_id:
+            raise ValueError("Telegram returned a different user")
+        status = member.get("status")
+        accepted = status in {"creator", "administrator", "member"} or (
+            status == "restricted" and member.get("is_member") is True
+        )
+        if not accepted:
+            return progress
+    else:
+        if definition.key != "typing-session":
+            raise MissionUnavailable("Internal verifier is not implemented")
+        if not TypingAttempt.objects.filter(
+            player=player, reset_period=eligibility, status=TypingAttempt.Status.VALID
+        ).exists():
+            return progress
+    return _mark_ready(player, progress.pk, at)
+
+
+def claim_mission(player: Player, key: str, at: datetime) -> tuple[PlayerMission, bool]:
+    resolved_now = resolve_effective_game_config(at)
+    definition = _definition(key, at)
+    eligibility = _eligibility(definition, at, resolved_now.daily.reset_timezone)
+    with transaction.atomic():
+        player = Player.objects.select_for_update().get(pk=player.pk)
+        progress = (
+            PlayerMission.objects.select_for_update()
+            .select_related("definition")
+            .filter(
+                player=player,
+                definition__key=key,
+                status__in=[PlayerMission.Status.REWARD_READY, PlayerMission.Status.CLAIMED],
+            )
+            .order_by("-verified_at", "-definition__version")
+            .first()
+        )
+        if progress is None:
+            progress = PlayerMission.objects.select_for_update().get(
+                player=player, definition=definition, eligibility_period=eligibility
+            )
+        definition = progress.definition
+        eligibility = progress.eligibility_period
+        if progress.status == PlayerMission.Status.CLAIMED:
+            return progress, False
+        if (
+            progress.status != PlayerMission.Status.REWARD_READY
+            or not progress.verified_at
+            or not progress.config_version_id
+            or not progress.reward_amount
+        ):
+            raise ValueError("Mission reward is not ready")
+        resolved = resolve_effective_game_config(progress.verified_at)
+        ledger, created = settle_player_reward(
+            player=player,
+            source_type="MISSION",
+            source_id=f"{definition.key}:v{definition.version}:{eligibility}",
+            context="MISSION",
+            amount=progress.reward_amount,
+            idempotency_key=f"mission:{player.pk}:{definition.pk}:{eligibility}",
+            occurred_at=progress.verified_at,
+            resolved_config=resolved,
+        )
+        progress.status, progress.claimed_at, progress.reward_ledger = (
+            PlayerMission.Status.CLAIMED,
+            at,
+            ledger,
+        )
+        progress.save(update_fields=["status", "claimed_at", "reward_ledger", "updated_at"])
+    logger.info("mission_claimed", player_id=player.pk, mission_key=key)
+    return progress, created

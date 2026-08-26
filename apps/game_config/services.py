@@ -3,6 +3,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import structlog
 from django.core.exceptions import ValidationError
@@ -33,11 +34,70 @@ class ProgressionConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class DailyConfig:
+    enabled: bool
+    reset_timezone: str
+    reset_hour: int
+    reset_minute: int
+    reward_cycle_points: tuple[int, ...]
+    missed_full_period_resets_streak: bool
+    catch_up_claims_enabled: bool
+
+
+@dataclass(frozen=True, slots=True)
+class MissionRule:
+    key: str
+    verification: str
+    reward_points: int
+    repeat: str
+
+
+@dataclass(frozen=True, slots=True)
+class MissionsConfig:
+    enabled: bool
+    verification_families: tuple[str, ...]
+    timed_external_min_dwell_seconds: int
+    economy_review_required_above_points: int
+    definitions: tuple[MissionRule, ...]
+
+    def definition(self, key: str) -> MissionRule:
+        try:
+            return next(rule for rule in self.definitions if rule.key == key)
+        except StopIteration as exc:
+            raise ValidationError("Mission is absent from effective economy config") from exc
+
+
+@dataclass(frozen=True, slots=True)
+class TypingBracket:
+    threshold: int
+    points: int
+
+
+@dataclass(frozen=True, slots=True)
+class TypingConfig:
+    enabled: bool
+    attempts_per_day: int
+    reset_timezone: str
+    challenge_seconds: int
+    require_full_phrase_completion: bool
+    min_accuracy_bps: int
+    min_wpm: int
+    accuracy_brackets: tuple[TypingBracket, ...]
+    wpm_brackets: tuple[TypingBracket, ...]
+    max_reward_per_attempt: int
+    suspicious_wpm: int
+    reject_wpm: int
+
+
+@dataclass(frozen=True, slots=True)
 class ResolvedGameConfig:
     id: int
     version: str
     effective_at: datetime
     progression: ProgressionConfig
+    daily: DailyConfig
+    missions: MissionsConfig
+    typing: TypingConfig
 
 
 class GameConfigUnavailable(LookupError):
@@ -83,6 +143,186 @@ def parse_progression(payload: dict[str, Any]) -> ProgressionConfig:
     return ProgressionConfig(levels, stages)
 
 
+def _integer(value: object, name: str, *, minimum: int = 0) -> int:
+    if type(value) is not int or value < minimum:
+        raise ValidationError(f"{name} must be an integer >= {minimum}")
+    return value
+
+
+def _boolean(value: object, name: str) -> bool:
+    if type(value) is not bool:
+        raise ValidationError(f"{name} must be a boolean")
+    return value
+
+
+def _timezone(value: object, name: str) -> str:
+    if not isinstance(value, str):
+        raise ValidationError(f"{name} must be an IANA timezone")
+    try:
+        ZoneInfo(value)
+    except ZoneInfoNotFoundError as exc:
+        raise ValidationError(f"{name} must be an IANA timezone") from exc
+    return value
+
+
+def parse_daily(payload: dict[str, Any]) -> DailyConfig:
+    try:
+        raw = payload["daily"]
+        rewards = tuple(_integer(x, "daily reward", minimum=1) for x in raw["reward_cycle_points"])
+        result = DailyConfig(
+            _boolean(raw["enabled"], "daily.enabled"),
+            _timezone(raw["reset_timezone"], "daily.reset_timezone"),
+            _integer(raw["reset_hour"], "daily.reset_hour"),
+            _integer(raw["reset_minute"], "daily.reset_minute"),
+            rewards,
+            _boolean(raw["missed_full_period_resets_streak"], "daily streak reset"),
+            _boolean(raw["catch_up_claims_enabled"], "daily catch-up"),
+        )
+        _boolean(raw["cycle_restarts_after_day_7"], "daily cycle restart")
+        _boolean(raw["streak_counter_continues_after_day_7"], "daily streak continuation")
+    except (KeyError, TypeError) as exc:
+        raise ValidationError("Invalid daily configuration shape") from exc
+    if not rewards or result.reset_hour > 23 or result.reset_minute > 59:
+        raise ValidationError("Daily reset and reward cycle are invalid")
+    return result
+
+
+def parse_missions(payload: dict[str, Any]) -> MissionsConfig:
+    supported = ("INTERNAL", "TELEGRAM", "TIMED_EXTERNAL")
+    repeats = {"ONCE_PER_DEFINITION_VERSION", "DAILY"}
+    try:
+        raw = payload["missions"]
+        families = tuple(raw["verification_families"])
+        definitions = tuple(
+            MissionRule(
+                str(item["id"]),
+                str(item["verification"]),
+                _integer(item["reward_points"], "mission reward", minimum=1),
+                str(item["repeat"]),
+            )
+            for item in raw["initial_definitions"]
+        )
+        bands = raw["reward_bands"]
+        if not isinstance(bands, dict) or not bands:
+            raise TypeError
+        for name, amount in bands.items():
+            if not isinstance(name, str):
+                raise TypeError
+            _integer(amount, "mission reward band", minimum=1)
+        result = MissionsConfig(
+            _boolean(raw["enabled"], "missions.enabled"),
+            families,
+            _integer(raw["timed_external_min_dwell_seconds"], "mission dwell", minimum=1),
+            _integer(raw["economy_review_required_above_points"], "review threshold", minimum=1),
+            definitions,
+        )
+    except (KeyError, TypeError) as exc:
+        raise ValidationError("Invalid missions configuration shape") from exc
+    if (
+        families != supported
+        or not definitions
+        or len({x.key for x in definitions}) != len(definitions)
+    ):
+        raise ValidationError("Mission families or definition identities are invalid")
+    if any(x.verification not in supported or x.repeat not in repeats for x in definitions):
+        raise ValidationError("Unsupported mission verification or repeat policy")
+    if any(x.reward_points > result.economy_review_required_above_points for x in definitions):
+        raise ValidationError("Initial mission exceeds economy review threshold")
+    return result
+
+
+def parse_typing(payload: dict[str, Any]) -> TypingConfig:
+    try:
+        raw = payload["typing"]
+        accuracy = tuple(
+            TypingBracket(
+                _integer(x["min_accuracy_bps"], "accuracy threshold"),
+                _integer(x["points"], "accuracy points"),
+            )
+            for x in raw["accuracy_reward_brackets"]
+        )
+        wpm = tuple(
+            TypingBracket(
+                _integer(x["min_wpm"], "WPM threshold"), _integer(x["points"], "WPM points")
+            )
+            for x in raw["wpm_reward_brackets"]
+        )
+        anti = raw["anti_cheat"]
+        for name in (
+            "completed_invalid_attempt_consumes_quota",
+            "technical_failure_consumes_quota",
+            "claimable_wallet_enabled",
+            "claim_anytime",
+            "auto_settle_at_season_close",
+            "claim_preserves_source_season",
+        ):
+            _boolean(raw[name], f"typing.{name}")
+        for name in (
+            "replayed_attempt_rejected",
+            "impossible_timing_rejected",
+            "suspicious_is_auto_ban",
+        ):
+            _boolean(anti[name], f"typing.anti_cheat.{name}")
+        result = TypingConfig(
+            _boolean(raw["enabled"], "typing.enabled"),
+            _integer(raw["attempts_per_day"], "typing attempts", minimum=1),
+            _timezone(raw["reset_timezone"], "typing.reset_timezone"),
+            _integer(raw["challenge_seconds"], "challenge seconds", minimum=1),
+            _boolean(raw["require_full_phrase_completion"], "full phrase completion"),
+            _integer(raw["min_accuracy_bps"], "minimum accuracy"),
+            _integer(raw["min_wpm"], "minimum WPM", minimum=1),
+            accuracy,
+            wpm,
+            _integer(raw["max_reward_per_attempt"], "maximum reward"),
+            _integer(anti["suspicious_wpm"], "suspicious WPM", minimum=1),
+            _integer(anti["reject_wpm"], "reject WPM", minimum=1),
+        )
+    except (KeyError, TypeError) as exc:
+        raise ValidationError("Invalid typing configuration shape") from exc
+    if result.min_accuracy_bps > 10000 or not accuracy or not wpm:
+        raise ValidationError("Typing thresholds are invalid")
+    if any(b.threshold > 10000 for b in accuracy):
+        raise ValidationError("Accuracy bracket exceeds 10000 bps")
+    if any(b.threshold <= a.threshold for a, b in zip(accuracy, accuracy[1:], strict=False)) or any(
+        b.threshold <= a.threshold for a, b in zip(wpm, wpm[1:], strict=False)
+    ):
+        raise ValidationError("Typing brackets must strictly ascend")
+    if result.suspicious_wpm >= result.reject_wpm:
+        raise ValidationError("Typing anti-cheat thresholds must ascend")
+    if max(x.points for x in accuracy) + max(x.points for x in wpm) > result.max_reward_per_attempt:
+        raise ValidationError("Typing bracket maximum exceeds configured maximum")
+    return result
+
+
+def parse_game_config(
+    payload: dict[str, Any],
+) -> tuple[ProgressionConfig, DailyConfig, MissionsConfig, TypingConfig]:
+    return (
+        parse_progression(payload),
+        parse_daily(payload),
+        parse_missions(payload),
+        parse_typing(payload),
+    )
+
+
+def _parse_resolved(
+    payload: dict[str, Any],
+) -> tuple[ProgressionConfig, DailyConfig, MissionsConfig, TypingConfig]:
+    """Resolve pre-Phase-4 snapshots without rewriting their immutable payloads.
+
+    Feature services fail closed because each compatibility policy is disabled.
+    """
+    progression = parse_progression(payload)
+    if not any(name in payload for name in ("daily", "missions", "typing")):
+        return (
+            progression,
+            DailyConfig(False, "UTC", 0, 0, (), True, False),
+            MissionsConfig(False, ("INTERNAL", "TELEGRAM", "TIMED_EXTERNAL"), 1, 1, ()),
+            TypingConfig(False, 1, "UTC", 1, True, 0, 1, (), (), 0, 1, 2),
+        )
+    return parse_game_config(payload)
+
+
 def publish_game_config(
     config: GameConfigVersion, *, published_at: datetime | None = None
 ) -> GameConfigVersion:
@@ -90,7 +330,10 @@ def publish_game_config(
         config = GameConfigVersion.objects.select_for_update().get(pk=config.pk)
         if config.status != GameConfigVersion.Status.DRAFT:
             raise ValidationError("Only draft configurations can be published")
-        parse_progression(config.payload)
+        if any(name in config.payload for name in ("daily", "missions", "typing")):
+            parse_game_config(config.payload)
+        else:
+            parse_progression(config.payload)
         publication_time = published_at or timezone.now()
         published_configs = GameConfigVersion.objects.select_for_update().filter(
             status=GameConfigVersion.Status.PUBLISHED
@@ -122,6 +365,7 @@ def resolve_effective_game_config(at: datetime) -> ResolvedGameConfig:
     if not configs:
         raise GameConfigUnavailable("No published game configuration is effective")
     config = configs[0]
+    progression, daily, missions, typing = _parse_resolved(config.payload)
     return ResolvedGameConfig(
-        config.pk, config.version, config.effective_at, parse_progression(config.payload)
+        config.pk, config.version, config.effective_at, progression, daily, missions, typing
     )
