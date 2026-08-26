@@ -4,6 +4,7 @@ from typing import Any
 
 import structlog
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import IntegrityError, transaction
 from django.db.models import F
 from django.utils import timezone
@@ -170,7 +171,7 @@ def _lock_telegram_user(telegram_user_id: int) -> None:
 
 def _apply_event(event: object, *, telegram_update_id: int) -> None:
     if isinstance(event, BotStarted):
-        resolve_telegram_player(
+        resolution = resolve_telegram_player(
             event.user,
             Player.FirstSeenSource.BOT_START,
             observed_at=event.observed_at,
@@ -178,6 +179,9 @@ def _apply_event(event: object, *, telegram_update_id: int) -> None:
             start_parameter=event.parameter,
             telegram_update_id=telegram_update_id,
         )
+        from apps.referrals.services import attribute_start
+
+        attribute_start(resolution.player, event.parameter, at=event.observed_at)
     elif isinstance(event, TelegramMessageObserved):
         _observe_message(event, telegram_update_id)
     elif isinstance(event, BotMembershipChanged):
@@ -239,12 +243,33 @@ def _observe_message(event: TelegramMessageObserved, telegram_update_id: int) ->
     if event.chat_type not in TelegramGroup.ChatType.values:
         return
     group = _upsert_group(event.chat, event.observed_at, telegram_update_id)
-    if group.is_monitored and event.sender and not event.sender_is_bot:
-        resolve_telegram_player(
+    if event.sender and not event.sender_is_bot:
+        resolution = resolve_telegram_player(
             event.sender,
             Player.FirstSeenSource.GROUP_ACTIVITY,
             observed_at=event.observed_at,
             telegram_update_id=telegram_update_id,
+        )
+        command = (event.text or "").split(maxsplit=1)
+        if command and command[0].split("@", 1)[0] == "/start" and len(command) == 2:
+            from apps.network.services import consume_registration_token
+
+            consume_registration_token(command[1], resolution.player, group)
+            return
+        try:
+            registration = group.creator_registration
+        except ObjectDoesNotExist:
+            return
+        from apps.network.services import record_activity
+
+        record_activity(
+            registration=registration,
+            sender=resolution.player,
+            message_id=event.message_id,
+            update_id=telegram_update_id,
+            text=event.text,
+            observed_at=event.observed_at,
+            sender_is_bot=event.sender_is_bot,
         )
 
 

@@ -37,6 +37,8 @@ INSTALLED_APPS = [
     "apps.daily",
     "apps.missions",
     "apps.typing_game",
+    "apps.referrals",
+    "apps.network",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -108,11 +110,36 @@ CELERY_BEAT_SCHEDULE: dict[str, Any] = {
 }
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "")
 TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
 telegram_bot_id = os.getenv("TELEGRAM_BOT_ID", "").strip()
 TELEGRAM_BOT_ID = int(telegram_bot_id) if telegram_bot_id else None
 TELEGRAM_INIT_DATA_MAX_AGE_SECONDS = int(os.getenv("TELEGRAM_INIT_DATA_MAX_AGE_SECONDS", "3600"))
 TELEGRAM_INGRESS_RETENTION_SECONDS = int(os.getenv("TELEGRAM_INGRESS_RETENTION_SECONDS", "604800"))
+NETWORK_REGISTRATION_INTENT_TTL_SECONDS = int(
+    os.getenv("NETWORK_REGISTRATION_INTENT_TTL_SECONDS", "900")
+)
+
+CELERY_BEAT_SCHEDULE.update(
+    {
+        "recover-reward-outbox": {
+            "task": "apps.rewards.tasks.recover_reward_outbox",
+            "schedule": 60,
+        },
+        "reconcile-pending-referrals": {
+            "task": "apps.referrals.tasks.reconcile_pending_referrals",
+            "schedule": 300,
+        },
+        "reverify-creator-groups": {
+            "task": "apps.network.tasks.reverify_active_creator_groups",
+            "schedule": 300,
+        },
+        "purge-network-evidence": {
+            "task": "apps.network.tasks.purge_network_evidence",
+            "schedule": 3600,
+        },
+    }
+)
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},

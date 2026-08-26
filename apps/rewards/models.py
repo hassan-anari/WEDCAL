@@ -29,3 +29,21 @@ class RewardLedger(models.Model):
             models.Index(fields=("season", "player"), name="reward_season_player"),
             models.Index(fields=("source_type", "source_id"), name="reward_source"),
         ]
+
+
+class RewardSettlementOutbox(models.Model):
+    class State(models.TextChoices):
+        PENDING = "PENDING", "Pending"
+        PROCESSING = "PROCESSING", "Processing"
+        PROCESSED = "PROCESSED", "Processed"
+
+    reward = models.OneToOneField(RewardLedger, on_delete=models.CASCADE, related_name="outbox")
+    state = models.CharField(
+        max_length=16, choices=State.choices, default=State.PENDING, db_index=True
+    )
+    attempts = models.PositiveIntegerField(default=0)
+    available_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+    last_error_category = models.CharField(max_length=100, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)

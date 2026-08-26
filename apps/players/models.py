@@ -2,6 +2,12 @@ from django.db import models
 
 
 class Player(models.Model):
+    class ModerationState(models.TextChoices):
+        ACTIVE = "ACTIVE", "Active"
+        FLAGGED = "FLAGGED", "Flagged"
+        SUSPENDED = "SUSPENDED", "Suspended"
+        BANNED = "BANNED", "Banned"
+
     class FirstSeenSource(models.TextChoices):
         BOT_START = "BOT_START", "Bot start"
         MINI_APP = "MINI_APP", "Mini App"
@@ -21,6 +27,10 @@ class Player(models.Model):
     first_mini_app_at = models.DateTimeField(null=True, blank=True)
     first_start_parameter = models.CharField(max_length=255, blank=True)
     last_seen_at = models.DateTimeField()
+    moderation_state = models.CharField(
+        max_length=16, choices=ModerationState.choices, default=ModerationState.ACTIVE
+    )
+    anti_sybil_passed = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -2,6 +2,8 @@ from ninja import NinjaAPI
 
 from apps.daily.api import router as daily_router
 from apps.missions.api import router as missions_router
+from apps.network.api import router as network_router
+from apps.referrals.api import router as referrals_router
 from apps.rewards.api import bootstrap_router, rewards_router
 from apps.telegram.api import auth_router, webhook_router
 from apps.typing_game.api import router as typing_router
@@ -14,3 +16,5 @@ api.add_router("/rewards", rewards_router)
 api.add_router("/daily", daily_router)
 api.add_router("/missions", missions_router)
 api.add_router("/typing", typing_router)
+api.add_router("/referrals", referrals_router)
+api.add_router("/network", network_router)
