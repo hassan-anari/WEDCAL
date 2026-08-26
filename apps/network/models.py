@@ -48,6 +48,7 @@ class NetworkActivity(models.Model):
         SUSPICIOUS = "SUSPICIOUS", "Suspicious"
         REJECTED = "REJECTED", "Rejected"
         CONTROL = "CONTROL", "Control"
+        LATE = "LATE", "Late after window finalization"
 
     registration = models.ForeignKey(
         CreatorGroupRegistration, on_delete=models.PROTECT, related_name="activity"
@@ -67,6 +68,13 @@ class NetworkActivity(models.Model):
     season = models.ForeignKey(Season, on_delete=models.PROTECT, null=True)
     program_active = models.BooleanField(default=False)
     window_processed = models.BooleanField(default=False, db_index=True)
+    speaker_reward = models.OneToOneField(
+        RewardLedger,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="speaker_activity",
+    )
     content_expires_at = models.DateTimeField(db_index=True)
     fingerprint_expires_at = models.DateTimeField(db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -98,6 +106,11 @@ class CreatorDailyAllowance(models.Model):
 
 
 class CreatorWindowSettlement(models.Model):
+    class State(models.TextChoices):
+        REWARDED = "REWARDED", "Rewarded"
+        ZERO = "ZERO", "Zero reward"
+        DEFERRED_SEASON_CLOSE = "DEFERRED_SEASON_CLOSE", "Deferred to Season close"
+
     registration = models.ForeignKey(
         CreatorGroupRegistration, on_delete=models.PROTECT, related_name="settlements"
     )
@@ -108,6 +121,8 @@ class CreatorWindowSettlement(models.Model):
     unique_speakers = models.PositiveIntegerField(default=0)
     points = models.PositiveIntegerField(default=0)
     reward = models.OneToOneField(RewardLedger, on_delete=models.PROTECT, null=True, blank=True)
+    state = models.CharField(max_length=32, choices=State.choices, default=State.ZERO)
+    finalized_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

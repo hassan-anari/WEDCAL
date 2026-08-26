@@ -10,11 +10,16 @@ from django.utils import timezone
 
 from apps.game_config.models import GameConfigVersion
 from apps.game_config.services import parse_phase5, publish_game_config, resolve_game_config_version
-from apps.network.models import CreatorGroupRegistration, NetworkActivity
+from apps.network.models import (
+    CreatorGroupRegistration,
+    CreatorWindowSettlement,
+    NetworkActivity,
+)
 from apps.network.services import (
     purge_activity_evidence,
     record_activity,
     settle_completed_windows,
+    verify_registration,
     window_start_for,
 )
 from apps.players.models import Player
@@ -328,6 +333,234 @@ def test_creator_scheduler_settles_600_chars_with_two_speakers_once(world) -> No
             observed_at=AT + timedelta(seconds=message_id),
         )
         assert activity and activity.rewardable_chars == 200
-    assert settle_completed_windows(now=AT + timedelta(minutes=16)) == 1
+    assert settle_completed_windows(now=AT + timedelta(minutes=26)) == 1
     assert RewardLedger.objects.get(source_type="CREATOR").player_amount == 1
-    assert settle_completed_windows(now=AT + timedelta(minutes=17)) == 0
+    assert settle_completed_windows(now=AT + timedelta(minutes=27)) == 0
+
+
+@pytest.mark.django_db
+def test_out_of_order_future_message_does_not_create_duplicate_signal(world) -> None:  # type: ignore[no-untyped-def]
+    _, _, player = world
+    creator, speaker = player(1001), player(1002)
+    group = TelegramGroup.objects.create(
+        telegram_chat_id=-1001,
+        chat_type="supergroup",
+        is_monitored=True,
+        first_seen_at=AT,
+        last_seen_at=AT,
+    )
+    registration = CreatorGroupRegistration.objects.create(
+        creator=creator, group=group, state=CreatorGroupRegistration.State.ACTIVE
+    )
+    newer = record_activity(
+        registration=registration,
+        sender=speaker,
+        message_id=2,
+        update_id=2,
+        text="same normalized message",
+        observed_at=AT + timedelta(minutes=4),
+    )
+    older = record_activity(
+        registration=registration,
+        sender=speaker,
+        message_id=1,
+        update_id=1,
+        text="same normalized message",
+        observed_at=AT,
+    )
+    assert newer and newer.classification == NetworkActivity.Classification.VALID
+    assert older and older.classification == NetworkActivity.Classification.VALID
+
+
+@pytest.mark.django_db
+def test_late_activity_is_explicit_after_grace_finalization(world) -> None:  # type: ignore[no-untyped-def]
+    _, _, player = world
+    creator, first, second = player(1101), player(1102), player(1103)
+    group = TelegramGroup.objects.create(
+        telegram_chat_id=-1101,
+        chat_type="supergroup",
+        is_monitored=True,
+        first_seen_at=AT,
+        last_seen_at=AT,
+    )
+    registration = CreatorGroupRegistration.objects.create(
+        creator=creator, group=group, state=CreatorGroupRegistration.State.ACTIVE
+    )
+    for message_id, sender in ((1, first), (2, second)):
+        record_activity(
+            registration=registration,
+            sender=sender,
+            message_id=message_id,
+            update_id=message_id,
+            text="z" * 300,
+            observed_at=AT + timedelta(seconds=message_id),
+        )
+    assert settle_completed_windows(now=AT + timedelta(minutes=26)) == 1
+    late = record_activity(
+        registration=registration,
+        sender=first,
+        message_id=3,
+        update_id=3,
+        text="late but durable message",
+        observed_at=AT + timedelta(minutes=5),
+    )
+    assert late and late.classification == NetworkActivity.Classification.LATE
+    assert late.rewardable_chars == 0 and late.window_processed
+
+
+@pytest.mark.django_db
+def test_closed_season_window_has_durable_deferred_outcome(world) -> None:  # type: ignore[no-untyped-def]
+    config, season, player = world
+    creator, speaker = player(1201), player(1202)
+    group = TelegramGroup.objects.create(
+        telegram_chat_id=-1201,
+        chat_type="supergroup",
+        is_monitored=True,
+        first_seen_at=AT,
+        last_seen_at=AT,
+    )
+    registration = CreatorGroupRegistration.objects.create(
+        creator=creator, group=group, state=CreatorGroupRegistration.State.ACTIVE
+    )
+    record_activity(
+        registration=registration,
+        sender=speaker,
+        message_id=1,
+        update_id=1,
+        text="d" * 200,
+        observed_at=AT,
+    )
+    Season.objects.filter(pk=season.pk).update(status=Season.Status.CLOSED)
+    assert settle_completed_windows(now=AT + timedelta(minutes=26)) == 1
+    settlement = CreatorWindowSettlement.objects.get(
+        registration=registration, season=season, config_version=config
+    )
+    assert settlement.state == CreatorWindowSettlement.State.DEFERRED_SEASON_CLOSE
+    assert settlement.reward is None and settlement.finalized_at is not None
+    assert settle_completed_windows(now=AT + timedelta(minutes=27)) == 0
+
+
+@pytest.mark.django_db
+def test_terminal_creator_registration_cannot_be_reactivated(world, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    _, _, player = world
+    creator = player(1301)
+    group = TelegramGroup.objects.create(
+        telegram_chat_id=-1301, chat_type="supergroup", first_seen_at=AT, last_seen_at=AT
+    )
+    for state in (
+        CreatorGroupRegistration.State.SUSPENDED,
+        CreatorGroupRegistration.State.INACTIVE,
+    ):
+        registration = CreatorGroupRegistration.objects.create(
+            creator=creator,
+            group=group
+            if state == CreatorGroupRegistration.State.SUSPENDED
+            else TelegramGroup.objects.create(
+                telegram_chat_id=-1302, chat_type="supergroup", first_seen_at=AT, last_seen_at=AT
+            ),
+            state=state,
+        )
+        monkeypatch.setattr(
+            "apps.network.services.get_chat_member", lambda *_args: pytest.fail("called")
+        )
+        assert verify_registration(registration.pk) == state
+        registration.refresh_from_db()
+        assert registration.state == state
+
+
+@pytest.mark.django_db
+def test_current_config_progression_curve_controls_referral_level(world) -> None:  # type: ignore[no-untyped-def]
+    config, _, player = world
+    inviter, invitee = player(1401), player(1402)
+    relation = attribute_start(invitee, get_or_create_code(inviter).code, at=AT)
+    assert relation
+    PlayerProgression.objects.create(
+        player=invitee, lifetime_points=2100, level=4, dexo_stage="explorer", config_version=config
+    )
+    payload = copy.deepcopy(BASE)
+    payload["progression"]["levels"][4]["min_lifetime_points"] = 2000
+    second = GameConfigVersion.objects.create(
+        version="phase5-progression-v2", effective_at=AT - timedelta(hours=1), payload=payload
+    )
+    publish_game_config(second, published_at=AT - timedelta(hours=2))
+    assert activate_relation(relation.pk, at=AT) is True
+
+
+@pytest.mark.django_db
+def test_future_speaker_reward_is_deterministic_and_referral_ineligible(world) -> None:  # type: ignore[no-untyped-def]
+    _, _, player = world
+    payload = copy.deepcopy(BASE)
+    payload["network_activity"]["speaker_reward"] = {"enabled": True, "points_per_unit": 7}
+    future = GameConfigVersion.objects.create(
+        version="phase5-speaker", effective_at=AT - timedelta(hours=1), payload=payload
+    )
+    publish_game_config(future, published_at=AT - timedelta(hours=2))
+    creator, speaker = player(1501), player(1502)
+    group = TelegramGroup.objects.create(
+        telegram_chat_id=-1501,
+        chat_type="supergroup",
+        is_monitored=True,
+        first_seen_at=AT,
+        last_seen_at=AT,
+    )
+    registration = CreatorGroupRegistration.objects.create(
+        creator=creator, group=group, state=CreatorGroupRegistration.State.ACTIVE
+    )
+    activity = record_activity(
+        registration=registration,
+        sender=speaker,
+        message_id=1,
+        update_id=1,
+        text="eligible future speaker",
+        observed_at=AT,
+    )
+    assert activity and activity.speaker_reward
+    assert activity.speaker_reward.source_type == "NETWORK_SPEAKER"
+    assert activity.speaker_reward.player_amount == 7
+    assert (
+        record_activity(
+            registration=registration,
+            sender=speaker,
+            message_id=1,
+            update_id=2,
+            text="eligible future speaker",
+            observed_at=AT,
+        )
+        is None
+    )
+    assert RewardLedger.objects.filter(source_type="NETWORK_SPEAKER").count() == 1
+
+
+@pytest.mark.django_db
+def test_referral_sweeper_advances_during_season_gap(world) -> None:  # type: ignore[no-untyped-def]
+    _, season, player = world
+    inviter, invitee = player(1601), player(1602)
+    relation = attribute_start(invitee, get_or_create_code(inviter).code, at=AT)
+    assert relation
+    Season.objects.filter(pk=season.pk).update(status=Season.Status.CLOSED)
+    assert activate_relation(relation.pk, at=AT) is False
+    relation.refresh_from_db()
+    assert relation.next_evaluation_at == AT + timedelta(hours=1)
+
+
+@pytest.mark.django_db
+def test_transient_creator_verification_persists_retry_schedule(world, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from apps.telegram.bot_api import TelegramResult
+
+    _, _, player = world
+    creator = player(1701)
+    group = TelegramGroup.objects.create(
+        telegram_chat_id=-1701, chat_type="supergroup", first_seen_at=AT, last_seen_at=AT
+    )
+    registration = CreatorGroupRegistration.objects.create(creator=creator, group=group)
+    monkeypatch.setattr("apps.network.services.settings.TELEGRAM_BOT_ID", 99999)
+    monkeypatch.setattr("apps.network.services.timezone.now", lambda: AT)
+    monkeypatch.setattr(
+        "apps.network.services.get_chat_member",
+        lambda *_args: TelegramResult(False, category="timeout"),
+    )
+    with pytest.raises(RuntimeError):
+        verify_registration(registration.pk)
+    registration.refresh_from_db()
+    assert registration.last_verification_error == "timeout"
+    assert registration.next_verification_at == AT + timedelta(minutes=5)

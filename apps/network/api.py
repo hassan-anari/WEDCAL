@@ -42,7 +42,13 @@ def intent(request: HttpRequest) -> dict[str, Any]:
 @router.post("/groups/{public_id}/reverify", response={202: dict[str, bool], 404: dict[str, str]})
 def reverify(request: HttpRequest, public_id: str) -> tuple[int, dict[str, str] | dict[str, bool]]:
     item = CreatorGroupRegistration.objects.filter(
-        public_id=public_id, creator=_player(request)
+        public_id=public_id,
+        creator=_player(request),
+        state__in=(
+            CreatorGroupRegistration.State.REVIEW,
+            CreatorGroupRegistration.State.ADMIN_REQUIRED,
+            CreatorGroupRegistration.State.ACTIVE,
+        ),
     ).first()
     if not item:
         return 404, {"detail": "Not found"}

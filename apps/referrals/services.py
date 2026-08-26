@@ -8,6 +8,7 @@ from django.utils import timezone
 from apps.game_config.services import ResolvedGameConfig, resolve_effective_game_config
 from apps.players.models import Player
 from apps.progression.models import PlayerProgression
+from apps.progression.services import calculate_progression
 from apps.referrals.models import ReferralCode, ReferralRelation, ReferralShareOutcome
 from apps.rewards.models import RewardLedger
 from apps.rewards.services import settle_player_reward
@@ -100,9 +101,15 @@ def _tier(
 def activate_relation(relation_id: int, *, at: datetime | None = None) -> bool:
     now = at or timezone.now()
     if resolve_current_season(at=now, required=False) is None:
+        ReferralRelation.objects.filter(pk=relation_id).update(
+            next_evaluation_at=now + timedelta(hours=1)
+        )
         return False
     config = resolve_effective_game_config(now)
     if not config.referral.enabled:
+        ReferralRelation.objects.filter(pk=relation_id).update(
+            next_evaluation_at=now + timedelta(hours=1)
+        )
         return False
     with transaction.atomic():
         relation = (
@@ -150,9 +157,14 @@ def referral_activation_is_safe(
     if relation.inviter_id == relation.invitee_id:
         return False
     progression = PlayerProgression.objects.filter(player=relation.invitee).first()
+    level = (
+        calculate_progression(progression.lifetime_points, config.progression).level
+        if progression
+        else 1
+    )
     return bool(
         progression
-        and progression.level >= config.referral.min_level
+        and level >= config.referral.min_level
         and relation.invitee.first_seen_at
         <= at - timedelta(hours=config.referral.min_account_age_hours)
         and relation.invitee.moderation_state not in config.referral.blocked_moderation_states
@@ -175,7 +187,7 @@ def process_source_reward(source: RewardLedger) -> ReferralShareOutcome:
     config = resolve_effective_game_config(source.occurred_at)
     if (
         not config.referral.enabled
-        or source.source_type in {"REFERRAL", "CREATOR"}
+        or source.source_type in {"REFERRAL", "CREATOR", "NETWORK_SPEAKER"}
         or source.season.status != "ACTIVE"
     ):
         if source.season.status != "ACTIVE":
