@@ -51,7 +51,10 @@ def get_chat_member(chat_id: int, user_id: int) -> TelegramResult:
             category="rate_limited" if exc.code == 429 else "http_error",
             retry_after=retry_after,
         )
-    except (urllib.error.URLError, json.JSONDecodeError, OSError):
+    except json.JSONDecodeError:
+        logger.warning("telegram_api_failure", method="getChatMember", category="non_json_response")
+        return TelegramResult(False, category="non_json_response")
+    except (urllib.error.URLError, OSError):
         logger.warning("telegram_api_failure", method="getChatMember", category="connection_error")
         return TelegramResult(False, category="connection_error")
     if (

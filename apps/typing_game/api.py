@@ -4,9 +4,11 @@ from uuid import UUID
 from django.http import HttpRequest
 from django.utils import timezone
 from ninja import Router, Schema
+from ninja.errors import HttpError
 
 from apps.players.models import Player
 from apps.telegram.mini_app_auth import mini_app_auth
+from apps.typing_game.models import TypingAttempt
 from apps.typing_game.services import claim_wallet, get_typing_state, start_attempt, submit_attempt
 
 router = Router(tags=["typing"], auth=mini_app_auth)
@@ -56,9 +58,14 @@ def start(request: HttpRequest) -> dict[str, Any]:
 
 @router.post("/attempts/{attempt_id}/submit", response=dict[str, Any])
 def submit(request: HttpRequest, attempt_id: UUID, payload: Submission) -> dict[str, Any]:
-    attempt, created = submit_attempt(
-        _player(request), attempt_id, payload.typed_text, timezone.now()
-    )
+    try:
+        attempt, created = submit_attempt(
+            _player(request), attempt_id, payload.typed_text, timezone.now()
+        )
+    except TypingAttempt.DoesNotExist as exc:
+        raise HttpError(404, "Typing attempt not found") from exc
+    except ValueError as exc:
+        raise HttpError(400, "Invalid typing submission") from exc
     return {
         "created": created,
         "attempt_id": attempt.public_id,

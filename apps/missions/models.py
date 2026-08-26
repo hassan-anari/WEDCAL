@@ -20,7 +20,7 @@ class MissionDefinition(models.Model):
     repeat_policy = models.CharField(max_length=32, choices=Repeat.choices)
     available_from = models.DateTimeField(null=True, blank=True)
     available_until = models.DateTimeField(null=True, blank=True)
-    verification_parameters = models.JSONField(default=dict)
+    verification_parameters = models.JSONField(default=dict, blank=True)
     title = models.CharField(max_length=200, blank=True)
     description = models.CharField(max_length=500, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

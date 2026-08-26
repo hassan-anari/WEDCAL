@@ -1,3 +1,4 @@
+import unicodedata
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -113,13 +114,15 @@ def submit_attempt(
             return attempt, False
         resolved = resolve_effective_game_config(attempt.started_at)
         elapsed_ms = int((at - attempt.started_at).total_seconds() * 1000)
-        normalized_length = len(attempt.phrase.text)
+        normalized_target = unicodedata.normalize("NFC", attempt.phrase.text)
+        normalized_submitted = unicodedata.normalize("NFC", submitted_text)
+        normalized_length = len(normalized_target)
         accuracy = accuracy_bps(attempt.phrase.text, submitted_text)
         try:
             wpm = calculate_wpm(normalized_length, elapsed_ms)
         except ValueError:
             wpm = 0
-        full = len(submitted_text) >= normalized_length
+        full = len(normalized_submitted) >= normalized_length
         if at > attempt.expires_at or elapsed_ms <= 0 or wpm >= resolved.typing.reject_wpm:
             status = TypingAttempt.Status.REJECTED
         elif wpm >= resolved.typing.suspicious_wpm:

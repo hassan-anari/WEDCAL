@@ -1,9 +1,11 @@
 import hashlib
+import hmac
 import secrets
 from dataclasses import dataclass
 from datetime import datetime
 
 import structlog
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 
@@ -52,10 +54,23 @@ def _definition(key: str, at: datetime) -> MissionDefinition:
     return definition
 
 
-def _eligibility(definition: MissionDefinition, at: datetime, timezone_name: str) -> str:
+def _eligibility(
+    definition: MissionDefinition,
+    at: datetime,
+    timezone_name: str,
+    reset_hour: int,
+    reset_minute: int,
+) -> str:
     if definition.repeat_policy == MissionDefinition.Repeat.DAILY:
-        return resolve_daily_period(at, timezone_name).key
+        return resolve_daily_period(at, timezone_name, reset_hour, reset_minute).key
     return "definition"
+
+
+def _open_token(progress: PlayerMission) -> str:
+    identity = (
+        f"{progress.player_id}:{progress.definition_id}:{progress.eligibility_period}".encode()
+    )
+    return hmac.new(settings.SECRET_KEY.encode(), identity, hashlib.sha256).hexdigest()
 
 
 def list_missions(player: Player, at: datetime) -> list[dict[str, object]]:
@@ -74,7 +89,17 @@ def list_missions(player: Player, at: datetime) -> list[dict[str, object]]:
     for definition in definitions:
         latest.setdefault(definition.key, definition)
     identities = [
-        (row.pk, _eligibility(row, at, resolved.daily.reset_timezone)) for row in latest.values()
+        (
+            row.pk,
+            _eligibility(
+                row,
+                at,
+                resolved.daily.reset_timezone,
+                resolved.daily.reset_hour,
+                resolved.daily.reset_minute,
+            ),
+        )
+        for row in latest.values()
     ]
     progress = {
         (row.definition_id, row.eligibility_period): row
@@ -85,7 +110,13 @@ def list_missions(player: Player, at: datetime) -> list[dict[str, object]]:
     result = []
     for definition in latest.values():
         rule = resolved.missions.definition(definition.key)
-        period = _eligibility(definition, at, resolved.daily.reset_timezone)
+        period = _eligibility(
+            definition,
+            at,
+            resolved.daily.reset_timezone,
+            resolved.daily.reset_hour,
+            resolved.daily.reset_minute,
+        )
         row = progress.get((definition.pk, period))
         result.append(
             {
@@ -108,7 +139,13 @@ def start_mission(player: Player, key: str, at: datetime) -> MissionStart:
         raise MissionUnavailable("Missions are unavailable in the effective configuration")
     definition = _definition(key, at)
     resolved.missions.definition(key)
-    eligibility = _eligibility(definition, at, resolved.daily.reset_timezone)
+    eligibility = _eligibility(
+        definition,
+        at,
+        resolved.daily.reset_timezone,
+        resolved.daily.reset_hour,
+        resolved.daily.reset_minute,
+    )
     with transaction.atomic():
         player = Player.objects.select_for_update().get(pk=player.pk)
         progress, created = PlayerMission.objects.get_or_create(
@@ -119,7 +156,7 @@ def start_mission(player: Player, key: str, at: datetime) -> MissionStart:
             definition.verification_family == MissionDefinition.Verification.TIMED_EXTERNAL
             and progress.status == PlayerMission.Status.IN_PROGRESS
         ):
-            token = secrets.token_urlsafe(32)
+            token = _open_token(progress)
             if created:
                 progress.opened_at = at
             progress.open_token_hash = hashlib.sha256(token.encode()).hexdigest()
@@ -177,7 +214,13 @@ def verify_mission(
 ) -> PlayerMission:
     resolved = resolve_effective_game_config(at)
     definition = _definition(key, at)
-    eligibility = _eligibility(definition, at, resolved.daily.reset_timezone)
+    eligibility = _eligibility(
+        definition,
+        at,
+        resolved.daily.reset_timezone,
+        resolved.daily.reset_hour,
+        resolved.daily.reset_minute,
+    )
     progress = (
         PlayerMission.objects.select_related("definition")
         .filter(player=player, definition=definition, eligibility_period=eligibility)
@@ -234,7 +277,13 @@ def verify_mission(
 def claim_mission(player: Player, key: str, at: datetime) -> tuple[PlayerMission, bool]:
     resolved_now = resolve_effective_game_config(at)
     definition = _definition(key, at)
-    eligibility = _eligibility(definition, at, resolved_now.daily.reset_timezone)
+    eligibility = _eligibility(
+        definition,
+        at,
+        resolved_now.daily.reset_timezone,
+        resolved_now.daily.reset_hour,
+        resolved_now.daily.reset_minute,
+    )
     with transaction.atomic():
         player = Player.objects.select_for_update().get(pk=player.pk)
         progress = (
