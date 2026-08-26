@@ -2,13 +2,12 @@ name: Phase 1 Foundation
 
 on:
   pull_request:
-    branches: [main]
+    branches:
+      - main
 
   push:
     branches:
       - main
-      - "codex/**"
-      - "ai/**"
 
   workflow_dispatch:
   
