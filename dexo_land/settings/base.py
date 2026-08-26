@@ -34,6 +34,9 @@ INSTALLED_APPS = [
     "apps.seasons",
     "apps.progression",
     "apps.rewards",
+    "apps.daily",
+    "apps.missions",
+    "apps.typing_game",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",

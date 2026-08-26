@@ -178,3 +178,42 @@ Player-private ledger pagination without config payloads, idempotency keys, or m
 Season-close orchestration, ranking freeze, and final DLX allocation are explicitly not part
 of Phase 3. Daily, Mission, Typing, Referral, Clan, Treasury, and ranking reward products are
 also deferred to their approved later phases.
+
+## Phase 4 Daily, Missions, and Typing
+
+Phase 4 consumes the immutable `daily`, `missions`, and `typing` namespaces from the effective
+`GameConfigVersion`; reward values and thresholds are never service constants. Daily and Typing use
+a shared, timezone-aware reset-period calculator with calendar/DST semantics. Daily permits one
+claim per Player/reset period. Its seven-entry reward cycle wraps independently while the actual
+consecutive streak continues beyond day seven; missing a complete period resets that streak. The
+claim record and canonical `DAILY` RewardLedger settlement commit atomically.
+
+Missions use versioned definitions and per-player eligibility periods. Their lifecycle separates
+`IN_PROGRESS`, `REWARD_READY`, and `CLAIMED`, so verification grants no points. `INTERNAL`
+verification is fail-closed and currently proves `typing-session` from backend-owned Typing state;
+`TELEGRAM` calls Bot API `getChatMember` with the authenticated Player and configured chat;
+`TIMED_EXTERNAL` uses an opaque, hashed token and server-observed dwell time. Reward-ready rows
+snapshot their source Season, config version, reward, and verification time before an idempotent
+canonical `MISSION` claim.
+
+Typing phrases and start/deadline timestamps are backend-owned and versioned. Submission accuracy
+is NFC-normalized Levenshtein similarity in integer basis points. WPM is
+`floor(target_character_count * 12 / server_elapsed_seconds)` and ignores extra submitted text for
+speed. Config thresholds classify completed runs as valid, suspicious, or rejected; suspicious
+results do not ban or credit. The config-driven daily completed-attempt quota uses the shared reset
+period. Valid rewards append a Typing wallet credit rather than Player Points. A claim locks the
+Player and source-Season wallet, groups unclaimed credits by original config version, atomically
+creates canonical `TYPING_CLAIM` RewardLedger settlements and an append-only debit, and never
+re-prices or moves credit to another Season. Wallet projections can be rebuilt from transactions.
+
+Authenticated routes (all require `Authorization: tma <raw Telegram initData>`):
+
+- `GET /api/v1/daily` and `POST /api/v1/daily/claim`
+- `GET /api/v1/missions`, plus `/{mission_key}/start`, `/verify`, and `/claim`
+- `GET /api/v1/typing`, `POST /attempts/start`, `POST /attempts/{attempt_id}/submit`, and
+  `POST /claim` (start and claim require `Idempotency-Key`)
+- `GET /api/v1/bootstrap` includes compact Daily, Mission, and Typing summaries.
+
+Phase 4 does not implement referrals, activity scoring, Creator economy, Clans/Treasury,
+achievements/collection, rankings, notifications, season close/Typing auto-settlement, DLX,
+on-chain wallets, War/Defence, X OAuth, or manual point adjustment.
