@@ -10,8 +10,8 @@ on:
       - "codex/**"
       - "ai/**"
 
-  workflow_dispatch:ذر
-
+  workflow_dispatch:
+  
 permissions:
   contents: read
 
