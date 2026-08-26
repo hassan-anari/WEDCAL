@@ -412,6 +412,22 @@ def parse_phase5(payload: dict[str, Any]) -> tuple[ReferralConfig, NetworkConfig
         raise ValidationError("Network message character bounds are invalid")
     if network_config.suspicious_count >= network_config.reject_count:
         raise ValidationError("Network duplicate thresholds must ascend")
+    eligible = referral_config.eligible_reward_sources
+    ineligible = tuple(str(x) for x in referral["ineligible_reward_sources"])
+    if (
+        referral.get("first_touch_immutable") is not True
+        or referral.get("self_referral_allowed") is not False
+        or referral.get("share_base") != "PLAYER_AMOUNT"
+        or referral.get("share_is_deducted_from_invitee") is not False
+        or referral.get("recursive_referral_rewards_forbidden") is not True
+        or len(set(eligible)) != len(eligible)
+        or len(set(ineligible)) != len(ineligible)
+        or set(eligible) & set(ineligible)
+        or {"REFERRAL", "CREATOR"} & set(eligible)
+        or creator.get("creator_self_activity_eligible") is not False
+        or fraud.get("suspicious_is_auto_ban") is not False
+    ):
+        raise ValidationError("Phase 5 safety invariants are invalid")
     return referral_config, network_config, retention_config
 
 
@@ -521,6 +537,30 @@ def resolve_effective_game_config(at: datetime) -> ResolvedGameConfig:
     if not configs:
         raise GameConfigUnavailable("No published game configuration is effective")
     config = configs[0]
+    progression, daily, missions, typing, referral, network, retention = _parse_resolved(
+        config.payload
+    )
+    return ResolvedGameConfig(
+        config.pk,
+        config.version,
+        config.effective_at,
+        progression,
+        daily,
+        missions,
+        typing,
+        referral,
+        network,
+        retention,
+    )
+
+
+def resolve_game_config_version(config_id: int) -> ResolvedGameConfig:
+    try:
+        config = GameConfigVersion.objects.get(
+            pk=config_id, status=GameConfigVersion.Status.PUBLISHED
+        )
+    except GameConfigVersion.DoesNotExist as exc:
+        raise GameConfigUnavailable("Published game configuration is unavailable") from exc
     progression, daily, missions, typing, referral, network, retention = _parse_resolved(
         config.payload
     )

@@ -2,7 +2,7 @@ import secrets
 from datetime import datetime, timedelta
 
 from django.conf import settings
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
 
 from apps.game_config.services import ResolvedGameConfig, resolve_effective_game_config
@@ -15,6 +15,10 @@ from apps.seasons.services import resolve_current_season
 
 
 class ReferralCodeUnavailable(RuntimeError):
+    pass
+
+
+class DeferredReferralSettlement(RuntimeError):
     pass
 
 
@@ -43,26 +47,39 @@ def referral_link(code: ReferralCode) -> str:
 def attribute_start(
     invitee: Player, parameter: str | None, *, at: datetime | None = None
 ) -> ReferralRelation | None:
-    if not parameter or ReferralRelation.objects.filter(invitee=invitee).exists():
+    if not parameter:
+        return None
+    try:
+        config = resolve_effective_game_config(at or timezone.now())
+    except LookupError:
+        return None
+    if not config.referral.enabled:
         return None
     code = ReferralCode.objects.select_related("player").filter(code=parameter).first()
     if not code or code.player_id == invitee.pk:
         return None
-    # With one inviter edge per invitee, following ancestors is sufficient to reject cycles.
-    ancestor = code.player
-    seen = {invitee.pk}
-    while ancestor.pk not in seen:
-        seen.add(ancestor.pk)
-        relation = (
-            ReferralRelation.objects.select_related("inviter").filter(invitee=ancestor).first()
-        )
-        if not relation:
-            break
-        ancestor = relation.inviter
-    else:
-        return None
     try:
         with transaction.atomic():
+            # Attribution mutates one logical graph. A transaction advisory lock makes cycle
+            # evaluation serializable, including two-node and longer concurrent cycles.
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_xact_lock(%s)", [0x524546455252414C])
+            if ReferralRelation.objects.filter(invitee=invitee).exists():
+                return ReferralRelation.objects.get(invitee=invitee)
+            ancestor = code.player
+            seen = {invitee.pk}
+            while ancestor.pk not in seen:
+                seen.add(ancestor.pk)
+                relation = (
+                    ReferralRelation.objects.select_related("inviter")
+                    .filter(invitee=ancestor)
+                    .first()
+                )
+                if not relation:
+                    break
+                ancestor = relation.inviter
+            else:
+                return None
             return ReferralRelation.objects.create(
                 inviter=code.player, invitee=invitee, attributed_at=at or timezone.now()
             )
@@ -85,6 +102,8 @@ def activate_relation(relation_id: int, *, at: datetime | None = None) -> bool:
     if resolve_current_season(at=now, required=False) is None:
         return False
     config = resolve_effective_game_config(now)
+    if not config.referral.enabled:
+        return False
     with transaction.atomic():
         relation = (
             ReferralRelation.objects.select_for_update()
@@ -93,16 +112,9 @@ def activate_relation(relation_id: int, *, at: datetime | None = None) -> bool:
         )
         if relation.status == ReferralRelation.Status.VERIFIED:
             return False
-        progression = PlayerProgression.objects.filter(player=relation.invitee).first()
-        if not progression or progression.level < config.referral.min_level:
-            return False
-        if relation.invitee.first_seen_at > now - timedelta(
-            hours=config.referral.min_account_age_hours
-        ):
-            return False
-        if config.referral.anti_sybil_pass_required and not relation.invitee.anti_sybil_passed:
-            return False
-        if relation.invitee.moderation_state in config.referral.blocked_moderation_states:
+        if not referral_activation_is_safe(relation, config, now):
+            relation.next_evaluation_at = now + timedelta(hours=1)
+            relation.save(update_fields=("next_evaluation_at", "updated_at"))
             return False
         settle_player_reward(
             player=relation.inviter,
@@ -131,6 +143,22 @@ def activate_relation(relation_id: int, *, at: datetime | None = None) -> bool:
     return True
 
 
+def referral_activation_is_safe(
+    relation: ReferralRelation, config: ResolvedGameConfig, at: datetime
+) -> bool:
+    """Evaluate only durable structural, progression, age and moderation facts."""
+    if relation.inviter_id == relation.invitee_id:
+        return False
+    progression = PlayerProgression.objects.filter(player=relation.invitee).first()
+    return bool(
+        progression
+        and progression.level >= config.referral.min_level
+        and relation.invitee.first_seen_at
+        <= at - timedelta(hours=config.referral.min_account_age_hours)
+        and relation.invitee.moderation_state not in config.referral.blocked_moderation_states
+    )
+
+
 def process_source_reward(source: RewardLedger) -> ReferralShareOutcome:
     existing = ReferralShareOutcome.objects.filter(source_reward=source).first()
     if existing:
@@ -145,6 +173,14 @@ def process_source_reward(source: RewardLedger) -> ReferralShareOutcome:
         .first()
     )
     config = resolve_effective_game_config(source.occurred_at)
+    if (
+        not config.referral.enabled
+        or source.source_type in {"REFERRAL", "CREATOR"}
+        or source.season.status != "ACTIVE"
+    ):
+        if source.season.status != "ACTIVE":
+            raise DeferredReferralSettlement("Source Season is closed")
+        return ReferralShareOutcome.objects.create(source_reward=source)
     tier = (
         _tier(config, relation.inviter, source.occurred_at)
         if relation and source.source_type in config.referral.eligible_reward_sources

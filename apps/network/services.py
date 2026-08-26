@@ -1,7 +1,7 @@
 import hashlib
 import secrets
 import unicodedata
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from apps.core.periods import resolve_daily_period
 from apps.game_config.models import GameConfigVersion
-from apps.game_config.services import resolve_effective_game_config
+from apps.game_config.services import resolve_effective_game_config, resolve_game_config_version
 from apps.network.models import (
     CreatorDailyAllowance,
     CreatorGroupRegistration,
@@ -26,6 +26,9 @@ from apps.telegram.models import TelegramGroup
 
 
 def create_registration_intent(creator: Player) -> tuple[CreatorRegistrationIntent, str]:
+    config = resolve_effective_game_config(timezone.now())
+    if not config.network.enabled:
+        raise ValueError("Network program is disabled")
     raw = secrets.token_urlsafe(24)
     digest = hashlib.sha256(raw.encode()).hexdigest()
     intent = CreatorRegistrationIntent.objects.create(
@@ -40,6 +43,9 @@ def create_registration_intent(creator: Player) -> tuple[CreatorRegistrationInte
 def consume_registration_token(
     raw: str, sender: Player, group: TelegramGroup
 ) -> CreatorGroupRegistration | None:
+    config = resolve_effective_game_config(timezone.now())
+    if not config.network.enabled:
+        return None
     digest = hashlib.sha256(raw.encode()).hexdigest()
     with transaction.atomic():
         intent = (
@@ -66,10 +72,27 @@ def consume_registration_token(
     return registration
 
 
+def resolve_intent_creator(raw: str, telegram_user_id: int) -> Player | None:
+    digest = hashlib.sha256(raw.encode()).hexdigest()
+    intent = (
+        CreatorRegistrationIntent.objects.select_related("creator")
+        .filter(
+            token_hash=digest,
+            creator__telegram_user_id=telegram_user_id,
+            consumed_at__isnull=True,
+            expires_at__gt=timezone.now(),
+        )
+        .first()
+    )
+    return intent.creator if intent else None
+
+
 def verify_registration(registration_id: int) -> str:
     registration = CreatorGroupRegistration.objects.select_related("group", "creator").get(
         pk=registration_id
     )
+    if not resolve_effective_game_config(timezone.now()).network.enabled:
+        return CreatorGroupRegistration.State.ADMIN_REQUIRED
     bot_id = settings.TELEGRAM_BOT_ID
     if bot_id is None:
         raise RuntimeError("telegram_bot_id_unavailable")
@@ -109,6 +132,7 @@ def verify_registration(registration_id: int) -> str:
         ):
             state = CreatorGroupRegistration.State.ADMIN_REQUIRED
         locked.state = state
+        locked.next_verification_at = timezone.now() + timedelta(minutes=5)
         locked.last_verification_error = ""
         if state == CreatorGroupRegistration.State.ACTIVE:
             locked.bot_verified_at = timezone.now()
@@ -142,7 +166,7 @@ def record_activity(
     exact, normalized = fingerprints(body) if body else ("", "")
     classification = NetworkActivity.Classification.REJECTED
     rewardable = 0
-    active = registration.state == CreatorGroupRegistration.State.ACTIVE
+    active = config.network.enabled and registration.state == CreatorGroupRegistration.State.ACTIVE
     if control:
         classification = NetworkActivity.Classification.CONTROL
     elif (
@@ -157,7 +181,7 @@ def record_activity(
         rate = NetworkActivity.objects.filter(
             sender=sender, observed_at__gt=minute_start, observed_at__lte=observed_at
         ).count()
-        duplicate = (
+        normalized_duplicate = (
             NetworkActivity.objects.filter(
                 sender=sender,
                 normalized_fingerprint=normalized,
@@ -166,6 +190,16 @@ def record_activity(
             ).count()
             + 1
         )
+        exact_duplicate = (
+            NetworkActivity.objects.filter(
+                sender=sender,
+                exact_fingerprint=exact,
+                observed_at__gt=observed_at
+                - timedelta(seconds=config.network.duplicate_window_seconds),
+            ).count()
+            + 1
+        )
+        duplicate = max(normalized_duplicate, exact_duplicate)
         if (
             rate < config.network.max_messages_per_minute
             and duplicate < config.network.reject_count
@@ -205,10 +239,15 @@ def settle_window(
     registration_id: int, window_start: datetime, config_id: int, season_id: int
 ) -> CreatorWindowSettlement:
     config_model = GameConfigVersion.objects.get(pk=config_id)
-    config = resolve_effective_game_config(window_start)
+    config = resolve_game_config_version(config_id)
     registration = CreatorGroupRegistration.objects.select_related("creator").get(
         pk=registration_id
     )
+    if not config.network.enabled:
+        raise ValueError("Network program is disabled")
+    season = resolve_current_season(at=window_start, required=False)
+    if not season or season.pk != season_id:
+        raise ValueError("Creator window source Season is not active")
     end = window_start + timedelta(seconds=config.network.window_seconds)
     rows = NetworkActivity.objects.filter(
         registration=registration,
@@ -241,6 +280,7 @@ def settle_window(
             defaults={"eligible_chars": chars, "unique_speakers": speakers},
         )
         if not created:
+            rows.update(window_processed=True)
             return settlement
         Player.objects.select_for_update().get(pk=registration.creator_id)
         allowance, _ = CreatorDailyAllowance.objects.select_for_update().get_or_create(
@@ -255,15 +295,72 @@ def settle_window(
                 context="NETWORK_GROUP",
                 amount=points,
                 idempotency_key=f"creator:window:{settlement.pk}",
-                occurred_at=end,
-                resolved_config=resolve_effective_game_config(end),
+                occurred_at=min(end, season.ends_at - timedelta(microseconds=1)),
+                resolved_config=config,
+                source_season=season,
+                preserve_config_version=True,
             )
             settlement.points = points
             settlement.reward = reward
             settlement.save(update_fields=("points", "reward"))
             allowance.points += points
             allowance.save(update_fields=("points",))
+        rows.update(window_processed=True)
     return settlement
+
+
+def window_start_for(observed_at: datetime, window_seconds: int) -> datetime:
+    epoch = int(observed_at.timestamp())
+    return datetime.fromtimestamp(epoch - epoch % window_seconds, tz=UTC)
+
+
+def settle_completed_windows(*, limit: int = 200, now: datetime | None = None) -> int:
+    now = now or timezone.now()
+    candidates = list(
+        NetworkActivity.objects.filter(window_processed=False, observed_at__lt=now)
+        .order_by("observed_at", "id")
+        .values("registration_id", "season_id", "config_version_id", "observed_at")[:limit]
+    )
+    processed = 0
+    seen: set[tuple[int, int, int, datetime]] = set()
+    for row in candidates:
+        if row["season_id"] is None:
+            NetworkActivity.objects.filter(
+                registration_id=row["registration_id"],
+                season_id__isnull=True,
+                config_version_id=row["config_version_id"],
+            ).update(window_processed=True)
+            continue
+        config = resolve_game_config_version(row["config_version_id"])
+        start = window_start_for(row["observed_at"], config.network.window_seconds)
+        identity = (
+            row["registration_id"],
+            row["season_id"],
+            row["config_version_id"],
+            start,
+        )
+        if identity in seen or start + timedelta(seconds=config.network.window_seconds) > now:
+            continue
+        seen.add(identity)
+        try:
+            settle_window(
+                registration_id=row["registration_id"],
+                window_start=start,
+                config_id=row["config_version_id"],
+                season_id=row["season_id"],
+            )
+        except ValueError:
+            # Closed/non-active Season windows are left for the Phase 11 reconciliation path,
+            # but marked to prevent a hot loop in the Phase 5 scheduler.
+            NetworkActivity.objects.filter(
+                registration_id=row["registration_id"],
+                season_id=row["season_id"],
+                config_version_id=row["config_version_id"],
+                observed_at__gte=start,
+                observed_at__lt=start + timedelta(seconds=config.network.window_seconds),
+            ).update(window_processed=True)
+        processed += 1
+    return processed
 
 
 def purge_activity_evidence(now: datetime | None = None) -> tuple[int, int]:

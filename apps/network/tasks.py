@@ -1,7 +1,12 @@
 from celery import shared_task
+from django.utils import timezone
 
 from apps.network.models import CreatorGroupRegistration
-from apps.network.services import purge_activity_evidence, verify_registration
+from apps.network.services import (
+    purge_activity_evidence,
+    settle_completed_windows,
+    verify_registration,
+)
 
 
 @shared_task(
@@ -22,9 +27,10 @@ def reverify_active_creator_groups(limit: int = 200) -> int:
                 CreatorGroupRegistration.State.ACTIVE,
                 CreatorGroupRegistration.State.ADMIN_REQUIRED,
                 CreatorGroupRegistration.State.REVIEW,
-            )
+            ),
+            next_verification_at__lte=timezone.now(),
         )
-        .order_by("id")
+        .order_by("next_verification_at", "id")
         .values_list("id", flat=True)[:limit]
     )
     for item in ids:
@@ -35,3 +41,8 @@ def reverify_active_creator_groups(limit: int = 200) -> int:
 @shared_task  # type: ignore[untyped-decorator]
 def purge_network_evidence() -> tuple[int, int]:
     return purge_activity_evidence()
+
+
+@shared_task  # type: ignore[untyped-decorator]
+def settle_creator_windows(limit: int = 200) -> int:
+    return settle_completed_windows(limit=limit)

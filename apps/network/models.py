@@ -1,6 +1,7 @@
 import uuid
 
 from django.db import models
+from django.utils import timezone
 
 from apps.game_config.models import GameConfigVersion
 from apps.players.models import Player
@@ -36,6 +37,7 @@ class CreatorGroupRegistration(models.Model):
     bot_verified_at = models.DateTimeField(null=True, blank=True)
     creator_verified_at = models.DateTimeField(null=True, blank=True)
     last_verification_error = models.CharField(max_length=100, blank=True)
+    next_verification_at = models.DateTimeField(default=timezone.now, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -64,11 +66,13 @@ class NetworkActivity(models.Model):
     config_version = models.ForeignKey(GameConfigVersion, on_delete=models.PROTECT)
     season = models.ForeignKey(Season, on_delete=models.PROTECT, null=True)
     program_active = models.BooleanField(default=False)
+    window_processed = models.BooleanField(default=False, db_index=True)
     content_expires_at = models.DateTimeField(db_index=True)
     fingerprint_expires_at = models.DateTimeField(db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        permissions = [("view_network_message_evidence", "Can view Network message evidence")]
         constraints = [
             models.UniqueConstraint(
                 fields=("group", "telegram_message_id"), name="network_unique_group_message"

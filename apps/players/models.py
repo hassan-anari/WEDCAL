@@ -30,7 +30,6 @@ class Player(models.Model):
     moderation_state = models.CharField(
         max_length=16, choices=ModerationState.choices, default=ModerationState.ACTIVE
     )
-    anti_sybil_passed = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

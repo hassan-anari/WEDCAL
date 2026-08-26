@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 from apps.game_config.models import GameConfigVersion
 from apps.players.models import Player
@@ -31,6 +32,7 @@ class ReferralRelation(models.Model):
     verified_config = models.ForeignKey(GameConfigVersion, on_delete=models.PROTECT, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    next_evaluation_at = models.DateTimeField(default=timezone.now, db_index=True)
 
     class Meta:
         constraints = [

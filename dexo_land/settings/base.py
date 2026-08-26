@@ -119,6 +119,8 @@ TELEGRAM_INGRESS_RETENTION_SECONDS = int(os.getenv("TELEGRAM_INGRESS_RETENTION_S
 NETWORK_REGISTRATION_INTENT_TTL_SECONDS = int(
     os.getenv("NETWORK_REGISTRATION_INTENT_TTL_SECONDS", "900")
 )
+REWARD_OUTBOX_LEASE_SECONDS = int(os.getenv("REWARD_OUTBOX_LEASE_SECONDS", "300"))
+REWARD_OUTBOX_RETRY_SECONDS = int(os.getenv("REWARD_OUTBOX_RETRY_SECONDS", "60"))
 
 CELERY_BEAT_SCHEDULE.update(
     {
@@ -137,6 +139,10 @@ CELERY_BEAT_SCHEDULE.update(
         "purge-network-evidence": {
             "task": "apps.network.tasks.purge_network_evidence",
             "schedule": 3600,
+        },
+        "settle-creator-windows": {
+            "task": "apps.network.tasks.settle_creator_windows",
+            "schedule": 60,
         },
     }
 )
