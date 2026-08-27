@@ -112,6 +112,28 @@ def bootstrap(request: HttpRequest) -> dict[str, Any]:
             "reward_ready_count": ready,
             "unclaimed_count": ready,
         }
+    referral_data = None
+    network_data = None
+    if resolved.referral.enabled:
+        from apps.referrals.models import ReferralRelation
+
+        relation = ReferralRelation.objects.filter(invitee=player).first()
+        referral_data = {
+            "status": relation.status if relation else None,
+            "verified_invites": ReferralRelation.objects.filter(
+                inviter=player, status=ReferralRelation.Status.VERIFIED
+            ).count(),
+        }
+    if resolved.network.enabled:
+        from apps.network.models import CreatorGroupRegistration
+
+        groups = CreatorGroupRegistration.objects.filter(creator=player)
+        network_data = {
+            "group_count": groups.count(),
+            "active_group_count": groups.filter(
+                state=CreatorGroupRegistration.State.ACTIVE
+            ).count(),
+        }
     return {
         "player": {
             "telegram_user_id": player.telegram_user_id,
@@ -133,4 +155,6 @@ def bootstrap(request: HttpRequest) -> dict[str, Any]:
         "daily": daily_data,
         "typing": typing_data,
         "missions": missions_data,
+        "referral": referral_data,
+        "network": network_data,
     }

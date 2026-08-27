@@ -90,6 +90,52 @@ class TypingConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class ReferralTier:
+    key: str
+    min_verified_referrals: int
+    share_bps: int
+
+
+@dataclass(frozen=True, slots=True)
+class ReferralConfig:
+    enabled: bool
+    min_level: int
+    min_account_age_hours: int
+    anti_sybil_pass_required: bool
+    blocked_moderation_states: tuple[str, ...]
+    inviter_bonus: int
+    invitee_bonus: int
+    tiers: tuple[ReferralTier, ...]
+    eligible_reward_sources: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class NetworkConfig:
+    enabled: bool
+    min_message_chars: int
+    max_rewardable_chars: int
+    max_messages_per_minute: int
+    speaker_enabled: bool
+    speaker_points_per_unit: int
+    window_seconds: int
+    chars_per_point: int
+    min_unique_speakers: int
+    max_points_per_window: int
+    max_points_per_creator_day: int
+    max_active_groups: int
+    duplicate_window_seconds: int
+    normalized_duplicate_window_seconds: int
+    suspicious_count: int
+    reject_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class RetentionConfig:
+    message_content_days: int
+    fingerprint_days: int
+
+
+@dataclass(frozen=True, slots=True)
 class ResolvedGameConfig:
     id: int
     version: str
@@ -98,6 +144,9 @@ class ResolvedGameConfig:
     daily: DailyConfig
     missions: MissionsConfig
     typing: TypingConfig
+    referral: ReferralConfig
+    network: NetworkConfig
+    retention: RetentionConfig
 
 
 class GameConfigUnavailable(LookupError):
@@ -294,6 +343,94 @@ def parse_typing(payload: dict[str, Any]) -> TypingConfig:
     return result
 
 
+def parse_phase5(payload: dict[str, Any]) -> tuple[ReferralConfig, NetworkConfig, RetentionConfig]:
+    try:
+        referral = payload["referral"]
+        activation = referral["activation"]
+        bonus = referral["activation_bonus"]
+        tiers = tuple(
+            ReferralTier(
+                str(item["key"]),
+                _integer(item["min_verified_referrals"], "referral tier threshold", minimum=1),
+                _integer(item["share_bps"], "referral share bps"),
+            )
+            for item in referral["tiers"]
+        )
+        referral_config = ReferralConfig(
+            _boolean(referral["enabled"], "referral.enabled"),
+            _integer(activation["min_level"], "referral activation level", minimum=1),
+            _integer(activation["min_account_age_hours"], "referral account age"),
+            _boolean(activation["anti_sybil_pass_required"], "referral anti sybil"),
+            tuple(str(x) for x in activation["blocked_moderation_states"]),
+            _integer(bonus["inviter_points"], "inviter bonus", minimum=1),
+            _integer(bonus["invitee_points"], "invitee bonus", minimum=1),
+            tiers,
+            tuple(str(x) for x in referral["eligible_reward_sources"]),
+        )
+        network = payload["network_activity"]
+        qualification = network["qualification"]
+        creator = network["creator_reward"]
+        speaker = network["speaker_reward"]
+        fraud = payload["anti_fraud"]["network"]
+        network_config = NetworkConfig(
+            _boolean(network["enabled"], "network.enabled"),
+            _integer(qualification["min_message_chars"], "minimum message chars", minimum=1),
+            _integer(qualification["max_rewardable_chars_per_message"], "maximum chars", minimum=1),
+            _integer(qualification["max_messages_per_minute"], "message rate", minimum=1),
+            _boolean(speaker["enabled"], "speaker enabled"),
+            _integer(speaker["points_per_unit"], "speaker points"),
+            _integer(creator["aggregation_window_seconds"], "creator window", minimum=1),
+            _integer(creator["qualified_chars_per_point"], "creator chars", minimum=1),
+            _integer(creator["min_unique_speakers_per_window"], "unique speakers", minimum=1),
+            _integer(creator["max_points_per_window_per_group"], "window cap", minimum=1),
+            _integer(creator["max_points_per_creator_per_day"], "daily cap", minimum=1),
+            _integer(creator["max_active_groups_per_creator"], "group cap", minimum=1),
+            _integer(fraud["exact_duplicate_window_seconds"], "exact duplicate window", minimum=1),
+            _integer(
+                fraud["near_duplicate_window_seconds"], "normalized duplicate window", minimum=1
+            ),
+            _integer(fraud["same_fingerprint_suspicious_count"], "suspicious count", minimum=1),
+            _integer(fraud["same_fingerprint_reject_count"], "reject count", minimum=1),
+        )
+        retention = payload["retention"]
+        retention_config = RetentionConfig(
+            _integer(retention["message_content_days"], "content retention", minimum=1),
+            _integer(
+                retention["message_fingerprint_metadata_days"], "fingerprint retention", minimum=1
+            ),
+        )
+    except (KeyError, TypeError) as exc:
+        raise ValidationError("Invalid Phase 5 configuration shape") from exc
+    if not tiers or any(t.share_bps > 10000 for t in tiers):
+        raise ValidationError("Referral tiers are invalid")
+    if any(
+        b.min_verified_referrals <= a.min_verified_referrals
+        for a, b in zip(tiers, tiers[1:], strict=False)
+    ):
+        raise ValidationError("Referral tier thresholds must strictly ascend")
+    if network_config.min_message_chars > network_config.max_rewardable_chars:
+        raise ValidationError("Network message character bounds are invalid")
+    if network_config.suspicious_count >= network_config.reject_count:
+        raise ValidationError("Network duplicate thresholds must ascend")
+    eligible = referral_config.eligible_reward_sources
+    ineligible = tuple(str(x) for x in referral["ineligible_reward_sources"])
+    if (
+        referral.get("first_touch_immutable") is not True
+        or referral.get("self_referral_allowed") is not False
+        or referral.get("share_base") != "PLAYER_AMOUNT"
+        or referral.get("share_is_deducted_from_invitee") is not False
+        or referral.get("recursive_referral_rewards_forbidden") is not True
+        or len(set(eligible)) != len(eligible)
+        or len(set(ineligible)) != len(ineligible)
+        or set(eligible) & set(ineligible)
+        or {"REFERRAL", "CREATOR"} & set(eligible)
+        or creator.get("creator_self_activity_eligible") is not False
+        or fraud.get("suspicious_is_auto_ban") is not False
+    ):
+        raise ValidationError("Phase 5 safety invariants are invalid")
+    return referral_config, network_config, retention_config
+
+
 def parse_game_config(
     payload: dict[str, Any],
 ) -> tuple[ProgressionConfig, DailyConfig, MissionsConfig, TypingConfig]:
@@ -307,7 +444,15 @@ def parse_game_config(
 
 def _parse_resolved(
     payload: dict[str, Any],
-) -> tuple[ProgressionConfig, DailyConfig, MissionsConfig, TypingConfig]:
+) -> tuple[
+    ProgressionConfig,
+    DailyConfig,
+    MissionsConfig,
+    TypingConfig,
+    ReferralConfig,
+    NetworkConfig,
+    RetentionConfig,
+]:
     """Resolve pre-Phase-4 snapshots without rewriting their immutable payloads.
 
     Feature services fail closed because each compatibility policy is disabled.
@@ -319,8 +464,29 @@ def _parse_resolved(
             DailyConfig(False, "UTC", 0, 0, (), True, False),
             MissionsConfig(False, ("INTERNAL", "TELEGRAM", "TIMED_EXTERNAL"), 1, 1, ()),
             TypingConfig(False, 1, "UTC", 1, True, 0, 1, (), (), 0, 1, 2),
+            ReferralConfig(False, 1, 0, True, (), 1, 1, (), ()),
+            NetworkConfig(False, 1, 1, 1, False, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2),
+            RetentionConfig(1, 1),
         )
-    return parse_game_config(payload)
+    if "referral" not in payload:
+        progression, daily, missions, typing = (
+            parse_progression(payload),
+            parse_daily(payload),
+            parse_missions(payload),
+            parse_typing(payload),
+        )
+        return (
+            progression,
+            daily,
+            missions,
+            typing,
+            ReferralConfig(False, 1, 0, True, (), 1, 1, (), ()),
+            NetworkConfig(False, 1, 1, 1, False, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2),
+            RetentionConfig(1, 1),
+        )
+    progression, daily, missions, typing = parse_game_config(payload)
+    referral, network, retention = parse_phase5(payload)
+    return progression, daily, missions, typing, referral, network, retention
 
 
 def publish_game_config(
@@ -330,8 +496,14 @@ def publish_game_config(
         config = GameConfigVersion.objects.select_for_update().get(pk=config.pk)
         if config.status != GameConfigVersion.Status.DRAFT:
             raise ValidationError("Only draft configurations can be published")
-        if any(name in config.payload for name in ("daily", "missions", "typing")):
+        if "referral" in config.payload:
             parse_game_config(config.payload)
+            parse_phase5(config.payload)
+        elif any(name in config.payload for name in ("daily", "missions", "typing")):
+            parse_progression(config.payload)
+            parse_daily(config.payload)
+            parse_missions(config.payload)
+            parse_typing(config.payload)
         else:
             parse_progression(config.payload)
         publication_time = published_at or timezone.now()
@@ -365,7 +537,42 @@ def resolve_effective_game_config(at: datetime) -> ResolvedGameConfig:
     if not configs:
         raise GameConfigUnavailable("No published game configuration is effective")
     config = configs[0]
-    progression, daily, missions, typing = _parse_resolved(config.payload)
+    progression, daily, missions, typing, referral, network, retention = _parse_resolved(
+        config.payload
+    )
     return ResolvedGameConfig(
-        config.pk, config.version, config.effective_at, progression, daily, missions, typing
+        config.pk,
+        config.version,
+        config.effective_at,
+        progression,
+        daily,
+        missions,
+        typing,
+        referral,
+        network,
+        retention,
+    )
+
+
+def resolve_game_config_version(config_id: int) -> ResolvedGameConfig:
+    try:
+        config = GameConfigVersion.objects.get(
+            pk=config_id, status=GameConfigVersion.Status.PUBLISHED
+        )
+    except GameConfigVersion.DoesNotExist as exc:
+        raise GameConfigUnavailable("Published game configuration is unavailable") from exc
+    progression, daily, missions, typing, referral, network, retention = _parse_resolved(
+        config.payload
+    )
+    return ResolvedGameConfig(
+        config.pk,
+        config.version,
+        config.effective_at,
+        progression,
+        daily,
+        missions,
+        typing,
+        referral,
+        network,
+        retention,
     )

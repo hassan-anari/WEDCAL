@@ -4,6 +4,7 @@ from typing import Any
 
 import structlog
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import IntegrityError, transaction
 from django.db.models import F
 from django.utils import timezone
@@ -170,7 +171,7 @@ def _lock_telegram_user(telegram_user_id: int) -> None:
 
 def _apply_event(event: object, *, telegram_update_id: int) -> None:
     if isinstance(event, BotStarted):
-        resolve_telegram_player(
+        resolution = resolve_telegram_player(
             event.user,
             Player.FirstSeenSource.BOT_START,
             observed_at=event.observed_at,
@@ -178,6 +179,9 @@ def _apply_event(event: object, *, telegram_update_id: int) -> None:
             start_parameter=event.parameter,
             telegram_update_id=telegram_update_id,
         )
+        from apps.referrals.services import attribute_start
+
+        attribute_start(resolution.player, event.parameter, at=event.observed_at)
     elif isinstance(event, TelegramMessageObserved):
         _observe_message(event, telegram_update_id)
     elif isinstance(event, BotMembershipChanged):
@@ -239,12 +243,48 @@ def _observe_message(event: TelegramMessageObserved, telegram_update_id: int) ->
     if event.chat_type not in TelegramGroup.ChatType.values:
         return
     group = _upsert_group(event.chat, event.observed_at, telegram_update_id)
-    if group.is_monitored and event.sender and not event.sender_is_bot:
-        resolve_telegram_player(
+    if not event.sender or event.sender_is_bot:
+        return
+    command = (event.text or "").split(maxsplit=1)
+    expected_command = f"/start@{settings.TELEGRAM_BOT_USERNAME.lstrip('@')}".casefold()
+    is_creator_control = (
+        len(command) == 2
+        and command[0].casefold() == expected_command
+        and bool(settings.TELEGRAM_BOT_USERNAME)
+    )
+    if not group.is_monitored:
+        if not is_creator_control:
+            return
+        from apps.network.services import resolve_intent_creator
+
+        if resolve_intent_creator(command[1], event.sender.telegram_user_id) is None:
+            return
+    if group.is_monitored or is_creator_control:
+        resolution = resolve_telegram_player(
             event.sender,
             Player.FirstSeenSource.GROUP_ACTIVITY,
             observed_at=event.observed_at,
             telegram_update_id=telegram_update_id,
+        )
+        if is_creator_control:
+            from apps.network.services import consume_registration_token
+
+            consume_registration_token(command[1], resolution.player, group)
+            return
+        try:
+            registration = group.creator_registration
+        except ObjectDoesNotExist:
+            return
+        from apps.network.services import record_activity
+
+        record_activity(
+            registration=registration,
+            sender=resolution.player,
+            message_id=event.message_id,
+            update_id=telegram_update_id,
+            text=event.text,
+            observed_at=event.observed_at,
+            sender_is_bot=event.sender_is_bot,
         )
 
 
@@ -270,6 +310,15 @@ def _observe_bot_membership(event: BotMembershipChanged, telegram_update_id: int
             "updated_at",
         )
     )
+    if not group.bot_is_admin:
+        from apps.network.models import CreatorGroupRegistration
+
+        CreatorGroupRegistration.objects.filter(
+            group=group, state=CreatorGroupRegistration.State.ACTIVE
+        ).update(
+            state=CreatorGroupRegistration.State.ADMIN_REQUIRED,
+            reward_eligible_since=None,
+        )
 
 
 def _observe_user_membership(event: UserMembershipChanged, telegram_update_id: int) -> None:
@@ -288,22 +337,39 @@ def _observe_user_membership(event: UserMembershipChanged, telegram_update_id: i
             "last_update_id": telegram_update_id,
         },
     )
-    if created or telegram_update_id <= membership.last_update_id:
+    if not created and telegram_update_id <= membership.last_update_id:
         return
-    membership.player = player
-    membership.status = event.status
-    membership.is_admin = event.status == "administrator"
-    membership.is_owner = event.status == "creator"
-    membership.observed_at = event.observed_at
-    membership.last_update_id = telegram_update_id
-    membership.save(
-        update_fields=(
-            "player",
-            "status",
-            "is_admin",
-            "is_owner",
-            "observed_at",
-            "last_update_id",
-            "updated_at",
+    if not created:
+        membership.player = player
+        membership.status = event.status
+        membership.is_admin = event.status == "administrator"
+        membership.is_owner = event.status == "creator"
+        membership.observed_at = event.observed_at
+        membership.last_update_id = telegram_update_id
+        membership.save(
+            update_fields=(
+                "player",
+                "status",
+                "is_admin",
+                "is_owner",
+                "observed_at",
+                "last_update_id",
+                "updated_at",
+            )
         )
-    )
+    try:
+        registration = group.creator_registration
+    except ObjectDoesNotExist:
+        return
+    if registration.creator.telegram_user_id == event.telegram_user_id and event.status not in {
+        "administrator",
+        "creator",
+    }:
+        from apps.network.models import CreatorGroupRegistration
+
+        CreatorGroupRegistration.objects.filter(
+            pk=registration.pk, state=CreatorGroupRegistration.State.ACTIVE
+        ).update(
+            state=CreatorGroupRegistration.State.ADMIN_REQUIRED,
+            reward_eligible_since=None,
+        )

@@ -11,8 +11,8 @@ from apps.game_config.services import ResolvedGameConfig, resolve_effective_game
 from apps.players.models import Player
 from apps.progression.models import PlayerProgression
 from apps.progression.services import calculate_progression
-from apps.rewards.models import RewardLedger
-from apps.seasons.models import PlayerSeason
+from apps.rewards.models import RewardLedger, RewardSettlementOutbox
+from apps.seasons.models import PlayerSeason, Season
 from apps.seasons.services import resolve_current_season
 
 logger = structlog.get_logger(__name__)
@@ -61,15 +61,19 @@ def settle_player_reward(
     resolved_config: ResolvedGameConfig,
     metadata: dict[str, Any] | None = None,
     after_ledger_hook: Callable[[], None] | None = None,
+    source_season: Season | None = None,
+    preserve_config_version: bool = False,
 ) -> tuple[RewardLedger, bool]:
     if type(amount) is not int or amount <= 0:
         raise InvalidReward("Player reward amount must be a positive integer")
     with transaction.atomic():
         locked_player = Player.objects.select_for_update().get(pk=player.pk)
-        season = resolve_current_season(at=occurred_at)
+        season = source_season or resolve_current_season(at=occurred_at)
         assert season is not None
+        if season.status != Season.Status.ACTIVE:
+            raise InvalidReward("Source Season is not active")
         effective = resolve_effective_game_config(occurred_at)
-        if effective.id != resolved_config.id:
+        if not preserve_config_version and effective.id != resolved_config.id:
             raise InvalidReward("Supplied configuration is not effective for occurred_at")
         existing = RewardLedger.objects.filter(idempotency_key=idempotency_key).first()
         if existing:
@@ -107,6 +111,7 @@ def settle_player_reward(
                     metadata=metadata or {},
                     occurred_at=occurred_at,
                 )
+                outbox = RewardSettlementOutbox.objects.create(reward=ledger)
         except IntegrityError:
             existing = RewardLedger.objects.filter(idempotency_key=idempotency_key).first()
             if existing is None:
@@ -149,6 +154,7 @@ def settle_player_reward(
         player_season, _ = PlayerSeason.objects.get_or_create(player=locked_player, season=season)
         player_season.season_points += amount
         player_season.save(update_fields=["season_points", "updated_at"])
+        transaction.on_commit(lambda: dispatch_reward_outbox_safely(outbox.pk))
     logger.info(
         "reward_settled",
         player_id=player.pk,
@@ -157,6 +163,17 @@ def settle_player_reward(
         source_type=source_type,
     )
     return ledger, True
+
+
+def dispatch_reward_outbox_safely(outbox_id: int) -> None:
+    try:
+        from apps.rewards.tasks import process_reward_outbox
+
+        process_reward_outbox.delay(outbox_id)
+    except Exception as exc:
+        logger.warning(
+            "reward_outbox_dispatch_failed", outbox_id=outbox_id, error_category=type(exc).__name__
+        )
 
 
 def rebuild_player_reward_projections(
