@@ -248,6 +248,7 @@ def _record_activity_locked(
     registration = CreatorGroupRegistration.objects.get(pk=registration.pk)
     active = bool(
         config.network.enabled
+        and season is not None
         and registration.state == CreatorGroupRegistration.State.ACTIVE
         and registration.reward_eligible_since
         and observed_at >= registration.reward_eligible_since
@@ -378,8 +379,6 @@ def _settle_window_locked(
         raise ValueError("Network program is disabled")
     source_season = Season.objects.get(pk=season_id)
     season = resolve_current_season(at=window_start, required=False)
-    if not season or season.pk != season_id:
-        raise CreatorSeasonDeferred(source_season)
     end = window_start + timedelta(seconds=config.network.window_seconds)
     rows = NetworkActivity.objects.filter(
         registration=registration,
@@ -392,6 +391,27 @@ def _settle_window_locked(
     )
     chars = rows.aggregate(total=Sum("rewardable_chars"))["total"] or 0
     speakers = rows.values("sender_id").distinct().count()
+    if not season or season.pk != season_id:
+        settlement, _ = CreatorWindowSettlement.objects.get_or_create(
+            registration=registration,
+            season=source_season,
+            config_version=config_model,
+            window_start=window_start,
+            defaults={
+                "state": CreatorWindowSettlement.State.DEFERRED_SEASON_CLOSE,
+                "finalized_at": timezone.now(),
+                "eligible_chars": chars,
+                "unique_speakers": speakers,
+            },
+        )
+        NetworkActivity.objects.filter(
+            registration=registration,
+            season=source_season,
+            config_version=config_model,
+            observed_at__gte=window_start,
+            observed_at__lt=end,
+        ).update(window_processed=True)
+        return settlement
     raw = (
         min(chars // config.network.chars_per_point, config.network.max_points_per_window)
         if speakers >= config.network.min_unique_speakers
@@ -446,12 +466,6 @@ def _settle_window_locked(
     return settlement
 
 
-class CreatorSeasonDeferred(ValueError):
-    def __init__(self, season: Season) -> None:
-        self.season = season
-        super().__init__("Creator window source Season is closed")
-
-
 def window_start_for(observed_at: datetime, window_seconds: int) -> datetime:
     epoch = int(observed_at.timestamp())
     return datetime.fromtimestamp(epoch - epoch % window_seconds, tz=UTC)
@@ -492,45 +506,12 @@ def settle_completed_windows(*, limit: int = 200, now: datetime | None = None) -
         ):
             continue
         seen.add(identity)
-        try:
-            settle_window(
-                registration_id=row["registration_id"],
-                window_start=start,
-                config_id=row["config_version_id"],
-                season_id=row["season_id"],
-            )
-        except CreatorSeasonDeferred as exc:
-            deferred_rows = NetworkActivity.objects.filter(
-                registration_id=row["registration_id"],
-                season_id=row["season_id"],
-                config_version_id=row["config_version_id"],
-                observed_at__gte=start,
-                observed_at__lt=start + timedelta(seconds=config.network.window_seconds),
-                program_active=True,
-                rewardable_chars__gt=0,
-            )
-            CreatorWindowSettlement.objects.get_or_create(
-                registration_id=row["registration_id"],
-                season=exc.season,
-                config_version_id=row["config_version_id"],
-                window_start=start,
-                defaults={
-                    "state": CreatorWindowSettlement.State.DEFERRED_SEASON_CLOSE,
-                    "finalized_at": now,
-                    "eligible_chars": deferred_rows.aggregate(total=Sum("rewardable_chars"))[
-                        "total"
-                    ]
-                    or 0,
-                    "unique_speakers": deferred_rows.values("sender_id").distinct().count(),
-                },
-            )
-            NetworkActivity.objects.filter(
-                registration_id=row["registration_id"],
-                season_id=row["season_id"],
-                config_version_id=row["config_version_id"],
-                observed_at__gte=start,
-                observed_at__lt=start + timedelta(seconds=config.network.window_seconds),
-            ).update(window_processed=True)
+        settle_window(
+            registration_id=row["registration_id"],
+            window_start=start,
+            config_id=row["config_version_id"],
+            season_id=row["season_id"],
+        )
         processed += 1
     return processed
 

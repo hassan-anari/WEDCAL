@@ -295,3 +295,60 @@ def test_activity_insert_serializes_with_window_finalization(monkeypatch) -> Non
     else:
         assert activity.rewardable_chars == 200
         assert settlement.eligible_chars == 200
+
+
+@pytest.mark.django_db(transaction=True)
+def test_closed_season_activity_race_is_included_or_explicitly_late(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from apps.network.models import CreatorGroupRegistration, NetworkActivity
+    from apps.network.services import record_activity, settle_window
+    from apps.seasons.models import Season
+    from apps.seasons.services import activate_season
+    from apps.telegram.models import TelegramGroup
+
+    monkeypatch.setattr("apps.rewards.services.dispatch_reward_outbox_safely", lambda _pk: None)
+    config = make_config("phase5-closed-window-race")
+    season = activate_season(
+        Season.objects.create(
+            code="closed-window-race",
+            title="Closed race",
+            starts_at=AT - timedelta(days=1),
+            ends_at=AT + timedelta(days=10),
+            baseline_config=config,
+        )
+    )
+    creator, speaker = make_player(9951), make_player(9952)
+    group = TelegramGroup.objects.create(
+        telegram_chat_id=-9951,
+        chat_type="supergroup",
+        is_monitored=True,
+        first_seen_at=AT,
+        last_seen_at=AT,
+    )
+    registration = CreatorGroupRegistration.objects.create(
+        creator=creator,
+        group=group,
+        state=CreatorGroupRegistration.State.ACTIVE,
+        reward_eligible_since=AT - timedelta(days=1),
+    )
+    Season.objects.filter(pk=season.pk).update(status=Season.Status.CLOSED)
+    run_parallel(
+        [
+            lambda: record_activity(
+                registration=registration,
+                sender=speaker,
+                message_id=1,
+                update_id=1,
+                text="c" * 200,
+                observed_at=AT,
+            ),
+            lambda: settle_window(registration.pk, AT, config.pk, season.pk),
+        ]
+    )
+    activity = NetworkActivity.objects.get(group=group, telegram_message_id=1)
+    settlement = registration.settlements.get(window_start=AT)
+    assert settlement.state == settlement.State.DEFERRED_SEASON_CLOSE
+    if activity.classification == NetworkActivity.Classification.LATE:
+        assert activity.rewardable_chars == 0 and settlement.eligible_chars == 0
+    else:
+        assert activity.rewardable_chars == 200 and settlement.eligible_chars == 200
+    assert activity.window_processed

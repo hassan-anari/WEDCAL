@@ -755,3 +755,33 @@ def test_referral_api_tiers_are_derived_from_effective_config(world, monkeypatch
     assert payload["current_tier"] == "SILVER"
     assert payload["current_share_bps"] == 500
     assert payload["next_tier"] == {"key": "GOLD", "min_verified_referrals": 15, "share_bps": 700}
+
+
+@pytest.mark.django_db
+def test_network_activity_without_historical_season_fails_closed(world) -> None:  # type: ignore[no-untyped-def]
+    _, season, player = world
+    creator, speaker = player(1861), player(1862)
+    group = TelegramGroup.objects.create(
+        telegram_chat_id=-1861,
+        chat_type="supergroup",
+        is_monitored=True,
+        first_seen_at=AT,
+        last_seen_at=AT,
+    )
+    registration = CreatorGroupRegistration.objects.create(
+        creator=creator,
+        group=group,
+        state=CreatorGroupRegistration.State.ACTIVE,
+        reward_eligible_since=AT - timedelta(days=1),
+    )
+    observed_at = season.ends_at + timedelta(seconds=1)
+    activity = record_activity(
+        registration=registration,
+        sender=speaker,
+        message_id=1,
+        update_id=1,
+        text="no historical season activity",
+        observed_at=observed_at,
+    )
+    assert activity and activity.season is None
+    assert not activity.program_active and activity.rewardable_chars == 0
