@@ -185,7 +185,7 @@ def test_older_user_membership_update_cannot_regress_newer_state() -> None:
 
     membership = TelegramUserMembership.objects.get(telegram_user_id=900)
     assert membership.status == "creator"
-    assert membership.is_admin is False
+    assert membership.is_admin is True
     assert membership.is_owner is True
     assert membership.last_update_id == 300
 
@@ -288,3 +288,66 @@ def test_retention_purges_only_expired_terminal_payloads() -> None:
     assert ignored.payload == {}
     assert pending.payload != {}
     assert failed.payload != {}
+
+
+@pytest.mark.django_db
+def test_redrive_reclaims_stale_pending_and_failed(monkeypatch, settings) -> None:  # type: ignore[no-untyped-def]
+    from apps.telegram.services import redrive_retryable_inbound_updates
+
+    settings.TELEGRAM_INGRESS_PROCESSING_LEASE_SECONDS = 10
+    settings.TELEGRAM_INGRESS_REDRIVE_BATCH_SIZE = 10
+    old = timezone.now() - timedelta(minutes=1)
+    pending = inbound(600, {"poll": {"id": "pending"}})
+    failed = inbound(601, {"poll": {"id": "failed"}})
+    TelegramInboundUpdate.objects.filter(pk=pending.pk).update(received_at=old)
+    TelegramInboundUpdate.objects.filter(pk=failed.pk).update(
+        state=TelegramInboundUpdate.State.FAILED, next_retry_at=old
+    )
+    dispatched = []
+    monkeypatch.setattr(
+        "apps.telegram.services.dispatch_inbound_update", lambda row: dispatched.append(row.pk)
+    )
+    assert redrive_retryable_inbound_updates() == 2
+    assert set(dispatched) == {pending.pk, failed.pk}
+
+
+@pytest.mark.django_db
+def test_processing_poison_row_reaches_dead_letter(settings) -> None:  # type: ignore[no-untyped-def]
+    from apps.telegram.services import record_processing_failure
+
+    settings.TELEGRAM_INGRESS_MAX_PROCESSING_ATTEMPTS = 2
+    settings.TELEGRAM_INGRESS_RETRY_BASE_SECONDS = 1
+    settings.TELEGRAM_INGRESS_RETRY_MAX_SECONDS = 2
+    row = inbound(602, {"poll": {"id": "poison"}})
+    TelegramInboundUpdate.objects.filter(pk=row.pk).update(processing_attempts=2)
+    record_processing_failure(row.pk, RuntimeError("poison"))
+    row.refresh_from_db()
+    assert row.state == TelegramInboundUpdate.State.DEAD_LETTER
+    assert row.next_retry_at is None
+
+
+@pytest.mark.django_db
+def test_redrive_reclaims_worker_loss_without_starving_later_row(monkeypatch, settings) -> None:  # type: ignore[no-untyped-def]
+    from apps.telegram.services import redrive_retryable_inbound_updates
+
+    settings.TELEGRAM_INGRESS_PROCESSING_LEASE_SECONDS = 10
+    settings.TELEGRAM_INGRESS_REDRIVE_BATCH_SIZE = 10
+    old = timezone.now() - timedelta(minutes=1)
+    abandoned = inbound(603, {"poll": {"id": "abandoned"}})
+    later = inbound(604, {"poll": {"id": "later"}})
+    TelegramInboundUpdate.objects.filter(pk=abandoned.pk).update(
+        state=TelegramInboundUpdate.State.PROCESSING, claimed_at=old
+    )
+    TelegramInboundUpdate.objects.filter(pk=later.pk).update(received_at=old)
+    dispatched = []
+    monkeypatch.setattr(
+        "apps.telegram.services.dispatch_inbound_update", lambda row: dispatched.append(row.pk)
+    )
+    assert redrive_retryable_inbound_updates() == 2
+    assert dispatched == [abandoned.pk, later.pk]
+    assert (
+        TelegramInboundUpdate.objects.filter(
+            pk__in=dispatched, state=TelegramInboundUpdate.State.PROCESSING
+        ).count()
+        == 2
+    )

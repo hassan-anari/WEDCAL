@@ -5,7 +5,7 @@ from typing import Any
 import structlog
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, models, transaction
 from django.db.models import F
 from django.utils import timezone
 
@@ -21,6 +21,20 @@ from apps.telegram.models import TelegramGroup, TelegramInboundUpdate, TelegramU
 from apps.telegram.normalizer import normalize_update
 
 logger = structlog.get_logger(__name__)
+
+TERMINAL_INGRESS_STATES = {
+    TelegramInboundUpdate.State.PROCESSED,
+    TelegramInboundUpdate.State.IGNORED,
+    TelegramInboundUpdate.State.DEAD_LETTER,
+}
+
+
+def membership_semantics(status: str, is_member: bool | None = None) -> tuple[bool, bool, bool]:
+    """Return (present, admin, owner) using Telegram's restricted semantics."""
+    owner = status == "creator"
+    admin = owner or status == "administrator"
+    present = admin or status == "member" or (status == "restricted" and is_member is True)
+    return present, admin, owner
 
 
 class InvalidWebhook(ValueError):
@@ -77,13 +91,12 @@ def mark_dispatch_failed(inbound: TelegramInboundUpdate, error: Exception) -> No
 @transaction.atomic
 def process_inbound_update(inbound_id: int) -> None:
     inbound = TelegramInboundUpdate.objects.select_for_update().get(pk=inbound_id)
-    if inbound.state in {
-        TelegramInboundUpdate.State.PROCESSED,
-        TelegramInboundUpdate.State.IGNORED,
-    }:
+    if inbound.state in TERMINAL_INGRESS_STATES:
         return
+    inbound.state = TelegramInboundUpdate.State.PROCESSING
+    inbound.claimed_at = timezone.now()
     inbound.processing_attempts = F("processing_attempts") + 1
-    inbound.save(update_fields=("processing_attempts", "updated_at"))
+    inbound.save(update_fields=("state", "claimed_at", "processing_attempts", "updated_at"))
     event = normalize_update(inbound.payload)
     if event is None:
         inbound.state = TelegramInboundUpdate.State.IGNORED
@@ -92,7 +105,18 @@ def process_inbound_update(inbound_id: int) -> None:
         inbound.state = TelegramInboundUpdate.State.PROCESSED
     inbound.processed_at = timezone.now()
     inbound.last_error_category = ""
-    inbound.save(update_fields=("state", "processed_at", "last_error_category", "updated_at"))
+    inbound.next_retry_at = None
+    inbound.claimed_at = None
+    inbound.save(
+        update_fields=(
+            "state",
+            "processed_at",
+            "next_retry_at",
+            "claimed_at",
+            "last_error_category",
+            "updated_at",
+        )
+    )
     logger.info(
         "telegram_update_processed",
         inbound_update_id=inbound.pk,
@@ -102,15 +126,61 @@ def process_inbound_update(inbound_id: int) -> None:
 
 
 def record_processing_failure(inbound_id: int, error: Exception) -> None:
+    inbound = TelegramInboundUpdate.objects.get(pk=inbound_id)
+    max_attempts = settings.TELEGRAM_INGRESS_MAX_PROCESSING_ATTEMPTS
+    terminal = inbound.processing_attempts >= max_attempts
+    delay = min(
+        settings.TELEGRAM_INGRESS_RETRY_MAX_SECONDS,
+        settings.TELEGRAM_INGRESS_RETRY_BASE_SECONDS
+        * (2 ** max(inbound.processing_attempts - 1, 0)),
+    )
     TelegramInboundUpdate.objects.filter(pk=inbound_id).update(
-        state=TelegramInboundUpdate.State.FAILED,
+        state=TelegramInboundUpdate.State.DEAD_LETTER
+        if terminal
+        else TelegramInboundUpdate.State.FAILED,
+        next_retry_at=None if terminal else timezone.now() + timedelta(seconds=delay),
+        claimed_at=None,
         last_error_category=type(error).__name__[:100],
     )
     logger.error(
         "telegram_update_processing_failed",
         inbound_update_id=inbound_id,
         error_category=type(error).__name__,
+        processing_attempt=inbound.processing_attempts,
+        terminal=terminal,
     )
+
+
+def redrive_retryable_inbound_updates(*, limit: int | None = None) -> int:
+    """Claim a bounded batch with SKIP LOCKED, then dispatch after committing."""
+    now = timezone.now()
+    stale_before = now - timedelta(seconds=settings.TELEGRAM_INGRESS_PROCESSING_LEASE_SECONDS)
+    batch = limit or settings.TELEGRAM_INGRESS_REDRIVE_BATCH_SIZE
+    with transaction.atomic():
+        rows = list(
+            TelegramInboundUpdate.objects.select_for_update(skip_locked=True)
+            .filter(
+                models.Q(state=TelegramInboundUpdate.State.PENDING, received_at__lte=stale_before)
+                | models.Q(state=TelegramInboundUpdate.State.FAILED, next_retry_at__lte=now)
+                | models.Q(
+                    state=TelegramInboundUpdate.State.PROCESSING, claimed_at__lte=stale_before
+                )
+            )
+            .order_by("received_at", "pk")[:batch]
+        )
+        ids = [row.pk for row in rows]
+        TelegramInboundUpdate.objects.filter(pk__in=ids).update(
+            state=TelegramInboundUpdate.State.PROCESSING, claimed_at=now
+        )
+    dispatched = 0
+    for inbound_id in ids:
+        inbound = TelegramInboundUpdate.objects.get(pk=inbound_id)
+        try:
+            dispatch_inbound_update(inbound)
+            dispatched += 1
+        except Exception as exc:
+            mark_dispatch_failed(inbound, exc)
+    return dispatched
 
 
 def set_group_monitoring(group: TelegramGroup, *, enabled: bool) -> TelegramGroup:
@@ -301,11 +371,13 @@ def _observe_bot_membership(event: BotMembershipChanged, telegram_update_id: int
         return
     group.bot_membership_status = event.status
     group.bot_is_admin = event.status == "administrator"
+    group.bot_can_invite_users = group.bot_is_admin and event.can_invite_users
     group.bot_membership_last_update_id = telegram_update_id
     group.save(
         update_fields=(
             "bot_membership_status",
             "bot_is_admin",
+            "bot_can_invite_users",
             "bot_membership_last_update_id",
             "updated_at",
         )
@@ -325,14 +397,18 @@ def _observe_user_membership(event: UserMembershipChanged, telegram_update_id: i
     group = _upsert_group(event.chat, event.observed_at, telegram_update_id)
     _lock_telegram_user(event.telegram_user_id)
     player = Player.objects.filter(telegram_user_id=event.telegram_user_id).first()
+    present, is_admin, is_owner = membership_semantics(event.status, event.is_member)
     membership, created = TelegramUserMembership.objects.select_for_update().get_or_create(
         group=group,
         telegram_user_id=event.telegram_user_id,
         defaults={
             "player": player,
             "status": event.status,
-            "is_admin": event.status == "administrator",
-            "is_owner": event.status == "creator",
+            "is_member": event.is_member,
+            "previous_status": event.previous_status,
+            "actor_telegram_user_id": event.actor_telegram_user_id,
+            "is_admin": is_admin,
+            "is_owner": is_owner,
             "observed_at": event.observed_at,
             "last_update_id": telegram_update_id,
         },
@@ -342,20 +418,36 @@ def _observe_user_membership(event: UserMembershipChanged, telegram_update_id: i
     if not created:
         membership.player = player
         membership.status = event.status
-        membership.is_admin = event.status == "administrator"
-        membership.is_owner = event.status == "creator"
+        membership.is_member = event.is_member
+        membership.previous_status = event.previous_status
+        membership.actor_telegram_user_id = event.actor_telegram_user_id
+        membership.is_admin = is_admin
+        membership.is_owner = is_owner
         membership.observed_at = event.observed_at
         membership.last_update_id = telegram_update_id
         membership.save(
             update_fields=(
                 "player",
                 "status",
+                "is_member",
+                "previous_status",
+                "actor_telegram_user_id",
                 "is_admin",
                 "is_owner",
                 "observed_at",
                 "last_update_id",
                 "updated_at",
             )
+        )
+    if player is not None:
+        from apps.clans.services import reconcile_telegram_membership
+
+        reconcile_telegram_membership(
+            player=player,
+            group=group,
+            present=present,
+            telegram_update_id=telegram_update_id,
+            observed_at=event.observed_at,
         )
     try:
         registration = group.creator_registration

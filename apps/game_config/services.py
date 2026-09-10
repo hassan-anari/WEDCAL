@@ -199,6 +199,16 @@ class SeasonHonorsConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class ClanConfig:
+    enabled: bool
+    min_level: int
+    base_capacity: int
+    leave_cooldown_hours: int
+    max_voluntary_leaves_per_season: int
+    access_rejoin_grace_hours: int
+
+
+@dataclass(frozen=True, slots=True)
 class ResolvedGameConfig:
     id: int
     version: str
@@ -214,6 +224,43 @@ class ResolvedGameConfig:
     dlx_distribution: DlxDistributionConfig | None
     profile_collection: ProfileCollectionConfig | None
     season_honors: SeasonHonorsConfig | None
+    clan: ClanConfig | None
+
+
+def parse_clan(payload: dict[str, Any]) -> ClanConfig:
+    """Parse only Phase 7A lifecycle policy; later Clan economy remains dormant."""
+    try:
+        raw = _config_object(payload["clan"], "clan")
+        unlock = _config_object(raw["unlock"], "clan.unlock")
+        capacity = _config_object(raw["capacity"], "clan.capacity")
+        curve = capacity["hq_curve"]
+        leave = _config_object(raw["leave"], "clan.leave")
+        recovery = _config_object(raw["telegram_recovery"], "clan.telegram_recovery")
+        if not isinstance(curve, list) or not curve:
+            raise TypeError
+        base = _config_object(curve[0], "clan.capacity.hq_curve[0]")
+        if _integer(base["hq_level"], "clan initial hq_level", minimum=1) != 1:
+            raise ValidationError("Clan base capacity must come from HQ level 1")
+        return ClanConfig(
+            enabled=_boolean(raw["enabled"], "clan.enabled"),
+            min_level=_integer(unlock["min_level"], "clan.unlock.min_level", minimum=1),
+            base_capacity=_integer(base["base_capacity"], "clan base capacity", minimum=1),
+            leave_cooldown_hours=_integer(
+                leave["cooldown_hours"], "clan.leave.cooldown_hours", minimum=1
+            ),
+            max_voluntary_leaves_per_season=_integer(
+                leave["max_voluntary_leaves_per_season"],
+                "clan.leave.max_voluntary_leaves_per_season",
+                minimum=1,
+            ),
+            access_rejoin_grace_hours=_integer(
+                recovery["access_rejoin_grace_hours"],
+                "clan.telegram_recovery.access_rejoin_grace_hours",
+                minimum=1,
+            ),
+        )
+    except (KeyError, TypeError) as exc:
+        raise ValidationError("Invalid Phase 7A Clan configuration shape") from exc
 
 
 class GameConfigUnavailable(LookupError):
@@ -865,6 +912,8 @@ def publish_game_config(
                     raise ValidationError("GameConfig schema version does not match its payload")
             if "profile_collection" in config.payload:
                 parse_profile_collection(config.payload)
+            if "clan" in config.payload:
+                parse_clan(config.payload)
         elif any(name in config.payload for name in ("daily", "missions", "typing")):
             parse_progression(config.payload)
             parse_daily(config.payload)
@@ -926,6 +975,7 @@ def resolve_effective_game_config(at: datetime) -> ResolvedGameConfig:
         distribution,
         profile,
         honors,
+        parse_clan(config.payload) if "clan" in config.payload else None,
     )
 
 
@@ -959,4 +1009,5 @@ def resolve_game_config_version(config_id: int) -> ResolvedGameConfig:
         distribution,
         profile,
         honors,
+        parse_clan(config.payload) if "clan" in config.payload else None,
     )
