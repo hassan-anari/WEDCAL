@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.db.models import QuerySet
 from django.http import HttpRequest
 
-from apps.seasons.models import PlayerSeason, Season
+from apps.seasons.models import PlayerSeason, Season, SeasonSettlementControlEvent
 from apps.seasons.services import activate_season
 
 
@@ -20,10 +20,30 @@ class SeasonAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
         self, request: HttpRequest, obj: Season | None = None
     ) -> tuple[str, ...]:
         return (
-            ("status", "created_at", "updated_at")
+            (
+                "status",
+                "settlement_start_epoch",
+                "settlement_started_at",
+                "created_at",
+                "updated_at",
+            )
             if obj
             else ("status", "created_at", "updated_at")
         )
+
+
+@admin.register(SeasonSettlementControlEvent)
+class SeasonSettlementControlEventAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
+    list_display = ("season", "previous_start_epoch", "new_start_epoch", "changed_at")
+    readonly_fields = ("season", "previous_start_epoch", "new_start_epoch", "changed_at")
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+    def has_delete_permission(
+        self, request: HttpRequest, obj: SeasonSettlementControlEvent | None = None
+    ) -> bool:
+        return False
 
 
 @admin.register(PlayerSeason)

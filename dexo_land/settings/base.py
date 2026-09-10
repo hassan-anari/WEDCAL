@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     "apps.typing_game",
     "apps.referrals",
     "apps.network",
+    "apps.base_tap",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -142,6 +143,10 @@ CELERY_BEAT_SCHEDULE.update(
         },
         "settle-creator-windows": {
             "task": "apps.network.tasks.settle_creator_windows",
+            "schedule": 60,
+        },
+        "recover-pending-base-taps": {
+            "task": "apps.base_tap.tasks.recover_pending_base_taps",
             "schedule": 60,
         },
     }

@@ -196,7 +196,7 @@ def process_source_reward(source: RewardLedger) -> ReferralShareOutcome:
     config = resolve_game_config_version(source.config_version_id)
     if (
         not config.referral.enabled
-        or source.source_type in {"REFERRAL", "CREATOR", "NETWORK_SPEAKER"}
+        or source.source_type in {"REFERRAL", "CREATOR", "NETWORK_SPEAKER", "BASE_TAP"}
         or source.season.status != "ACTIVE"
         or source.player.moderation_state in config.referral.blocked_moderation_states
         or source.player.moderation_state

@@ -5,7 +5,8 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from apps.game_config.models import GameConfigVersion
-from apps.seasons.models import Season
+from apps.game_config.services import resolve_game_config_version
+from apps.seasons.models import Season, SeasonSettlementControlEvent
 
 logger = structlog.get_logger(__name__)
 
@@ -70,4 +71,28 @@ def activate_season(season: Season) -> Season:
         season.status = Season.Status.ACTIVE
         season.save(update_fields=["status", "updated_at"])
     logger.info("season_activated", season_id=season.pk, season_code=season.code)
+    return season
+
+
+def set_settlement_start_epoch(season: Season, epoch: int) -> Season:
+    """Change the audited operational gate only before any settlement has begun."""
+    with transaction.atomic():
+        season = Season.objects.select_for_update().get(pk=season.pk)
+        config = resolve_game_config_version(season.baseline_config_id)
+        distribution = config.dlx_distribution
+        if (
+            distribution is None
+            or type(epoch) is not int
+            or not 1 <= epoch <= distribution.epoch_count
+        ):
+            raise ValidationError("Settlement start epoch is outside the configured epoch range")
+        if season.settlement_started_at is not None:
+            raise ValidationError("Settlement history has begun and cannot be rewritten")
+        previous = season.settlement_start_epoch
+        season.settlement_start_epoch = epoch
+        season.save(update_fields=("settlement_start_epoch", "updated_at"))
+        SeasonSettlementControlEvent.objects.create(
+            season=season, previous_start_epoch=previous, new_start_epoch=epoch
+        )
+    logger.info("settlement_start_epoch_changed", season_id=season.pk, epoch=epoch)
     return season

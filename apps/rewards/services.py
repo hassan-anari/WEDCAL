@@ -63,6 +63,8 @@ def settle_player_reward(
     after_ledger_hook: Callable[[], None] | None = None,
     source_season: Season | None = None,
     preserve_config_version: bool = False,
+    create_settlement_outbox: bool = True,
+    allow_closed_source_season: bool = False,
 ) -> tuple[RewardLedger, bool]:
     if type(amount) is not int or amount <= 0:
         raise InvalidReward("Player reward amount must be a positive integer")
@@ -70,7 +72,9 @@ def settle_player_reward(
         locked_player = Player.objects.select_for_update().get(pk=player.pk)
         season = source_season or resolve_current_season(at=occurred_at)
         assert season is not None
-        if season.status != Season.Status.ACTIVE:
+        if season.status != Season.Status.ACTIVE and not (
+            allow_closed_source_season and season.status == Season.Status.CLOSED
+        ):
             raise InvalidReward("Source Season is not active")
         effective = resolve_effective_game_config(occurred_at)
         if not preserve_config_version and effective.id != resolved_config.id:
@@ -111,7 +115,11 @@ def settle_player_reward(
                     metadata=metadata or {},
                     occurred_at=occurred_at,
                 )
-                outbox = RewardSettlementOutbox.objects.create(reward=ledger)
+                outbox = (
+                    RewardSettlementOutbox.objects.create(reward=ledger)
+                    if create_settlement_outbox
+                    else None
+                )
         except IntegrityError:
             existing = RewardLedger.objects.filter(idempotency_key=idempotency_key).first()
             if existing is None:
@@ -154,7 +162,8 @@ def settle_player_reward(
         player_season, _ = PlayerSeason.objects.get_or_create(player=locked_player, season=season)
         player_season.season_points += amount
         player_season.save(update_fields=["season_points", "updated_at"])
-        transaction.on_commit(lambda: dispatch_reward_outbox_safely(outbox.pk))
+        if outbox is not None:
+            transaction.on_commit(lambda: dispatch_reward_outbox_safely(outbox.pk))
     logger.info(
         "reward_settled",
         player_id=player.pk,
