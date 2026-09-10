@@ -3,8 +3,9 @@
 **Document role:** living production-readiness risk register  
 **Repository:** `hassan-anari/Dalexio-Game-Backend`  
 **Initial scope reviewed:** Phases 0–5 + Season 1 Economy Contract Sync + Base Tap  
-**Verified against `main`:** `85226d4cffdc34c17009c3ff3db5598e5b23792f` (PR #7 merged)  
+**Verified against `main`:** `11fa776a161969c3d34f630e4117f2c90c7d1d9c` (Phase 6 base)
 **Initial review date:** 2026-09-10  
+**Last reviewed:** 2026-09-10 (Phase 6 Profile & Collection)
 **Owner:** repository/product owner  
 
 ---
@@ -496,6 +497,22 @@ Current `/bootstrap` returns `dict[str, Any]`. As Profile, Clan, Arena and notif
 - Add schema/contract tests for required fields and optional states.
 - Establish a query-count and latency budget with a realistic player (missions, referrals, clan, collection, notifications).
 - Avoid growing bootstrap into an unbounded N+1 aggregator.
+
+---
+
+## PH-043 — Season Brief INTERNAL mission lacks authoritative completion evidence
+
+The enabled Season 1 `read-season-brief` mission has no approved server-owned fact or verifier.
+The existing INTERNAL verifier therefore fails closed rather than accepting a client assertion.
+
+**Status:** OPEN
+**Gate:** POLISH
+**Target / Promotion Trigger:** Promote when the Season Brief user flow and authoritative
+server-observed completion action are approved, no later than the final S1 mission integration gate.
+
+**Acceptance:** Define the approved server-owned read/open evidence, implement an authenticated
+idempotent recording action, connect it to normal Mission verification, and cover authorization and
+retry behavior without awarding points directly from the evidence endpoint.
 
 ---
 

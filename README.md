@@ -223,3 +223,15 @@ on-chain wallets, War/Defence, X OAuth, or manual point adjustment.
 Season 1 is 45 days: six seven-day economic epochs plus a three-day close/reconciliation window. The DLX policy defines a 60M base pool, a configurable qualified-player growth path up to 100M, five category weights totaling 10,000 bps, chronological delayed settlement, same-category carry-forward, and explicit residual auditing. Detailed weekly scoring and wallet/on-chain distribution remain out of scope.
 
 `POST /api/v1/base/taps` accepts authenticated tap batches. One PostgreSQL daily accumulator enforces the configured UTC cap under concurrency and produces at most one canonical XP ledger settlement per player/day. Only economically accepted requests receive short-lived idempotency receipts, so rejected spam creates no durable receipt history; configured cleanup removes expired receipts without removing the accumulator's durable source time or pending XP. Tap creates no direct DLX and no passive referral settlement outbox.
+## Phase 6 profile and collection
+
+Authenticated Mini App players can read `/api/v1/profile/overview`, `/achievements`, and
+`/collection`, record the idempotent `/review` fact, and submit server-authorized full collection
+customization with `PUT /customization`. Achievement and medal grants are identity entitlements and
+mint **zero Points**; frontend `rewardXp` fixtures are not backend economics. The separately
+configured `complete-profile` mission remains a normal 200-Point mission and becomes verifiable
+only after profile review—it is not awarded by the profile endpoint.
+
+Wallet and Dalexio Account integrations remain future work. Clan-backed achievement/frame seams
+remain locked until Phases 7/8 provide durable membership/contribution facts, and final Season and
+ranking medals are intentionally deferred to Phase 11 season close.
