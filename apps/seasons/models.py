@@ -20,6 +20,8 @@ class Season(models.Model):
     baseline_config = models.ForeignKey(
         GameConfigVersion, on_delete=models.PROTECT, related_name="seasons"
     )
+    settlement_start_epoch = models.PositiveSmallIntegerField(null=True, blank=True)
+    settlement_started_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -51,3 +53,13 @@ class PlayerSeason(models.Model):
                 condition=Q(season_points__gte=0), name="player_season_points_nonnegative"
             ),
         ]
+
+
+class SeasonSettlementControlEvent(models.Model):
+    season = models.ForeignKey(Season, on_delete=models.PROTECT, related_name="settlement_controls")
+    previous_start_epoch = models.PositiveSmallIntegerField()
+    new_start_epoch = models.PositiveSmallIntegerField()
+    changed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=("season", "changed_at", "id"))]

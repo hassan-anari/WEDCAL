@@ -37,7 +37,10 @@ def phase4_config_factory(db) -> Callable[..., GameConfigVersion]:  # type: igno
             mutate(payload)
         effective = effective_at or datetime(2026, 1, 1, tzinfo=UTC)
         config = GameConfigVersion.objects.create(
-            version=version or f"phase4-v{sequence}", effective_at=effective, payload=payload
+            version=version or f"phase4-v{sequence}",
+            schema_version=payload["meta"]["schema_version"],
+            effective_at=effective,
+            payload=payload,
         )
         return publish_game_config(config, published_at=effective - timedelta(seconds=1))
 
@@ -76,7 +79,7 @@ def season_factory(db) -> Callable[..., Season]:  # type: ignore[no-untyped-def]
             code=f"phase4-s{sequence}",
             title="Phase 4",
             starts_at=start,
-            ends_at=ends_at or start + timedelta(days=90),
+            ends_at=ends_at or start + timedelta(days=45),
             baseline_config=config,
         )
         return activate_season(season)

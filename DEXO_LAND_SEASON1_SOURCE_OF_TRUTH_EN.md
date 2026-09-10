@@ -65,7 +65,7 @@ The frontend cannot express every backend requirement. The product owner has exp
 - moderation and message evidence,
 - Treasury splitting,
 - Season/Lifetime point semantics,
-- final DLX allocation timing.
+- confirmed off-chain DLX allocation and later claim/market timing.
 
 Those approved backend/business rules are authoritative even when the frontend currently mocks a simpler state.
 
@@ -217,7 +217,7 @@ The following are **not** Season 1 backend features:
 - Season 2 Warfront business logic
 - wallet connection
 - on-chain withdrawal
-- DLX distribution during each season
+- claimable, transferable, tradable, wallet, or on-chain DLX distribution in Season 1
 - Dalexio exchange account linking
 - whitelist flows
 - Officer role
@@ -243,7 +243,7 @@ These invariants must remain true unless this document is explicitly revised.
 10. A Captain cannot bypass Dexo Land governance by manually banning a Soldier in Telegram.
 11. War-related future frontend code/diagnostic states must not create Season 1 backend scope.
 12. Season points and lifetime points are two projections of the same point events, not two independently minted currencies.
-13. Final DLX allocation happens only after the overall multi-season campaign ends, not after each individual season.
+13. Season 1 creates confirmed, auditable, off-chain DLX allocations through weekly settlement; those allocations are not claimable, transferable, tradable, or on-chain.
 
 ---
 
@@ -1942,15 +1942,11 @@ Closing an individual season performs actions such as:
 - archive Season/ClanSeason state,
 - open next-season initialization when appropriate.
 
-## 39.3 No per-season DLX allocation
+## 39.3 Season 1 confirmed off-chain DLX allocation
 
-**DLX allocation does not occur after each season.**
+Season 1 creates confirmed, auditable, off-chain DLX allocations through six weekly economic epoch settlements. This confirmed accounting state is not claimable, transferable, tradable, or on-chain. Wallet withdrawal, on-chain claim, transfer, and market trading remain unavailable until later campaign/TGE rules.
 
-The campaign runs across multiple seasons.
-
-Final DLX allocation happens only after the overall season campaign concludes according to a future final-allocation contract.
-
-Therefore Season 1 close must not mint/allocate final DLX balances.
+XP remains the progression unit. DLX allocation uses a separate append-only ledger or equivalent normalized audit design and never changes Level, Lifetime Points, or Season XP. It never recursively creates Referral, Clan, or Creator rewards.
 
 ## 39.4 Lifetime points across seasons
 
@@ -2748,13 +2744,17 @@ No game economy implementation in Phase 1.
 
 No War/Defence effects.
 
-## Phase 9 — Arena Rankings
+## Phase 9 — Arena Rankings & Weekly DLX Settlement
 
 - Player season ranking
 - Clan season ranking
 - Redis projections
 - safe rebuild/reconciliation
 - own-rank lookup
+- epoch performance snapshots after Clan economy inputs exist
+- real weekly confirmed off-chain DLX allocation ledger and chronological settlement
+- qualified-player growth-unlock events and deterministic OPEN-epoch budgeting
+- same-category carry-forward accounting
 - locked S2 Warfront flag/state only
 
 ## Phase 10 — Notifications, Broadcast & Admin
@@ -2769,7 +2769,7 @@ No War/Defence effects.
 
 - ranking freeze/snapshots
 - medals/season honors
-- no DLX allocation yet
+- weekly DLX settlement/reconciliation hardening (without wallet, claim, transfer, or trading)
 - load tests
 - DB/index tuning
 - worker/queue tuning
@@ -2870,7 +2870,7 @@ For clarity, agents must not reopen these unless the product owner explicitly ch
 - Warfront remains locked/preview only in Season 1.
 - No War/Defence backend development in Season 1.
 - Season Points and Lifetime Points are projections of the same events.
-- Final DLX allocation occurs only after the overall multi-season campaign, not after each season.
+- Season 1 weekly settlement creates confirmed off-chain DLX allocation, never claimable, transferable, tradable, or on-chain DLX.
 - PostgreSQL is durable truth.
 - Redis is not economic truth.
 - RabbitMQ is the Celery broker.
@@ -3210,3 +3210,28 @@ moderation:
 ```
 
 No agent should treat the illustrative values in this appendix as final production economics.
+
+
+# 57. Season 1 economy synchronization (canonical amendment)
+
+## 57.1 Timing and weekly distribution
+
+Season 1 lasts **45 days**: exactly six economic epochs of seven days (42 reward/distribution days), followed by a three-day closing and reconciliation window. There is no seventh weekly DLX epoch. Existing XP reward amounts and Level thresholds remain unchanged by this amendment.
+
+The confirmed off-chain DLX base pool is **60,000,000 DLX** and the maximum pool is **100,000,000 DLX**. Six weekly budgets use current-epoch qualified performance, never historical or Lifetime rank. Category weights total exactly 10,000 basis points: Clan Performance 3,500; Core Gameplay 2,000; Creator / Community Growth 2,000; Verified Referral 1,500; Loyalty / Consistency 1,000. Detailed category score formulas are intentionally deferred until all source inputs exist.
+
+## 57.2 Delayed settlement operational control
+
+Each Season has an audited `settlement_start_epoch`; the initial operational default is epoch 3, and an operator may select epoch 2 or another valid epoch before settlement begins without mutating a published GameConfig. Collection begins in epoch 1. Closed earlier epochs freeze pending settlement. Once enabled, pending epochs settle chronologically, each against its own frozen performance window and budget. Old budgets are not merged into a newer epoch's player performance. Settled epochs are immutable, and changing the control after settlement begins cannot rewrite history.
+
+## 57.3 Growth unlock and residuals
+
+Up to 40,000,000 additional DLX may unlock through configurable qualified-player milestones. Raw Telegram starts and MAU are forbidden as the counter. Qualification uses a versioned predicate. Thresholds are not approved; an empty milestone list is valid. Each later milestone produces one idempotent audit event. Its off-chain DLX allocation amount applies deterministically only across epochs still OPEN at trigger time and never rewrites FROZEN or SETTLED budgets. Exact integer allocation accounting must preserve the exact pool; native-chain decimal precision is not guessed here.
+
+Unused budget from insufficient category participation carries forward within the same category. Processing is chronological. Final residual disposition at Season close must be an explicit audit event and must never silently disappear.
+
+## 57.4 Price and Base Tap semantics
+
+Season 1 DLX price status is `UNAVAILABLE`; no synthetic USD valuation is shown. A later Season 2 pre-market may use `REFERENCE`, while a real opened market may use `LIVE` with source and as-of metadata.
+
+Base Tap accepts authenticated batched submissions and awards only small, capped XP. It never directly grants confirmed DLX and contributes only indirectly to Core Gameplay epoch performance. `BASE_TAP` is explicitly ineligible for passive referral share. Its reward, UTC daily cap/reset, batch bound, anti-spam controls, and receipt retention are typed/versioned configuration. Durable PostgreSQL aggregation creates at most one canonical XP settlement per player/day. Only accepted requests may create bounded, terminal, expiring idempotency receipts; rejected spam creates none. Recovery uses accumulator state rather than scanning receipt history and preserves pending XP and source Season/config/event time through safe receipt cleanup and Season close.

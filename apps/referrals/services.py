@@ -16,7 +16,7 @@ from apps.progression.services import calculate_progression
 from apps.referrals.models import ReferralCode, ReferralRelation, ReferralShareOutcome
 from apps.rewards.models import RewardLedger
 from apps.rewards.services import settle_player_reward
-from apps.seasons.services import resolve_current_season
+from apps.seasons.services import is_reward_earning_time, resolve_current_season
 
 
 class ReferralCodeUnavailable(RuntimeError):
@@ -104,16 +104,17 @@ def _tier(
 
 def activate_relation(relation_id: int, *, at: datetime | None = None) -> bool:
     now = at or timezone.now()
-    if resolve_current_season(at=now, required=False) is None:
-        ReferralRelation.objects.filter(pk=relation_id).update(
-            next_evaluation_at=now + timedelta(hours=1)
-        )
+    season = resolve_current_season(at=now, required=False)
+    if season is None or not is_reward_earning_time(season, now):
+        ReferralRelation.objects.filter(
+            pk=relation_id, status=ReferralRelation.Status.PENDING
+        ).update(next_evaluation_at=now + timedelta(hours=1))
         return False
     config = resolve_effective_game_config(now)
     if not config.referral.enabled:
-        ReferralRelation.objects.filter(pk=relation_id).update(
-            next_evaluation_at=now + timedelta(hours=1)
-        )
+        ReferralRelation.objects.filter(
+            pk=relation_id, status=ReferralRelation.Status.PENDING
+        ).update(next_evaluation_at=now + timedelta(hours=1))
         return False
     with transaction.atomic():
         relation = (
@@ -196,7 +197,7 @@ def process_source_reward(source: RewardLedger) -> ReferralShareOutcome:
     config = resolve_game_config_version(source.config_version_id)
     if (
         not config.referral.enabled
-        or source.source_type in {"REFERRAL", "CREATOR", "NETWORK_SPEAKER"}
+        or source.source_type in {"REFERRAL", "CREATOR", "NETWORK_SPEAKER", "BASE_TAP"}
         or source.season.status != "ACTIVE"
         or source.player.moderation_state in config.referral.blocked_moderation_states
         or source.player.moderation_state

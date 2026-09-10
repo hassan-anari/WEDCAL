@@ -175,8 +175,7 @@ is accepted. `GET /api/v1/bootstrap` returns only current Player, progression, a
 and safe config-version state. `GET /api/v1/rewards/history` provides bounded, stable,
 Player-private ledger pagination without config payloads, idempotency keys, or metadata.
 
-Season-close orchestration, ranking freeze, and final DLX allocation are explicitly not part
-of Phase 3. Daily, Mission, Typing, Referral, Clan, Treasury, and ranking reward products are
+Season-close orchestration and ranking freeze are explicitly not part of Phase 3. Season 1 later creates confirmed, auditable off-chain DLX allocations through six weekly epochs; these are separate from XP and are not claimable, transferable, tradable, or on-chain. Daily, Mission, Typing, Referral, Clan, Treasury, and ranking reward products are
 also deferred to their approved later phases.
 
 ## Phase 4 Daily, Missions, and Typing
@@ -217,3 +216,10 @@ Authenticated routes (all require `Authorization: tma <raw Telegram initData>`):
 Phase 4 does not implement referrals, activity scoring, Creator economy, Clans/Treasury,
 achievements/collection, rankings, notifications, season close/Typing auto-settlement, DLX,
 on-chain wallets, War/Defence, X OAuth, or manual point adjustment.
+
+
+## Pre-Phase-6 economy contract sync and Base Tap
+
+Season 1 is 45 days: six seven-day economic epochs plus a three-day close/reconciliation window. The DLX policy defines a 60M base pool, a configurable qualified-player growth path up to 100M, five category weights totaling 10,000 bps, chronological delayed settlement, same-category carry-forward, and explicit residual auditing. Detailed weekly scoring and wallet/on-chain distribution remain out of scope.
+
+`POST /api/v1/base/taps` accepts authenticated tap batches. One PostgreSQL daily accumulator enforces the configured UTC cap under concurrency and produces at most one canonical XP ledger settlement per player/day. Only economically accepted requests receive short-lived idempotency receipts, so rejected spam creates no durable receipt history; configured cleanup removes expired receipts without removing the accumulator's durable source time or pending XP. Tap creates no direct DLX and no passive referral settlement outbox.

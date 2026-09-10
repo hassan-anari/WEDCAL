@@ -1,11 +1,12 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import structlog
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from apps.game_config.models import GameConfigVersion
-from apps.seasons.models import Season
+from apps.game_config.services import resolve_game_config_version
+from apps.seasons.models import Season, SeasonSettlementControlEvent
 
 logger = structlog.get_logger(__name__)
 
@@ -16,6 +17,27 @@ class NoActiveSeason(LookupError):
 
 class SeasonNotEligible(ValueError):
     pass
+
+
+class OutsideEconomicWindow(ValueError):
+    pass
+
+
+def economic_window_end(season: Season) -> datetime:
+    config = resolve_game_config_version(season.baseline_config_id)
+    distribution = config.dlx_distribution
+    if distribution is None:
+        return season.ends_at
+    return season.starts_at + timedelta(days=distribution.epoch_count * distribution.epoch_days)
+
+
+def is_reward_earning_time(season: Season, occurred_at: datetime) -> bool:
+    return season.starts_at <= occurred_at < economic_window_end(season)
+
+
+def require_reward_earning_time(season: Season, occurred_at: datetime) -> None:
+    if not is_reward_earning_time(season, occurred_at):
+        raise OutsideEconomicWindow("Source event is outside the Season economic window")
 
 
 def resolve_current_season(*, at: datetime, required: bool = True) -> Season | None:
@@ -60,6 +82,17 @@ def activate_season(season: Season) -> Season:
             raise ValidationError("Only a valid draft season can be activated")
         if season.baseline_config.status != GameConfigVersion.Status.PUBLISHED:
             raise ValidationError("Season baseline configuration must be published")
+        config = resolve_game_config_version(season.baseline_config_id)
+        distribution = config.dlx_distribution
+        if distribution is not None:
+            if season.ends_at - season.starts_at != timedelta(
+                days=distribution.product_period_days
+            ):
+                raise ValidationError("Season dates do not match the configured product period")
+            if season.settlement_start_epoch is None:
+                season.settlement_start_epoch = distribution.default_settlement_start_epoch
+            if not 1 <= season.settlement_start_epoch <= distribution.epoch_count:
+                raise ValidationError("Settlement start epoch is outside the configured range")
         if (
             Season.objects.select_for_update()
             .filter(status=Season.Status.ACTIVE)
@@ -68,6 +101,32 @@ def activate_season(season: Season) -> Season:
         ):
             raise ValidationError("An active season already exists")
         season.status = Season.Status.ACTIVE
-        season.save(update_fields=["status", "updated_at"])
+        season.save(update_fields=["status", "settlement_start_epoch", "updated_at"])
     logger.info("season_activated", season_id=season.pk, season_code=season.code)
+    return season
+
+
+def set_settlement_start_epoch(season: Season, epoch: int) -> Season:
+    """Change the audited operational gate only before any settlement has begun."""
+    with transaction.atomic():
+        season = Season.objects.select_for_update().get(pk=season.pk)
+        config = resolve_game_config_version(season.baseline_config_id)
+        distribution = config.dlx_distribution
+        if (
+            distribution is None
+            or type(epoch) is not int
+            or not 1 <= epoch <= distribution.epoch_count
+        ):
+            raise ValidationError("Settlement start epoch is outside the configured epoch range")
+        if season.settlement_started_at is not None:
+            raise ValidationError("Settlement history has begun and cannot be rewritten")
+        previous = season.settlement_start_epoch
+        if previous is None:
+            previous = distribution.default_settlement_start_epoch
+        season.settlement_start_epoch = epoch
+        season.save(update_fields=("settlement_start_epoch", "updated_at"))
+        SeasonSettlementControlEvent.objects.create(
+            season=season, previous_start_epoch=previous, new_start_epoch=epoch
+        )
+    logger.info("settlement_start_epoch_changed", season_id=season.pk, epoch=epoch)
     return season

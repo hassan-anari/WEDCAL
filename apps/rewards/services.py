@@ -5,6 +5,7 @@ from typing import Any
 import structlog
 from django.db import IntegrityError, transaction
 from django.db.models import Sum
+from django.utils import timezone
 
 from apps.game_config.models import GameConfigVersion
 from apps.game_config.services import ResolvedGameConfig, resolve_effective_game_config
@@ -13,7 +14,7 @@ from apps.progression.models import PlayerProgression
 from apps.progression.services import calculate_progression
 from apps.rewards.models import RewardLedger, RewardSettlementOutbox
 from apps.seasons.models import PlayerSeason, Season
-from apps.seasons.services import resolve_current_season
+from apps.seasons.services import require_reward_earning_time, resolve_current_season
 
 logger = structlog.get_logger(__name__)
 
@@ -63,6 +64,9 @@ def settle_player_reward(
     after_ledger_hook: Callable[[], None] | None = None,
     source_season: Season | None = None,
     preserve_config_version: bool = False,
+    create_settlement_outbox: bool = True,
+    allow_closed_source_season: bool = False,
+    projection_at: datetime | None = None,
 ) -> tuple[RewardLedger, bool]:
     if type(amount) is not int or amount <= 0:
         raise InvalidReward("Player reward amount must be a positive integer")
@@ -70,8 +74,11 @@ def settle_player_reward(
         locked_player = Player.objects.select_for_update().get(pk=player.pk)
         season = source_season or resolve_current_season(at=occurred_at)
         assert season is not None
-        if season.status != Season.Status.ACTIVE:
+        if season.status != Season.Status.ACTIVE and not (
+            allow_closed_source_season and season.status == Season.Status.CLOSED
+        ):
             raise InvalidReward("Source Season is not active")
+        require_reward_earning_time(season, occurred_at)
         effective = resolve_effective_game_config(occurred_at)
         if not preserve_config_version and effective.id != resolved_config.id:
             raise InvalidReward("Supplied configuration is not effective for occurred_at")
@@ -93,7 +100,13 @@ def settle_player_reward(
                 raise IdempotencyConflict("Idempotency key belongs to a different settlement")
             logger.info("reward_duplicate", player_id=player.pk, reward_id=existing.pk)
             return existing, False
+        projection_config = (
+            resolve_effective_game_config(projection_at or timezone.now())
+            if allow_closed_source_season
+            else resolved_config
+        )
         config_model = GameConfigVersion.objects.get(pk=resolved_config.id)
+        projection_config_model = GameConfigVersion.objects.get(pk=projection_config.id)
         try:
             with transaction.atomic():
                 ledger = RewardLedger.objects.create(
@@ -111,7 +124,11 @@ def settle_player_reward(
                     metadata=metadata or {},
                     occurred_at=occurred_at,
                 )
-                outbox = RewardSettlementOutbox.objects.create(reward=ledger)
+                outbox = (
+                    RewardSettlementOutbox.objects.create(reward=ledger)
+                    if create_settlement_outbox
+                    else None
+                )
         except IntegrityError:
             existing = RewardLedger.objects.filter(idempotency_key=idempotency_key).first()
             if existing is None:
@@ -139,22 +156,23 @@ def settle_player_reward(
         progression, _ = PlayerProgression.objects.get_or_create(
             player=locked_player,
             defaults={
-                "config_version": config_model,
-                "dexo_stage": resolved_config.progression.dexo_stages[0].key,
+                "config_version": projection_config_model,
+                "dexo_stage": projection_config.progression.dexo_stages[0].key,
             },
         )
         progression.lifetime_points += amount
-        result = calculate_progression(progression.lifetime_points, resolved_config.progression)
+        result = calculate_progression(progression.lifetime_points, projection_config.progression)
         progression.level = result.level
         progression.dexo_stage = result.dexo_stage
-        progression.config_version = config_model
+        progression.config_version = projection_config_model
         progression.save(
             update_fields=["lifetime_points", "level", "dexo_stage", "config_version", "updated_at"]
         )
         player_season, _ = PlayerSeason.objects.get_or_create(player=locked_player, season=season)
         player_season.season_points += amount
         player_season.save(update_fields=["season_points", "updated_at"])
-        transaction.on_commit(lambda: dispatch_reward_outbox_safely(outbox.pk))
+        if outbox is not None:
+            transaction.on_commit(lambda: dispatch_reward_outbox_safely(outbox.pk))
     logger.info(
         "reward_settled",
         player_id=player.pk,

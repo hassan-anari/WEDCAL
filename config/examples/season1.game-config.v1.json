@@ -1,13 +1,13 @@
 {
   "meta": {
-    "schema_version": 1,
-    "economy_contract_version": "1.0.0",
+    "schema_version": 2,
+    "economy_contract_version": "2.0.0",
     "season": "S1",
     "status": "APPROVED_BASELINE",
     "canonical_point_unit": "POINT",
-    "nominal_season_duration_days": 90,
+    "nominal_season_duration_days": 45,
     "percentage_unit": "BASIS_POINTS",
-    "notes": "Season dates remain authoritative in the Season model. This value is a balance target, not automatic scheduling."
+    "notes": "Season 1 is 45 days: six seven-day economic epochs followed by a three-day closing/reconciliation window. Season model dates remain authoritative."
   },
   "economy_safety": {
     "integer_points_only": true,
@@ -364,7 +364,8 @@
       "ACHIEVEMENT",
       "MEDAL",
       "ADMIN_ADJUSTMENT",
-      "TREASURY"
+      "TREASURY",
+      "BASE_TAP"
     ],
     "recursive_referral_rewards_forbidden": true
   },
@@ -817,8 +818,55 @@
     "moderation_case_evidence_after_close_days": 180
   },
   "dlx": {
-    "per_season_allocation_enabled": false,
+    "season1_off_chain_weekly_allocation_enabled": true,
+    "confirmed_allocation_claimable_transferable_or_tradable": false,
+    "wallet_withdrawal_or_on_chain_claim_enabled": false,
     "fixed_point_to_dlx_ratio_defined": false,
-    "campaign_end_allocation_contract_required": true
+    "price_status": "UNAVAILABLE"
+  },
+  "base_tap": {
+    "enabled": true,
+    "points_per_rewarded_tap": 1,
+    "rewarded_taps_per_utc_day": 50,
+    "reset_timezone": "UTC",
+    "max_taps_per_batch": 50,
+    "min_batch_interval_ms": 250,
+    "receipt_retention_days": 7
+  },
+  "dlx_distribution": {
+    "accounting_unit": "OFF_CHAIN_DLX_ALLOCATION_AMOUNT",
+    "native_chain_decimal_precision": null,
+    "timing": {
+      "product_period_days": 45,
+      "epoch_count": 6,
+      "epoch_days": 7,
+      "closing_days": 3
+    },
+    "default_settlement_start_epoch": 3,
+    "settlement_start_is_season_operational_control": true,
+    "performance_basis": "CURRENT_EPOCH_QUALIFIED_PERFORMANCE",
+    "pool": {
+      "growth_unlock": {
+        "counter": "QUALIFIED_PLAYERS",
+        "qualified_player_predicate": {
+          "policy_key": "QUALIFIED_PLAYER",
+          "policy_version": 1
+        },
+        "milestones": []
+      },
+      "base_dlx_amount": 60000000,
+      "max_dlx_amount": 100000000
+    },
+    "category_weights_bps": {
+      "CLAN_PERFORMANCE": 3500,
+      "CORE_GAMEPLAY": 2000,
+      "CREATOR_COMMUNITY_GROWTH": 2000,
+      "VERIFIED_REFERRAL": 1500,
+      "LOYALTY_CONSISTENCY": 1000
+    },
+    "unused_category_budget": "CARRY_FORWARD_SAME_CATEGORY",
+    "final_residual_policy": "EXPLICIT_AUDITED_SEASON_CLOSE_DECISION",
+    "confirmed_allocation_is_claimable_or_transferable": false,
+    "reward_ledger_is_dlx_ledger": false
   }
 }

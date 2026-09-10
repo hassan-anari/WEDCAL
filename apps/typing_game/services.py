@@ -13,7 +13,7 @@ from apps.game_config.models import GameConfigVersion
 from apps.game_config.services import resolve_effective_game_config
 from apps.players.models import Player
 from apps.rewards.services import settle_player_reward
-from apps.seasons.services import resolve_current_season
+from apps.seasons.services import require_reward_earning_time, resolve_current_season
 from apps.typing_game.calculations import accuracy_bps, calculate_reward, calculate_wpm
 from apps.typing_game.models import (
     TypingAttempt,
@@ -58,6 +58,7 @@ def start_attempt(player: Player, idempotency_key: str, at: datetime) -> tuple[T
         raise TypingUnavailable("Typing is unavailable in the effective configuration")
     season = resolve_current_season(at=at)
     assert season is not None
+    require_reward_earning_time(season, at)
     period = _period(at, resolved.typing.reset_timezone)
     with transaction.atomic():
         player = Player.objects.select_for_update().get(pk=player.pk)
@@ -112,6 +113,7 @@ def submit_attempt(
         )
         if attempt.status != TypingAttempt.Status.STARTED:
             return attempt, False
+        require_reward_earning_time(attempt.season, at)
         resolved = resolve_effective_game_config(attempt.started_at)
         elapsed_ms = int((at - attempt.started_at).total_seconds() * 1000)
         normalized_target = unicodedata.normalize("NFC", attempt.phrase.text)

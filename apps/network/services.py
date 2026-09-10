@@ -3,6 +3,7 @@ import secrets
 import unicodedata
 from datetime import UTC, datetime, timedelta
 
+import structlog
 from django.conf import settings
 from django.db import IntegrityError, connection, transaction
 from django.db.models import Sum
@@ -25,9 +26,16 @@ from apps.network.models import (
 from apps.players.models import Player
 from apps.rewards.services import settle_player_reward
 from apps.seasons.models import Season
-from apps.seasons.services import resolve_current_season, resolve_historical_season
+from apps.seasons.services import (
+    economic_window_end,
+    is_reward_earning_time,
+    resolve_current_season,
+    resolve_historical_season,
+)
 from apps.telegram.bot_api import get_chat_member
 from apps.telegram.models import TelegramGroup
+
+logger = structlog.get_logger(__name__)
 
 
 def create_registration_intent(creator: Player) -> tuple[CreatorRegistrationIntent, str]:
@@ -249,6 +257,7 @@ def _record_activity_locked(
     active = bool(
         config.network.enabled
         and season is not None
+        and is_reward_earning_time(season, observed_at)
         and registration.state == CreatorGroupRegistration.State.ACTIVE
         and registration.reward_eligible_since
         and observed_at >= registration.reward_eligible_since
@@ -380,17 +389,19 @@ def _settle_window_locked(
     source_season = Season.objects.get(pk=season_id)
     season = resolve_current_season(at=window_start, required=False)
     end = window_start + timedelta(seconds=config.network.window_seconds)
-    rows = NetworkActivity.objects.filter(
+    window_rows = NetworkActivity.objects.filter(
         registration=registration,
         season_id=season_id,
         config_version_id=config_id,
         observed_at__gte=window_start,
         observed_at__lt=end,
+    )
+    eligible_rows = window_rows.filter(
         program_active=True,
         rewardable_chars__gt=0,
     )
-    chars = rows.aggregate(total=Sum("rewardable_chars"))["total"] or 0
-    speakers = rows.values("sender_id").distinct().count()
+    chars = eligible_rows.aggregate(total=Sum("rewardable_chars"))["total"] or 0
+    speakers = eligible_rows.values("sender_id").distinct().count()
     if not season or season.pk != season_id:
         settlement, _ = CreatorWindowSettlement.objects.get_or_create(
             registration=registration,
@@ -404,13 +415,7 @@ def _settle_window_locked(
                 "unique_speakers": speakers,
             },
         )
-        NetworkActivity.objects.filter(
-            registration=registration,
-            season=source_season,
-            config_version=config_model,
-            observed_at__gte=window_start,
-            observed_at__lt=end,
-        ).update(window_processed=True)
+        window_rows.update(window_processed=True)
         return settlement
     raw = (
         min(chars // config.network.chars_per_point, config.network.max_points_per_window)
@@ -436,7 +441,7 @@ def _settle_window_locked(
             },
         )
         if not created:
-            rows.update(window_processed=True)
+            window_rows.update(window_processed=True)
             return settlement
         Player.objects.select_for_update().get(pk=registration.creator_id)
         allowance, _ = CreatorDailyAllowance.objects.select_for_update().get_or_create(
@@ -451,7 +456,11 @@ def _settle_window_locked(
                 context="NETWORK_GROUP",
                 amount=points,
                 idempotency_key=f"creator:window:{settlement.pk}",
-                occurred_at=min(end, season.ends_at - timedelta(microseconds=1)),
+                occurred_at=min(
+                    end - timedelta(microseconds=1),
+                    economic_window_end(season) - timedelta(microseconds=1),
+                    season.ends_at - timedelta(microseconds=1),
+                ),
                 resolved_config=config,
                 source_season=season,
                 preserve_config_version=True,
@@ -462,7 +471,7 @@ def _settle_window_locked(
             settlement.save(update_fields=("points", "reward", "state"))
             allowance.points += points
             allowance.save(update_fields=("points",))
-        rows.update(window_processed=True)
+        window_rows.update(window_processed=True)
     return settlement
 
 
@@ -506,12 +515,23 @@ def settle_completed_windows(*, limit: int = 200, now: datetime | None = None) -
         ):
             continue
         seen.add(identity)
-        settle_window(
-            registration_id=row["registration_id"],
-            window_start=start,
-            config_id=row["config_version_id"],
-            season_id=row["season_id"],
-        )
+        try:
+            settle_window(
+                registration_id=row["registration_id"],
+                window_start=start,
+                config_id=row["config_version_id"],
+                season_id=row["season_id"],
+            )
+        except Exception as exc:
+            logger.warning(
+                "creator_window_settlement_failed",
+                registration_id=row["registration_id"],
+                season_id=row["season_id"],
+                config_version_id=row["config_version_id"],
+                window_start=start.isoformat(),
+                error_category=type(exc).__name__,
+            )
+            continue
         processed += 1
     return processed
 

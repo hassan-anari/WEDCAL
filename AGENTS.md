@@ -318,9 +318,9 @@ When calculations depend on configurable economy, record the effective config ve
 
 Season close must not add Season Points into Lifetime again.
 
-### 10.5 No DLX allocation per season
+### 10.5 XP and confirmed DLX allocation are separate
 
-Never create final DLX allocation during Season 1 close. Final allocation is after the entire multi-season campaign.
+Season 1 creates confirmed, auditable, off-chain DLX allocations through six weekly economic epoch settlements. Confirmed allocation is not claimable, transferable, tradable, or on-chain. Keep DLX allocation out of the XP `RewardLedger`; it must not change Level, Lifetime Points, or Season XP and must not recursively create rewards.
 
 ---
 
@@ -715,7 +715,7 @@ Examples that would require contract clarification if not already covered:
 - adding a new permanent currency,
 - changing whether War is Season 1,
 - allowing multi-Clan simultaneous membership,
-- making final DLX allocation per-season.
+- making confirmed off-chain DLX allocation claimable, transferable, tradable, or on-chain during Season 1.
 
 ---
 

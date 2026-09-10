@@ -13,6 +13,8 @@ REQUIRED_FILES = (
     "AGENTS.md",
     "DEXO_LAND_SEASON1_SOURCE_OF_TRUTH_EN.md",
     "README.md",
+    "DEXO_LAND_SEASON1_ECONOMY_CONFIG_CONTRACT.md",
+    "config/examples/season1.game-config.v1.json",
 )
 
 
@@ -50,6 +52,8 @@ def validate_invariants(contents: dict[str, str]) -> list[str]:
     errors: list[str] = []
     agents = contents.get("AGENTS.md", "")
     source = contents.get("DEXO_LAND_SEASON1_SOURCE_OF_TRUTH_EN.md", "")
+    economy = contents.get("DEXO_LAND_SEASON1_ECONOMY_CONFIG_CONTRACT.md", "")
+    example = contents.get("config/examples/season1.game-config.v1.json", "")
 
     checks = (
         (
@@ -79,13 +83,20 @@ def validate_invariants(contents: dict[str, str]) -> list[str]:
         ),
         (
             source,
-            ("DLX allocation does not occur after each season",),
-            "Source of Truth must prohibit per-season final DLX allocation.",
+            (
+                "confirmed",
+                "off-chain",
+                "DLX allocations",
+                "not claimable",
+                "transferable",
+                "tradable",
+            ),
+            "Source of Truth must distinguish confirmed off-chain allocation from liquid DLX.",
         ),
         (
             source,
-            ("Final DLX allocation happens only after the overall season campaign",),
-            "Source of Truth must retain multi-season final DLX allocation timing.",
+            ("45 days", "six economic epochs", "three-day", "no seventh"),
+            "Source of Truth must retain the 45-day, six-epoch timing.",
         ),
         (
             source,
@@ -97,11 +108,53 @@ def validate_invariants(contents: dict[str, str]) -> list[str]:
             ("GitHub Actions", "PR quality gate"),
             "Source of Truth must retain the GitHub Actions / PR quality gate.",
         ),
+        (
+            source,
+            ("60,000,000", "100,000,000", "settlement_start_epoch", "chronologically"),
+            "Source of Truth must retain pool growth and delayed-settlement semantics.",
+        ),
+        (
+            economy,
+            ("3500 bps", "Core Gameplay 2000 bps", "1500 bps", "1000 bps", "10,000 bps"),
+            "Economy contract must retain canonical category weights.",
+        ),
+        (
+            source,
+            ("BASE_TAP", "ineligible", "passive referral share", "batched"),
+            "Source of Truth must retain Base Tap batching and referral ineligibility.",
+        ),
+        (
+            source,
+            (
+                "Phase 9",
+                "after Clan economy inputs exist",
+                "off-chain DLX allocation ledger",
+                "growth-unlock",
+                "carry-forward",
+            ),
+            "Source of Truth must assign weekly DLX settlement ownership after Clan economy.",
+        ),
+        (
+            example,
+            (
+                '"schema_version": 2',
+                '"epoch_count": 6',
+                '"price_status": "UNAVAILABLE"',
+                '"accounting_unit": "OFF_CHAIN_DLX_ALLOCATION_AMOUNT"',
+                '"base_dlx_amount": 60000000',
+            ),
+            "Example config must use economy schema v2 and Season 1 DLX semantics.",
+        ),
     )
 
     for text, markers, message in checks:
         if not has_all(text, *markers):
             errors.append(message)
+
+    if has_all(source, "DLX distribution during each season"):
+        errors.append("Source of Truth contains stale per-season DLX distribution wording.")
+    if "atomic_units" in example:
+        errors.append("Example config must not imply finalized native-chain atomic units.")
 
     return errors
 

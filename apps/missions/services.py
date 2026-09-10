@@ -15,7 +15,7 @@ from apps.game_config.services import resolve_effective_game_config
 from apps.missions.models import MissionDefinition, PlayerMission
 from apps.players.models import Player
 from apps.rewards.services import settle_player_reward
-from apps.seasons.services import resolve_current_season
+from apps.seasons.services import require_reward_earning_time, resolve_current_season
 from apps.telegram.bot_api import TelegramResult, get_chat_member
 from apps.typing_game.models import TypingAttempt
 
@@ -179,6 +179,8 @@ def start_mission(player: Player, key: str, at: datetime) -> MissionStart:
 def _mark_ready(player: Player, progress_id: int, at: datetime) -> PlayerMission:
     resolved = resolve_effective_game_config(at)
     season = resolve_current_season(at=at)
+    assert season is not None
+    require_reward_earning_time(season, at)
     with transaction.atomic():
         player = Player.objects.select_for_update().get(pk=player.pk)
         progress = (

@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     "apps.typing_game",
     "apps.referrals",
     "apps.network",
+    "apps.base_tap",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -121,6 +122,8 @@ NETWORK_REGISTRATION_INTENT_TTL_SECONDS = int(
 )
 REWARD_OUTBOX_LEASE_SECONDS = int(os.getenv("REWARD_OUTBOX_LEASE_SECONDS", "300"))
 REWARD_OUTBOX_RETRY_SECONDS = int(os.getenv("REWARD_OUTBOX_RETRY_SECONDS", "60"))
+BASE_TAP_SETTLEMENT_LEASE_SECONDS = int(os.getenv("BASE_TAP_SETTLEMENT_LEASE_SECONDS", "300"))
+BASE_TAP_SETTLEMENT_RETRY_SECONDS = int(os.getenv("BASE_TAP_SETTLEMENT_RETRY_SECONDS", "60"))
 
 CELERY_BEAT_SCHEDULE.update(
     {
@@ -142,6 +145,10 @@ CELERY_BEAT_SCHEDULE.update(
         },
         "settle-creator-windows": {
             "task": "apps.network.tasks.settle_creator_windows",
+            "schedule": 60,
+        },
+        "recover-pending-base-taps": {
+            "task": "apps.base_tap.tasks.recover_pending_base_taps",
             "schedule": 60,
         },
     }

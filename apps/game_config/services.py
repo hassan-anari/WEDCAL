@@ -136,6 +136,38 @@ class RetentionConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class BaseTapConfig:
+    enabled: bool
+    points_per_rewarded_tap: int
+    rewarded_taps_per_day: int
+    reset_timezone: str
+    max_taps_per_batch: int
+    min_batch_interval_ms: int
+    receipt_retention_days: int
+
+
+@dataclass(frozen=True, slots=True)
+class GrowthMilestone:
+    key: str
+    qualified_player_count: int
+    unlock_dlx_amount: int
+
+
+@dataclass(frozen=True, slots=True)
+class DlxDistributionConfig:
+    product_period_days: int
+    epoch_count: int
+    epoch_days: int
+    closing_days: int
+    default_settlement_start_epoch: int
+    base_pool_dlx_amount: int
+    max_pool_dlx_amount: int
+    category_weights_bps: tuple[tuple[str, int], ...]
+    qualified_player_predicate: dict[str, Any]
+    growth_milestones: tuple[GrowthMilestone, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class ResolvedGameConfig:
     id: int
     version: str
@@ -147,6 +179,8 @@ class ResolvedGameConfig:
     referral: ReferralConfig
     network: NetworkConfig
     retention: RetentionConfig
+    base_tap: BaseTapConfig
+    dlx_distribution: DlxDistributionConfig | None
 
 
 class GameConfigUnavailable(LookupError):
@@ -431,6 +465,93 @@ def parse_phase5(payload: dict[str, Any]) -> tuple[ReferralConfig, NetworkConfig
     return referral_config, network_config, retention_config
 
 
+def parse_economy_sync(payload: dict[str, Any]) -> tuple[BaseTapConfig, DlxDistributionConfig]:
+    try:
+        meta = payload["meta"]
+        if meta["schema_version"] != 2 or meta["economy_contract_version"] != "2.0.0":
+            raise TypeError
+        tap = payload["base_tap"]
+        base_tap = BaseTapConfig(
+            _boolean(tap["enabled"], "base_tap.enabled"),
+            _integer(tap["points_per_rewarded_tap"], "base tap reward", minimum=1),
+            _integer(tap["rewarded_taps_per_utc_day"], "base tap daily cap", minimum=1),
+            _timezone(tap["reset_timezone"], "base_tap.reset_timezone"),
+            _integer(tap["max_taps_per_batch"], "base tap batch cap", minimum=1),
+            _integer(tap["min_batch_interval_ms"], "base tap interval", minimum=0),
+            _integer(tap["receipt_retention_days"], "base tap receipt retention", minimum=1),
+        )
+        distribution = payload["dlx_distribution"]
+        timing = distribution["timing"]
+        pool = distribution["pool"]
+        weights = distribution["category_weights_bps"]
+        if not isinstance(weights, dict):
+            raise TypeError
+        parsed_weights = tuple(
+            (str(key), _integer(value, "DLX category weight")) for key, value in weights.items()
+        )
+        growth = pool["growth_unlock"]
+        predicate = growth["qualified_player_predicate"]
+        if not isinstance(predicate, dict) or not predicate:
+            raise TypeError
+        milestones = tuple(
+            GrowthMilestone(
+                str(item["key"]),
+                _integer(item["qualified_player_count"], "qualified player milestone", minimum=1),
+                _integer(item["unlock_dlx_amount"], "milestone unlock", minimum=1),
+            )
+            for item in growth["milestones"]
+        )
+        result = DlxDistributionConfig(
+            _integer(timing["product_period_days"], "product period", minimum=1),
+            _integer(timing["epoch_count"], "epoch count", minimum=1),
+            _integer(timing["epoch_days"], "epoch days", minimum=1),
+            _integer(timing["closing_days"], "closing days", minimum=0),
+            _integer(distribution["default_settlement_start_epoch"], "settlement start", minimum=1),
+            _integer(pool["base_dlx_amount"], "base DLX pool"),
+            _integer(pool["max_dlx_amount"], "maximum DLX pool"),
+            parsed_weights,
+            predicate,
+            milestones,
+        )
+    except (KeyError, TypeError) as exc:
+        raise ValidationError("Invalid economy sync configuration shape") from exc
+    if base_tap.reset_timezone != "UTC":
+        raise ValidationError("Base Tap resets at 00:00 UTC")
+    if base_tap.max_taps_per_batch > base_tap.rewarded_taps_per_day:
+        raise ValidationError("Base Tap batch cap cannot exceed its daily cap")
+    if result.epoch_count != 6 or result.epoch_days != 7:
+        raise ValidationError("Season 1 requires exactly six seven-day economic epochs")
+    if result.product_period_days != result.epoch_count * result.epoch_days + result.closing_days:
+        raise ValidationError("Product period must equal economic epochs plus closing days")
+    if result.product_period_days != 45 or result.closing_days != 3:
+        raise ValidationError("Season 1 requires a 45-day period and three closing days")
+    if result.default_settlement_start_epoch > result.epoch_count:
+        raise ValidationError("Settlement start epoch is outside the economic epoch range")
+    if result.max_pool_dlx_amount < result.base_pool_dlx_amount:
+        raise ValidationError("Maximum DLX pool cannot be below the base pool")
+    expected_categories = {
+        "CLAN_PERFORMANCE",
+        "CORE_GAMEPLAY",
+        "CREATOR_COMMUNITY_GROWTH",
+        "VERIFIED_REFERRAL",
+        "LOYALTY_CONSISTENCY",
+    }
+    if {key for key, _ in parsed_weights} != expected_categories or sum(
+        value for _, value in parsed_weights
+    ) != 10000:
+        raise ValidationError(
+            "DLX category weights must contain the canonical categories and total 10000 bps"
+        )
+    if len({item.key for item in milestones}) != len(milestones) or len(
+        {item.qualified_player_count for item in milestones}
+    ) != len(milestones):
+        raise ValidationError("Growth milestones require unique keys and thresholds")
+    available_growth = result.max_pool_dlx_amount - result.base_pool_dlx_amount
+    if sum(item.unlock_dlx_amount for item in milestones) > available_growth:
+        raise ValidationError("Growth milestone unlocks exceed the maximum DLX pool")
+    return base_tap, result
+
+
 def parse_game_config(
     payload: dict[str, Any],
 ) -> tuple[ProgressionConfig, DailyConfig, MissionsConfig, TypingConfig]:
@@ -452,6 +573,8 @@ def _parse_resolved(
     ReferralConfig,
     NetworkConfig,
     RetentionConfig,
+    BaseTapConfig,
+    DlxDistributionConfig | None,
 ]:
     """Resolve pre-Phase-4 snapshots without rewriting their immutable payloads.
 
@@ -467,6 +590,8 @@ def _parse_resolved(
             ReferralConfig(False, 1, 0, True, (), 1, 1, (), ()),
             NetworkConfig(False, 1, 1, 1, False, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2),
             RetentionConfig(1, 1),
+            BaseTapConfig(False, 1, 1, "UTC", 1, 0, 1),
+            None,
         )
     if "referral" not in payload:
         progression, daily, missions, typing = (
@@ -483,10 +608,35 @@ def _parse_resolved(
             ReferralConfig(False, 1, 0, True, (), 1, 1, (), ()),
             NetworkConfig(False, 1, 1, 1, False, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2),
             RetentionConfig(1, 1),
+            BaseTapConfig(False, 1, 1, "UTC", 1, 0, 1),
+            None,
         )
     progression, daily, missions, typing = parse_game_config(payload)
     referral, network, retention = parse_phase5(payload)
-    return progression, daily, missions, typing, referral, network, retention
+    if "base_tap" not in payload:
+        return (
+            progression,
+            daily,
+            missions,
+            typing,
+            referral,
+            network,
+            retention,
+            BaseTapConfig(False, 1, 1, "UTC", 1, 0, 1),
+            None,
+        )
+    base_tap, distribution = parse_economy_sync(payload)
+    return (
+        progression,
+        daily,
+        missions,
+        typing,
+        referral,
+        network,
+        retention,
+        base_tap,
+        distribution,
+    )
 
 
 def publish_game_config(
@@ -499,6 +649,10 @@ def publish_game_config(
         if "referral" in config.payload:
             parse_game_config(config.payload)
             parse_phase5(config.payload)
+            if "base_tap" in config.payload:
+                parse_economy_sync(config.payload)
+                if config.schema_version != config.payload["meta"]["schema_version"]:
+                    raise ValidationError("GameConfig schema version does not match its payload")
         elif any(name in config.payload for name in ("daily", "missions", "typing")):
             parse_progression(config.payload)
             parse_daily(config.payload)
@@ -537,8 +691,8 @@ def resolve_effective_game_config(at: datetime) -> ResolvedGameConfig:
     if not configs:
         raise GameConfigUnavailable("No published game configuration is effective")
     config = configs[0]
-    progression, daily, missions, typing, referral, network, retention = _parse_resolved(
-        config.payload
+    progression, daily, missions, typing, referral, network, retention, base_tap, distribution = (
+        _parse_resolved(config.payload)
     )
     return ResolvedGameConfig(
         config.pk,
@@ -551,6 +705,8 @@ def resolve_effective_game_config(at: datetime) -> ResolvedGameConfig:
         referral,
         network,
         retention,
+        base_tap,
+        distribution,
     )
 
 
@@ -561,8 +717,8 @@ def resolve_game_config_version(config_id: int) -> ResolvedGameConfig:
         )
     except GameConfigVersion.DoesNotExist as exc:
         raise GameConfigUnavailable("Published game configuration is unavailable") from exc
-    progression, daily, missions, typing, referral, network, retention = _parse_resolved(
-        config.payload
+    progression, daily, missions, typing, referral, network, retention, base_tap, distribution = (
+        _parse_resolved(config.payload)
     )
     return ResolvedGameConfig(
         config.pk,
@@ -575,4 +731,6 @@ def resolve_game_config_version(config_id: int) -> ResolvedGameConfig:
         referral,
         network,
         retention,
+        base_tap,
+        distribution,
     )
