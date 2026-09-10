@@ -242,7 +242,7 @@ def test_internal_typing_verifier_accepts_only_valid_current_period(
     attempt.status = TypingAttempt.Status.VALID
     attempt.save(update_fields=["status"])
     assert verify_mission(player, mission.key, BASE).status == PlayerMission.Status.REWARD_READY
-    unsupported = definition("complete-profile", MissionDefinition.Verification.INTERNAL)
+    unsupported = definition("read-season-brief", MissionDefinition.Verification.INTERNAL)
     with pytest.raises(MissionUnavailable):
         verify_mission(player, unsupported.key, BASE)
 

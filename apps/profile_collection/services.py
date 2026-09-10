@@ -106,6 +106,7 @@ def achievement_progress(key: str, facts: ProfileFacts) -> int:
     }[key]
 
 
+@transaction.atomic
 def reconcile_profile(
     player: Player, resolved: ResolvedGameConfig, at: datetime
 ) -> tuple[
@@ -113,7 +114,9 @@ def reconcile_profile(
 ]:
     if resolved.profile_collection is None or resolved.season_honors is None:
         raise ValidationError("Profile collection is unavailable in the effective configuration")
+    player = Player.objects.select_for_update().get(pk=player.pk)
     profile = get_or_create_profile(player)
+    profile = PlayerProfile.objects.select_for_update().get(pk=profile.pk)
     facts = collect_profile_facts(player, resolved)
     config = GameConfigVersion.objects.get(pk=resolved.id)
     existing = {x.achievement_key: x for x in PlayerAchievementUnlock.objects.filter(player=player)}
@@ -153,24 +156,30 @@ def reconcile_profile(
     achievement_keys, medal_keys = set(existing), set(awards)
     frames = {x.key: x for x in resolved.profile_collection.frames}
     titles = {x.key: x for x in resolved.profile_collection.titles}
-    dirty = False
     if profile.active_frame_key not in frames or not entitlement(
         frames[profile.active_frame_key], facts, achievement_keys, medal_keys
     ):
-        profile.active_frame_key, dirty = "standard", True
+        PlayerProfile.objects.filter(
+            pk=profile.pk, active_frame_key=profile.active_frame_key
+        ).update(active_frame_key="standard")
     if profile.active_title_key not in titles or not entitlement(
         titles[profile.active_title_key], facts, achievement_keys, medal_keys
     ):
-        profile.active_title_key, dirty = "explorer", True
-    if profile.featured_medal_key not in medal_keys:
-        profile.featured_medal_key, dirty = None, dirty or profile.featured_medal_key is not None
-    if profile.featured_achievement_key not in achievement_keys:
-        profile.featured_achievement_key, dirty = (
-            None,
-            dirty or profile.featured_achievement_key is not None,
-        )
-    if dirty:
-        profile.save()
+        PlayerProfile.objects.filter(
+            pk=profile.pk, active_title_key=profile.active_title_key
+        ).update(active_title_key="explorer")
+    if profile.featured_medal_key is not None and profile.featured_medal_key not in medal_keys:
+        PlayerProfile.objects.filter(
+            pk=profile.pk, featured_medal_key=profile.featured_medal_key
+        ).update(featured_medal_key=None)
+    if (
+        profile.featured_achievement_key is not None
+        and profile.featured_achievement_key not in achievement_keys
+    ):
+        PlayerProfile.objects.filter(
+            pk=profile.pk, featured_achievement_key=profile.featured_achievement_key
+        ).update(featured_achievement_key=None)
+    profile.refresh_from_db()
     return profile, facts, existing, awards
 
 
@@ -195,7 +204,7 @@ def entitlement(
 
 @transaction.atomic
 def review_profile(player: Player, at: datetime) -> PlayerProfile:
-    Player.objects.select_for_update().get(pk=player.pk)
+    player = Player.objects.select_for_update().get(pk=player.pk)
     profile = get_or_create_profile(player)
     profile = PlayerProfile.objects.select_for_update().get(pk=profile.pk)
     if profile.first_reviewed_at is None:

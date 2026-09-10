@@ -9,7 +9,11 @@ from django.core.exceptions import ValidationError
 from django.utils import timezone
 
 from apps.game_config.models import GameConfigVersion
-from apps.game_config.services import parse_profile_collection, resolve_effective_game_config
+from apps.game_config.services import (
+    parse_profile_collection,
+    publish_game_config,
+    resolve_effective_game_config,
+)
 from apps.players.models import Player
 from apps.profile_collection.models import PlayerAchievementUnlock, PlayerMedalAward
 from apps.profile_collection.services import reconcile_profile, review_profile, update_customization
@@ -70,6 +74,78 @@ def test_profile_config_rejects_unsafe_rules(path: tuple[str, ...], value: objec
     node[path[-1]] = value
     with pytest.raises(ValidationError):
         parse_profile_collection(data)
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        (("profile_collection", "frames", "captain", "unlock"), "DEFAULT"),
+        (("profile_collection", "frames", "clan", "unlock"), "DEFAULT"),
+        (("profile_collection", "frames", "founder", "unlock"), "LEVEL:5"),
+        (("profile_collection", "titles", "mission-runner", "unlock"), "DEFAULT"),
+        (("profile_collection", "achievements", "first-mission"), []),
+        (("profile_collection", "frames", "standard"), "DEFAULT"),
+        (("profile_collection", "titles", "explorer"), None),
+        (("season_honors", "medals", "mission-master"), 50),
+        (("season_honors", "medals", "season-top-1", "max_rank_percentile_bps"), 10001),
+        (("season_honors", "medals", "season-top-1", "max_rank_percentile_bps"), 2000),
+        (("season_honors", "medals", "season-participant", "min_season_points"), 40000),
+        (("clan", "unlock", "min_level"), 6),
+    ],
+)
+def test_profile_config_rejects_semantic_authorization_changes(
+    path: tuple[str, ...], value: object
+) -> None:
+    data = copy.deepcopy(payload())
+    node: Any = data
+    for key in path[:-1]:
+        node = node[key]
+    node[path[-1]] = value
+    with pytest.raises(ValidationError):
+        parse_profile_collection(data)
+
+
+@pytest.mark.parametrize(("catalog", "key"), [("frames", "bonus"), ("titles", "hero")])
+def test_profile_config_rejects_extra_catalog_keys(catalog: str, key: str) -> None:
+    data = copy.deepcopy(payload())
+    data["profile_collection"][catalog][key] = {"unlock": "DEFAULT"}  # type: ignore[index]
+    with pytest.raises(ValidationError):
+        parse_profile_collection(data)
+
+
+def test_profile_config_catalog_order_is_canonical() -> None:
+    data = copy.deepcopy(payload())
+    frames = data["profile_collection"]["frames"]  # type: ignore[index]
+    data["profile_collection"]["frames"] = dict(reversed(list(frames.items())))  # type: ignore[index]
+    profile, honors = parse_profile_collection(data)
+    assert [item.key for item in profile.frames] == [
+        "standard",
+        "premium",
+        "seasonal",
+        "founder",
+        "clan",
+        "captain",
+    ]
+    assert [item.key for item in honors.medals][:3] == [
+        "season-founding",
+        "season-participant",
+        "season-veteran",
+    ]
+
+
+@pytest.mark.django_db
+def test_publication_rejects_unsafe_profile_entitlement() -> None:
+    data = payload()
+    unsafe: Any = data
+    unsafe["profile_collection"]["frames"]["captain"]["unlock"] = "DEFAULT"
+    draft = GameConfigVersion.objects.create(
+        version="unsafe-profile",
+        schema_version=1,
+        effective_at=timezone.now() + timedelta(days=1),
+        payload=data,
+    )
+    with pytest.raises(ValidationError):
+        publish_game_config(draft)
 
 
 @pytest.mark.django_db
