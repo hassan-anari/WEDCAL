@@ -168,6 +168,37 @@ class DlxDistributionConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class AchievementRule:
+    key: str
+    available_s1: bool
+    target: int
+
+
+@dataclass(frozen=True, slots=True)
+class CollectionRule:
+    key: str
+    unlock: str
+
+
+@dataclass(frozen=True, slots=True)
+class MedalRule:
+    key: str
+    threshold: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class ProfileCollectionConfig:
+    achievements: tuple[AchievementRule, ...]
+    titles: tuple[CollectionRule, ...]
+    frames: tuple[CollectionRule, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SeasonHonorsConfig:
+    medals: tuple[MedalRule, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class ResolvedGameConfig:
     id: int
     version: str
@@ -181,6 +212,8 @@ class ResolvedGameConfig:
     retention: RetentionConfig
     base_tap: BaseTapConfig
     dlx_distribution: DlxDistributionConfig | None
+    profile_collection: ProfileCollectionConfig | None
+    season_honors: SeasonHonorsConfig | None
 
 
 class GameConfigUnavailable(LookupError):
@@ -552,6 +585,183 @@ def parse_economy_sync(payload: dict[str, Any]) -> tuple[BaseTapConfig, DlxDistr
     return base_tap, result
 
 
+CANONICAL_ACHIEVEMENTS = (
+    "first-mission",
+    "first-referral",
+    "seven-day-streak",
+    "thirty-day-streak",
+    "first-verified-activity",
+    "clan-ready",
+    "first-clan",
+    "first-contribution",
+    "first-war",
+    "first-victory",
+)
+CANONICAL_ACHIEVEMENT_TARGETS = {
+    "first-mission": 1,
+    "first-referral": 1,
+    "seven-day-streak": 7,
+    "thirty-day-streak": 30,
+    "first-verified-activity": 1,
+    "first-clan": 1,
+    "first-contribution": 1,
+}
+CANONICAL_MEDALS = (
+    "season-founding",
+    "season-participant",
+    "season-veteran",
+    "season-top-10",
+    "season-top-1",
+    "season-champion",
+    "activity-veteran",
+    "clan-loyalty",
+    "leadership",
+    "mission-master",
+)
+CANONICAL_TITLES = {
+    "explorer": "DEFAULT",
+    "early-pioneer": "MEDAL:season-founding",
+    "mission-runner": "ACHIEVEMENT:first-mission",
+    "network-builder": "ACHIEVEMENT:first-referral",
+    "community-voice": "ACHIEVEMENT:first-verified-activity",
+    "season-veteran": "MEDAL:season-veteran",
+}
+CANONICAL_FRAMES = {
+    "standard": "DEFAULT",
+    "premium": "LEVEL",
+    "seasonal": "MEDAL:season-participant",
+    "founder": "MEDAL:season-founding",
+    "clan": "ACTIVE_CLAN_MEMBERSHIP",
+    "captain": "ACTIVE_CLAN_CAPTAIN",
+}
+
+
+def _config_object(value: object, name: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValidationError(f"{name} must be an object")
+    return value
+
+
+def parse_profile_collection(
+    payload: dict[str, Any],
+) -> tuple[ProfileCollectionConfig, SeasonHonorsConfig]:
+    """Parse only the explicit Season 1 collection rule shapes."""
+    try:
+        raw = _config_object(payload["profile_collection"], "profile_collection")
+        honors = _config_object(payload["season_honors"], "season_honors")
+        raw_achievements = _config_object(raw["achievements"], "achievements")
+        raw_titles = _config_object(raw["titles"], "titles")
+        raw_frames = _config_object(raw["frames"], "frames")
+        raw_medals = _config_object(honors["medals"], "medals")
+    except (KeyError, TypeError, ValidationError) as exc:
+        raise ValidationError("Invalid profile collection configuration shape") from exc
+    if raw.get("achievement_point_rewards_enabled") is not False:
+        raise ValidationError("Achievement point rewards must remain disabled")
+    if honors.get("point_rewards_enabled") is not False:
+        raise ValidationError("Medal point rewards must remain disabled")
+    if set(raw_achievements) != set(CANONICAL_ACHIEVEMENTS):
+        raise ValidationError("Profile configuration requires the canonical achievement keys")
+    achievements: list[AchievementRule] = []
+    for key in CANONICAL_ACHIEVEMENTS:
+        rule = _config_object(raw_achievements[key], f"achievement {key}")
+        if key in {"first-war", "first-victory"}:
+            if rule.get("available_s1") is not False:
+                raise ValidationError("War achievements must remain unavailable in Season 1")
+            achievements.append(AchievementRule(key, False, 0))
+            continue
+        if rule.get("point_reward") != 0:
+            raise ValidationError("Every Season 1 achievement point reward must be zero")
+        target_name = (
+            "min_level"
+            if key == "clan-ready"
+            else ("min_contribution" if key == "first-contribution" else "target")
+        )
+        target = _integer(rule.get(target_name), f"{key}.{target_name}", minimum=1)
+        if (
+            key
+            in {
+                "first-mission",
+                "first-referral",
+                "seven-day-streak",
+                "thirty-day-streak",
+                "first-verified-activity",
+                "first-clan",
+                "first-contribution",
+            }
+            and target != CANONICAL_ACHIEVEMENT_TARGETS[key]
+        ):
+            raise ValidationError(f"{key} must use the canonical Season 1 target")
+        achievements.append(AchievementRule(key, True, target))
+    clan_ready = next(item for item in achievements if item.key == "clan-ready")
+    try:
+        clan = _config_object(payload["clan"], "clan")
+        clan_unlock = _config_object(clan["unlock"], "clan.unlock")
+        clan_min_level = _integer(clan_unlock["min_level"], "clan.unlock.min_level", minimum=1)
+    except (KeyError, TypeError, ValidationError) as exc:
+        raise ValidationError("Invalid Clan unlock configuration shape") from exc
+    if clan_ready.target != clan_min_level:
+        raise ValidationError("Clan Ready and Clan unlock level requirements must match")
+    if set(raw_medals) != set(CANONICAL_MEDALS):
+        raise ValidationError("Season honors require the canonical medal keys")
+    medal_fields = {
+        "season-participant": "min_season_points",
+        "season-veteran": "min_season_points",
+        "season-top-10": "max_rank_percentile_bps",
+        "season-top-1": "max_rank_percentile_bps",
+        "season-champion": "max_rank",
+        "activity-veteran": "min_verified_activity_events",
+        "clan-loyalty": "min_active_days_same_clan",
+        "mission-master": "min_claimed_missions",
+    }
+    medals: list[MedalRule] = []
+    for key in CANONICAL_MEDALS:
+        rule = _config_object(raw_medals[key], f"medal {key}")
+        field = medal_fields.get(key)
+        if field and field not in rule:
+            raise ValidationError(f"medal {key} is missing {field}")
+        threshold = _integer(rule[field], f"{key}.{field}", minimum=1) if field else None
+        medals.append(MedalRule(key, threshold))
+    thresholds = {item.key: item.threshold for item in medals}
+    top_ten = thresholds["season-top-10"]
+    top_one = thresholds["season-top-1"]
+    participant = thresholds["season-participant"]
+    veteran = thresholds["season-veteran"]
+    assert top_ten is not None and top_one is not None
+    assert participant is not None and veteran is not None
+    if top_ten > 10000 or top_one > 10000 or top_one > top_ten:
+        raise ValidationError("Season medal percentiles must be ordered within 1..10000 bps")
+    if participant > veteran:
+        raise ValidationError("Season Participant threshold cannot exceed Season Veteran")
+
+    def collection(
+        catalog: dict[str, Any], expected: dict[str, str], kind: str
+    ) -> tuple[CollectionRule, ...]:
+        if set(catalog) != set(expected):
+            raise ValidationError(f"Profile configuration requires canonical {kind} keys")
+        rows = []
+        for key, expected_unlock in expected.items():
+            rule = _config_object(catalog[key], f"{kind} {key}")
+            unlock = rule.get("unlock")
+            if expected_unlock == "LEVEL":
+                if not isinstance(unlock, str) or not unlock.startswith("LEVEL:"):
+                    raise ValidationError(f"{kind} {key} must use a Level entitlement")
+                try:
+                    if int(unlock.removeprefix("LEVEL:")) < 1:
+                        raise ValueError
+                except ValueError as exc:
+                    raise ValidationError(f"{kind} {key} has an invalid Level entitlement") from exc
+            elif unlock != expected_unlock:
+                raise ValidationError(f"{kind} {key} must use its canonical entitlement")
+            rows.append(CollectionRule(key, unlock))
+        return tuple(rows)
+
+    titles = collection(raw_titles, CANONICAL_TITLES, "title")
+    frames = collection(raw_frames, CANONICAL_FRAMES, "frame")
+    return ProfileCollectionConfig(tuple(achievements), titles, frames), SeasonHonorsConfig(
+        tuple(medals)
+    )
+
+
 def parse_game_config(
     payload: dict[str, Any],
 ) -> tuple[ProgressionConfig, DailyConfig, MissionsConfig, TypingConfig]:
@@ -653,6 +863,8 @@ def publish_game_config(
                 parse_economy_sync(config.payload)
                 if config.schema_version != config.payload["meta"]["schema_version"]:
                     raise ValidationError("GameConfig schema version does not match its payload")
+            if "profile_collection" in config.payload:
+                parse_profile_collection(config.payload)
         elif any(name in config.payload for name in ("daily", "missions", "typing")):
             parse_progression(config.payload)
             parse_daily(config.payload)
@@ -694,6 +906,11 @@ def resolve_effective_game_config(at: datetime) -> ResolvedGameConfig:
     progression, daily, missions, typing, referral, network, retention, base_tap, distribution = (
         _parse_resolved(config.payload)
     )
+    profile, honors = (
+        parse_profile_collection(config.payload)
+        if "profile_collection" in config.payload
+        else (None, None)
+    )
     return ResolvedGameConfig(
         config.pk,
         config.version,
@@ -707,6 +924,8 @@ def resolve_effective_game_config(at: datetime) -> ResolvedGameConfig:
         retention,
         base_tap,
         distribution,
+        profile,
+        honors,
     )
 
 
@@ -720,6 +939,11 @@ def resolve_game_config_version(config_id: int) -> ResolvedGameConfig:
     progression, daily, missions, typing, referral, network, retention, base_tap, distribution = (
         _parse_resolved(config.payload)
     )
+    profile, honors = (
+        parse_profile_collection(config.payload)
+        if "profile_collection" in config.payload
+        else (None, None)
+    )
     return ResolvedGameConfig(
         config.pk,
         config.version,
@@ -733,4 +957,6 @@ def resolve_game_config_version(config_id: int) -> ResolvedGameConfig:
         retention,
         base_tap,
         distribution,
+        profile,
+        honors,
     )

@@ -267,12 +267,20 @@ def verify_mission(
         if not accepted:
             return progress
     else:
-        if definition.key != "typing-session":
+        if definition.key == "complete-profile":
+            from apps.profile_collection.models import PlayerProfile
+
+            if not PlayerProfile.objects.filter(
+                player=player, first_reviewed_at__isnull=False
+            ).exists():
+                return progress
+        elif definition.key == "typing-session":
+            if not TypingAttempt.objects.filter(
+                player=player, reset_period=eligibility, status=TypingAttempt.Status.VALID
+            ).exists():
+                return progress
+        else:
             raise MissionUnavailable("Internal verifier is not implemented")
-        if not TypingAttempt.objects.filter(
-            player=player, reset_period=eligibility, status=TypingAttempt.Status.VALID
-        ).exists():
-            return progress
     return _mark_ready(player, progress.pk, at)
 
 

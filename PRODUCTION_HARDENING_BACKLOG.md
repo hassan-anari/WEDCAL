@@ -3,8 +3,9 @@
 **Document role:** living production-readiness risk register  
 **Repository:** `hassan-anari/Dalexio-Game-Backend`  
 **Initial scope reviewed:** Phases 0–5 + Season 1 Economy Contract Sync + Base Tap  
-**Verified against `main`:** `85226d4cffdc34c17009c3ff3db5598e5b23792f` (PR #7 merged)  
+**Verified against Phase 6 PR:** `33e14c0b5178d1b79e2c3b5668ff257b012d23f1` (correction base)
 **Initial review date:** 2026-09-10  
+**Last reviewed:** 2026-09-10 (Phase 6 Profile & Collection)
 **Owner:** repository/product owner  
 
 ---
@@ -143,6 +144,8 @@ Until functional MVP is complete:
 | PH-040 | Season 2 REFERENCE/LIVE price source semantics | OPEN | PHASE-BLOCKER | Season 2 price integration, not S1 | High financial UI |
 | PH-041 | DLX native precision / off-chain → chain conversion | OPEN | PHASE-BLOCKER | Before any on-chain claim/transfer | Critical financial |
 | PH-042 | Fraud forfeiture/adjustment ledger + appeal/audit path | OPEN | PHASE-BLOCKER | Phase 9/10 before confirmed DLX becomes operational | High |
+| PH-043 | `read-season-brief` authoritative INTERNAL evidence | OPEN | LAUNCH-BLOCKER | Does not block Phase 6/7 MVP development; final S1 mission/launch gate | High functional |
+| PH-044 | Repeated same-key multi-season medal provenance | WATCH | SEASON-2-BLOCKER | Before Season 2 Profile/Collection integration | Medium product/API |
 
 ---
 
@@ -499,6 +502,40 @@ Current `/bootstrap` returns `dict[str, Any]`. As Profile, Clan, Arena and notif
 
 ---
 
+## PH-043 — Season Brief INTERNAL mission lacks authoritative completion evidence
+
+The enabled Season 1 `read-season-brief` mission has no approved server-owned fact or verifier.
+The existing INTERNAL verifier therefore fails closed rather than accepting a client assertion.
+
+**Status:** OPEN
+**Gate:** LAUNCH-BLOCKER
+**Target / Promotion Trigger:** This does not block Phase 6/7 MVP feature development today, but
+must be resolved before the final Season 1 mission/launch gate, once the authoritative
+server-observed completion action is approved.
+
+**Acceptance:** Define the approved server-owned read/open evidence, implement an authenticated
+idempotent recording action, connect it to normal Mission verification, and cover authorization and
+retry behavior without awarding points directly from the evidence endpoint.
+
+---
+
+## PH-044 — Repeated same-key multi-season medal provenance presentation
+
+`PlayerMedalAward` can retain a source Season, but current Phase 6 reconciliation and Profile API
+collapse owned awards by `medal_key`. This is safe while no repeat Season medal is finalized in S1.
+Before Season 2 Profile/Collection integration, product must define whether repeated same-key
+Season awards expose the first, latest, or complete award provenance.
+
+**Status:** WATCH
+**Gate:** SEASON-2-BLOCKER
+**Target / Promotion Trigger:** Before Season 2 Profile/Collection contract and API integration.
+
+**Acceptance:** Approve first/latest/all presentation semantics, update the typed API and
+reconciliation projection accordingly, and add multi-season award ordering/provenance tests. Do not
+collapse ambiguous repeated awards silently.
+
+---
+
 ## PH-021 — Reward history cursor/index alignment
 
 The history endpoint filters by player and orders/paginates by descending `id`, while the current composite history index is `(player, -occurred_at, -id)`.
@@ -791,8 +828,8 @@ This matrix is a routing guide, **not permission to expand a phase beyond its ca
 | **Phase 8 — Clan Progression & Economy** | Add treasury/contribution/inventory ledger and concurrency risks. Do not defer double-spend/double-credit correctness to Phase 11. |
 | **Phase 9 — Arena Rankings + Weekly DLX settlement** | **PH-003, PH-005, PH-006, PH-007, PH-042 are blockers.** Also measure PH-021 where ranking/history read paths overlap. |
 | **Phase 10 — Notifications + Broadcast + Admin** | PH-002, PH-009, PH-027, PH-028, PH-034; build RBAC/audit/preview for dangerous admin actions. |
-| **Phase 11 — Season Close & Production Hardening** | PH-008 plus all remaining `LAUNCH-BLOCKER` and every `WATCH` item through realistic measurement. PH-029–PH-039 form the core production-readiness gate. |
-| **Season 2 integration** | PH-040, PH-041 plus new Exchange/War/Arena/Trading-specific risks added by their own approved contract. |
+| **Phase 11 — Season Close & Production Hardening** | PH-008 and PH-043 plus all remaining `LAUNCH-BLOCKER` and every S1 `WATCH` item through realistic measurement. PH-029–PH-039 form the core production-readiness gate. |
+| **Season 2 integration** | PH-040, PH-041, PH-044 plus new Exchange/War/Arena/Trading-specific risks added by their own approved contract. |
 
 ---
 

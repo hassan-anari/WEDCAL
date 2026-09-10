@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     "apps.referrals",
     "apps.network",
     "apps.base_tap",
+    "apps.profile_collection",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
