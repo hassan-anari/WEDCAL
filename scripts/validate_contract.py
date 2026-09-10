@@ -124,8 +124,25 @@ def validate_invariants(contents: dict[str, str]) -> list[str]:
             "Source of Truth must retain Base Tap batching and referral ineligibility.",
         ),
         (
+            source,
+            (
+                "Phase 9",
+                "after Clan economy inputs exist",
+                "off-chain DLX allocation ledger",
+                "growth-unlock",
+                "carry-forward",
+            ),
+            "Source of Truth must assign weekly DLX settlement ownership after Clan economy.",
+        ),
+        (
             example,
-            ('"schema_version": 2', '"epoch_count": 6', '"price_status": "UNAVAILABLE"'),
+            (
+                '"schema_version": 2',
+                '"epoch_count": 6',
+                '"price_status": "UNAVAILABLE"',
+                '"accounting_unit": "OFF_CHAIN_DLX_ALLOCATION_AMOUNT"',
+                '"base_dlx_amount": 60000000',
+            ),
             "Example config must use economy schema v2 and Season 1 DLX semantics.",
         ),
     )
@@ -133,6 +150,11 @@ def validate_invariants(contents: dict[str, str]) -> list[str]:
     for text, markers, message in checks:
         if not has_all(text, *markers):
             errors.append(message)
+
+    if has_all(source, "DLX distribution during each season"):
+        errors.append("Source of Truth contains stale per-season DLX distribution wording.")
+    if "atomic_units" in example:
+        errors.append("Example config must not imply finalized native-chain atomic units.")
 
     return errors
 

@@ -28,7 +28,7 @@ def test_economy_sync_canonical_config_is_typed() -> None:
     [
         lambda value: value["dlx_distribution"]["timing"].update(epoch_count=7),
         lambda value: value["dlx_distribution"].update(default_settlement_start_epoch=7),
-        lambda value: value["dlx_distribution"]["pool"].update(max_atomic_units=1),
+        lambda value: value["dlx_distribution"]["pool"].update(max_dlx_amount=1),
         lambda value: value["dlx_distribution"]["category_weights_bps"].update(CORE_GAMEPLAY=1),
         lambda value: value["base_tap"].update(points_per_rewarded_tap=0),
         lambda value: value["base_tap"].update(max_taps_per_batch=51),
@@ -45,8 +45,8 @@ def test_growth_milestones_must_be_unique_and_fit_pool() -> None:
     value = payload()
     growth = value["dlx_distribution"]["pool"]["growth_unlock"]  # type: ignore[index]
     growth["milestones"] = [
-        {"key": "same", "qualified_player_count": 100, "unlock_atomic_units": 30_000_000},
-        {"key": "same", "qualified_player_count": 200, "unlock_atomic_units": 20_000_000},
+        {"key": "same", "qualified_player_count": 100, "unlock_dlx_amount": 30_000_000},
+        {"key": "same", "qualified_player_count": 200, "unlock_dlx_amount": 20_000_000},
     ]
     with pytest.raises(ValidationError):
         parse_economy_sync(value)

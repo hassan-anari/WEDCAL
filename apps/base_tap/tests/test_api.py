@@ -44,3 +44,12 @@ def test_base_tap_api_requires_auth_and_returns_batch_state(
     assert response.status_code == 200
     assert response.json()["accepted_taps"] == 10
     assert response.json()["earned_points"] == 10
+
+    oversized = client.post(
+        "/api/v1/base/taps",
+        data=json.dumps({"tap_count": config.payload["base_tap"]["max_taps_per_batch"] + 1}),
+        content_type="application/json",
+        HTTP_AUTHORIZATION=f"tma {init_data(settings.TELEGRAM_BOT_TOKEN, 555)}",
+        HTTP_IDEMPOTENCY_KEY="oversized",
+    )
+    assert oversized.status_code == 400

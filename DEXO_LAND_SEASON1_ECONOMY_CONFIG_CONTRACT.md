@@ -686,13 +686,13 @@ If production telemetry materially deviates, publish `GameConfigVersion v2`; nev
 
 There is no fixed Point → DLX conversion ratio. XP `RewardLedger` and confirmed DLX allocation accounting are separate. Weekly settlement creates confirmed, auditable, off-chain DLX allocation; it does not make DLX claimable, transferable, tradable, or on-chain and never changes progression or recursively generates rewards. Season 1 price is `UNAVAILABLE`.
 
-The six-epoch policy has a 60,000,000 integer-unit base pool and 100,000,000 maximum. Weights total exactly 10,000 bps: Clan Performance 3500 bps, Core Gameplay 2000 bps, Creator / Community Growth 2000 bps, Verified Referral 1500 bps, and Loyalty / Consistency 1000 bps. Current-epoch qualified performance is the basis; detailed scoring formulas are not defined here.
+The six-epoch policy has a 60,000,000 off-chain DLX allocation-amount base pool and 100,000,000 maximum. Weights total exactly 10,000 bps: Clan Performance 3500 bps, Core Gameplay 2000 bps, Creator / Community Growth 2000 bps, Verified Referral 1500 bps, and Loyalty / Consistency 1000 bps. Current-epoch qualified performance is the basis; detailed scoring formulas are not defined here.
 
 Settlement starts through a Season-scoped audited operational control (initial default epoch 3), not by mutating a published snapshot. Epochs close and freeze independently, delayed settlement runs chronologically against each frozen window, and settled history is immutable. Unused category budget carries to the same category; final residual handling is explicit and audited.
 
-Growth unlock milestones use a configurable qualified-player predicate, never raw Telegram starts/MAU. The milestone list may remain empty until launch values are approved. Each milestone is uniquely keyed, can unlock once, and allocates exact integer budget only to still-open epochs without rewriting frozen or settled budgets.
+Growth unlock milestones use a configurable qualified-player predicate, never raw Telegram starts/MAU. The milestone list may remain empty until launch values are approved. Each milestone is uniquely keyed, can unlock once, and allocates exact off-chain DLX allocation amount only to still-open epochs without rewriting frozen or settled budgets.
 
-Base Tap awards 1 XP per rewarded tap with an initial 50-tap UTC-day cap, through batched authenticated requests and configurable batch/rate controls. It grants no direct DLX and is ineligible for passive Referral share. PostgreSQL daily aggregation and batch idempotency enforce cap/retry correctness without per-physical-tap economic rows.
+Base Tap awards 1 XP per rewarded tap with an initial 50-tap UTC-day cap, through batched authenticated requests and configurable batch/rate controls. It grants no direct DLX and is ineligible for passive Referral share. PostgreSQL daily aggregation creates at most one canonical XP settlement per player/day. Only accepted requests have terminal, short-lived idempotency receipts; receipt retention is configurable (initial sample: 7 days), expired receipts are safely purged, and rejected/rate-limited/cap-exhausted spam creates no durable receipt rows.
 
 # 27. Phase implementation ownership
 
@@ -703,7 +703,7 @@ The complete economy is specified once, but implemented incrementally:
 - Phase 6: `profile_collection`, achievement/medal/collection evaluation that is in S1 scope.
 - Phase 7: Clan lifecycle/governance/recovery numeric policies.
 - Phase 8: Clan activity, HQ, Treasury, Contribution, inventory/shop, Clan missions and Clan economy.
-- Phase 9: ranking config/tie behavior.
+- Phase 9: ranking config/tie behavior plus real weekly DLX epoch snapshots, growth unlocks, same-category carry-forward, and the confirmed off-chain DLX allocation ledger after Clan economy inputs exist.
 - Phase 11: Season-close honors, Typing auto-settle, final reconciliation/freeze.
 
 Each coding agent should read only the economy sections needed by its phase plus this document's global change-control and anti-inflation invariants.

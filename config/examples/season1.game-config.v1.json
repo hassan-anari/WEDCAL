@@ -830,10 +830,11 @@
     "rewarded_taps_per_utc_day": 50,
     "reset_timezone": "UTC",
     "max_taps_per_batch": 50,
-    "min_batch_interval_ms": 250
+    "min_batch_interval_ms": 250,
+    "receipt_retention_days": 7
   },
   "dlx_distribution": {
-    "accounting_unit": "INTEGER_ALLOCATION_UNIT",
+    "accounting_unit": "OFF_CHAIN_DLX_ALLOCATION_AMOUNT",
     "native_chain_decimal_precision": null,
     "timing": {
       "product_period_days": 45,
@@ -845,8 +846,6 @@
     "settlement_start_is_season_operational_control": true,
     "performance_basis": "CURRENT_EPOCH_QUALIFIED_PERFORMANCE",
     "pool": {
-      "base_atomic_units": 60000000,
-      "max_atomic_units": 100000000,
       "growth_unlock": {
         "counter": "QUALIFIED_PLAYERS",
         "qualified_player_predicate": {
@@ -854,7 +853,9 @@
           "policy_version": 1
         },
         "milestones": []
-      }
+      },
+      "base_dlx_amount": 60000000,
+      "max_dlx_amount": 100000000
     },
     "category_weights_bps": {
       "CLAN_PERFORMANCE": 3500,

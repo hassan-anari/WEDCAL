@@ -217,7 +217,7 @@ The following are **not** Season 1 backend features:
 - Season 2 Warfront business logic
 - wallet connection
 - on-chain withdrawal
-- DLX distribution during each season
+- claimable, transferable, tradable, wallet, or on-chain DLX distribution in Season 1
 - Dalexio exchange account linking
 - whitelist flows
 - Officer role
@@ -2744,13 +2744,17 @@ No game economy implementation in Phase 1.
 
 No War/Defence effects.
 
-## Phase 9 — Arena Rankings
+## Phase 9 — Arena Rankings & Weekly DLX Settlement
 
 - Player season ranking
 - Clan season ranking
 - Redis projections
 - safe rebuild/reconciliation
 - own-rank lookup
+- epoch performance snapshots after Clan economy inputs exist
+- real weekly confirmed off-chain DLX allocation ledger and chronological settlement
+- qualified-player growth-unlock events and deterministic OPEN-epoch budgeting
+- same-category carry-forward accounting
 - locked S2 Warfront flag/state only
 
 ## Phase 10 — Notifications, Broadcast & Admin
@@ -3222,7 +3226,7 @@ Each Season has an audited `settlement_start_epoch`; the initial operational def
 
 ## 57.3 Growth unlock and residuals
 
-Up to 40,000,000 additional DLX may unlock through configurable qualified-player milestones. Raw Telegram starts and MAU are forbidden as the counter. Qualification uses a versioned predicate. Thresholds are not approved; an empty milestone list is valid. Each later milestone produces one idempotent audit event. Its integer budget applies deterministically only across epochs still OPEN at trigger time and never rewrites FROZEN or SETTLED budgets. Integer accounting must preserve the exact pool; native-chain decimal precision is not guessed here.
+Up to 40,000,000 additional DLX may unlock through configurable qualified-player milestones. Raw Telegram starts and MAU are forbidden as the counter. Qualification uses a versioned predicate. Thresholds are not approved; an empty milestone list is valid. Each later milestone produces one idempotent audit event. Its off-chain DLX allocation amount applies deterministically only across epochs still OPEN at trigger time and never rewrites FROZEN or SETTLED budgets. Exact integer allocation accounting must preserve the exact pool; native-chain decimal precision is not guessed here.
 
 Unused budget from insufficient category participation carries forward within the same category. Processing is chronological. Final residual disposition at Season close must be an explicit audit event and must never silently disappear.
 
@@ -3230,4 +3234,4 @@ Unused budget from insufficient category participation carries forward within th
 
 Season 1 DLX price status is `UNAVAILABLE`; no synthetic USD valuation is shown. A later Season 2 pre-market may use `REFERENCE`, while a real opened market may use `LIVE` with source and as-of metadata.
 
-Base Tap accepts authenticated batched submissions and awards only small, capped XP. It never directly grants confirmed DLX and contributes only indirectly to Core Gameplay epoch performance. `BASE_TAP` is explicitly ineligible for passive referral share. Its reward, UTC daily cap/reset, batch bound, and anti-spam controls are typed/versioned configuration. Durable PostgreSQL aggregation, deterministic idempotency, concurrency-safe caps, recoverable pending XP, and source Season/config preservation are mandatory; storage or work must not scale per physical tap.
+Base Tap accepts authenticated batched submissions and awards only small, capped XP. It never directly grants confirmed DLX and contributes only indirectly to Core Gameplay epoch performance. `BASE_TAP` is explicitly ineligible for passive referral share. Its reward, UTC daily cap/reset, batch bound, anti-spam controls, and receipt retention are typed/versioned configuration. Durable PostgreSQL aggregation creates at most one canonical XP settlement per player/day. Only accepted requests may create bounded, terminal, expiring idempotency receipts; rejected spam creates none. Recovery uses accumulator state rather than scanning receipt history and preserves pending XP and source Season/config/event time through safe receipt cleanup and Season close.

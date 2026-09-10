@@ -32,7 +32,7 @@ def phase4_api(settings, client: Client, phase4_config_factory, season_factory):
     now = timezone.now()
     config = phase4_config_factory(effective_at=now - timedelta(days=2), version="api-config")
     season = season_factory(
-        config, starts_at=now - timedelta(days=1), ends_at=now + timedelta(days=2)
+        config, starts_at=now - timedelta(days=1), ends_at=now + timedelta(days=44)
     )
     TypingPhrase.objects.create(
         key="api-phrase", version=1, text="Dexo typing arena phrase", enabled=True

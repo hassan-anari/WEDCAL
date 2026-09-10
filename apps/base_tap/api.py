@@ -27,14 +27,13 @@ def submit(request: HttpRequest, payload: TapBatchSubmission) -> dict[str, objec
         )
     except (ValueError, LookupError) as exc:
         raise HttpError(400, "Invalid Base Tap submission") from exc
-    batch = result.batch
     return {
         "created": result.created,
-        "accepted_taps": batch.accepted_taps,
-        "rejected_taps": batch.rejected_taps,
-        "earned_points": batch.earned_points,
+        "accepted_taps": result.accepted_taps,
+        "rejected_taps": result.rejected_taps,
+        "earned_points": result.earned_points,
         "pending_points": result.pending_points,
         "daily_accepted_taps": result.daily_accepted_taps,
         "daily_remaining_taps": result.daily_remaining_taps,
-        "settlement_status": batch.status,
+        "settlement_status": result.settlement_status,
     }

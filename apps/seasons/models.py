@@ -20,7 +20,7 @@ class Season(models.Model):
     baseline_config = models.ForeignKey(
         GameConfigVersion, on_delete=models.PROTECT, related_name="seasons"
     )
-    settlement_start_epoch = models.PositiveSmallIntegerField(default=3)
+    settlement_start_epoch = models.PositiveSmallIntegerField(null=True, blank=True)
     settlement_started_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

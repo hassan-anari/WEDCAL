@@ -143,13 +143,14 @@ class BaseTapConfig:
     reset_timezone: str
     max_taps_per_batch: int
     min_batch_interval_ms: int
+    receipt_retention_days: int
 
 
 @dataclass(frozen=True, slots=True)
 class GrowthMilestone:
     key: str
     qualified_player_count: int
-    unlock_atomic_units: int
+    unlock_dlx_amount: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,8 +160,8 @@ class DlxDistributionConfig:
     epoch_days: int
     closing_days: int
     default_settlement_start_epoch: int
-    base_pool_atomic_units: int
-    max_pool_atomic_units: int
+    base_pool_dlx_amount: int
+    max_pool_dlx_amount: int
     category_weights_bps: tuple[tuple[str, int], ...]
     qualified_player_predicate: dict[str, Any]
     growth_milestones: tuple[GrowthMilestone, ...]
@@ -477,6 +478,7 @@ def parse_economy_sync(payload: dict[str, Any]) -> tuple[BaseTapConfig, DlxDistr
             _timezone(tap["reset_timezone"], "base_tap.reset_timezone"),
             _integer(tap["max_taps_per_batch"], "base tap batch cap", minimum=1),
             _integer(tap["min_batch_interval_ms"], "base tap interval", minimum=0),
+            _integer(tap["receipt_retention_days"], "base tap receipt retention", minimum=1),
         )
         distribution = payload["dlx_distribution"]
         timing = distribution["timing"]
@@ -495,7 +497,7 @@ def parse_economy_sync(payload: dict[str, Any]) -> tuple[BaseTapConfig, DlxDistr
             GrowthMilestone(
                 str(item["key"]),
                 _integer(item["qualified_player_count"], "qualified player milestone", minimum=1),
-                _integer(item["unlock_atomic_units"], "milestone unlock", minimum=1),
+                _integer(item["unlock_dlx_amount"], "milestone unlock", minimum=1),
             )
             for item in growth["milestones"]
         )
@@ -505,8 +507,8 @@ def parse_economy_sync(payload: dict[str, Any]) -> tuple[BaseTapConfig, DlxDistr
             _integer(timing["epoch_days"], "epoch days", minimum=1),
             _integer(timing["closing_days"], "closing days", minimum=0),
             _integer(distribution["default_settlement_start_epoch"], "settlement start", minimum=1),
-            _integer(pool["base_atomic_units"], "base DLX pool"),
-            _integer(pool["max_atomic_units"], "maximum DLX pool"),
+            _integer(pool["base_dlx_amount"], "base DLX pool"),
+            _integer(pool["max_dlx_amount"], "maximum DLX pool"),
             parsed_weights,
             predicate,
             milestones,
@@ -525,7 +527,7 @@ def parse_economy_sync(payload: dict[str, Any]) -> tuple[BaseTapConfig, DlxDistr
         raise ValidationError("Season 1 requires a 45-day period and three closing days")
     if result.default_settlement_start_epoch > result.epoch_count:
         raise ValidationError("Settlement start epoch is outside the economic epoch range")
-    if result.max_pool_atomic_units < result.base_pool_atomic_units:
+    if result.max_pool_dlx_amount < result.base_pool_dlx_amount:
         raise ValidationError("Maximum DLX pool cannot be below the base pool")
     expected_categories = {
         "CLAN_PERFORMANCE",
@@ -544,8 +546,8 @@ def parse_economy_sync(payload: dict[str, Any]) -> tuple[BaseTapConfig, DlxDistr
         {item.qualified_player_count for item in milestones}
     ) != len(milestones):
         raise ValidationError("Growth milestones require unique keys and thresholds")
-    available_growth = result.max_pool_atomic_units - result.base_pool_atomic_units
-    if sum(item.unlock_atomic_units for item in milestones) > available_growth:
+    available_growth = result.max_pool_dlx_amount - result.base_pool_dlx_amount
+    if sum(item.unlock_dlx_amount for item in milestones) > available_growth:
         raise ValidationError("Growth milestone unlocks exceed the maximum DLX pool")
     return base_tap, result
 
@@ -588,7 +590,7 @@ def _parse_resolved(
             ReferralConfig(False, 1, 0, True, (), 1, 1, (), ()),
             NetworkConfig(False, 1, 1, 1, False, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2),
             RetentionConfig(1, 1),
-            BaseTapConfig(False, 1, 1, "UTC", 1, 0),
+            BaseTapConfig(False, 1, 1, "UTC", 1, 0, 1),
             None,
         )
     if "referral" not in payload:
@@ -606,7 +608,7 @@ def _parse_resolved(
             ReferralConfig(False, 1, 0, True, (), 1, 1, (), ()),
             NetworkConfig(False, 1, 1, 1, False, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2),
             RetentionConfig(1, 1),
-            BaseTapConfig(False, 1, 1, "UTC", 1, 0),
+            BaseTapConfig(False, 1, 1, "UTC", 1, 0, 1),
             None,
         )
     progression, daily, missions, typing = parse_game_config(payload)
@@ -620,7 +622,7 @@ def _parse_resolved(
             referral,
             network,
             retention,
-            BaseTapConfig(False, 1, 1, "UTC", 1, 0),
+            BaseTapConfig(False, 1, 1, "UTC", 1, 0, 1),
             None,
         )
     base_tap, distribution = parse_economy_sync(payload)

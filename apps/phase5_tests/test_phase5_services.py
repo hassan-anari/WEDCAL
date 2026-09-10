@@ -46,7 +46,10 @@ BASE = json.loads(Path("config/examples/season1.game-config.v1.json").read_text(
 def world(db, monkeypatch):  # type: ignore[no-untyped-def]
     monkeypatch.setattr("apps.rewards.services.dispatch_reward_outbox_safely", lambda _pk: None)
     config = GameConfigVersion.objects.create(
-        version="phase5-tests", effective_at=AT - timedelta(days=1), payload=copy.deepcopy(BASE)
+        schema_version=BASE["meta"]["schema_version"],
+        version="phase5-tests",
+        effective_at=AT - timedelta(days=1),
+        payload=copy.deepcopy(BASE),
     )
     publish_game_config(config, published_at=AT - timedelta(days=2))
     season = activate_season(
@@ -54,7 +57,7 @@ def world(db, monkeypatch):  # type: ignore[no-untyped-def]
             code="p5",
             title="Phase 5",
             starts_at=AT - timedelta(days=1),
-            ends_at=AT + timedelta(days=30),
+            ends_at=AT + timedelta(days=44),
             baseline_config=config,
         )
     )
@@ -495,7 +498,10 @@ def test_current_config_progression_curve_controls_referral_level(world) -> None
     payload = copy.deepcopy(BASE)
     payload["progression"]["levels"][4]["min_lifetime_points"] = 2000
     second = GameConfigVersion.objects.create(
-        version="phase5-progression-v2", effective_at=AT - timedelta(hours=1), payload=payload
+        schema_version=BASE["meta"]["schema_version"],
+        version="phase5-progression-v2",
+        effective_at=AT - timedelta(hours=1),
+        payload=payload,
     )
     publish_game_config(second, published_at=AT - timedelta(hours=2))
     assert activate_relation(relation.pk, at=AT) is True
@@ -507,7 +513,10 @@ def test_future_speaker_reward_is_deterministic_and_referral_ineligible(world) -
     payload = copy.deepcopy(BASE)
     payload["network_activity"]["speaker_reward"] = {"enabled": True, "points_per_unit": 7}
     future = GameConfigVersion.objects.create(
-        version="phase5-speaker", effective_at=AT - timedelta(hours=1), payload=payload
+        schema_version=BASE["meta"]["schema_version"],
+        version="phase5-speaker",
+        effective_at=AT - timedelta(hours=1),
+        payload=payload,
     )
     publish_game_config(future, published_at=AT - timedelta(hours=2))
     creator, speaker = player(1501), player(1502)

@@ -21,7 +21,10 @@ BASE = json.loads(Path("config/examples/season1.game-config.v1.json").read_text(
 @pytest.mark.django_db(transaction=True)
 def test_concurrent_two_node_referral_cycle_is_prevented() -> None:
     config = GameConfigVersion.objects.create(
-        version="phase5-cycle", effective_at=AT - timedelta(days=1), payload=copy.deepcopy(BASE)
+        schema_version=BASE["meta"]["schema_version"],
+        version="phase5-cycle",
+        effective_at=AT - timedelta(days=1),
+        payload=copy.deepcopy(BASE),
     )
     publish_game_config(config, published_at=AT - timedelta(days=2))
     first = Player.objects.create(
@@ -64,7 +67,10 @@ def make_config(version: str, *, mutate=None) -> GameConfigVersion:  # type: ign
     if mutate:
         mutate(payload)
     config = GameConfigVersion.objects.create(
-        version=version, effective_at=AT - timedelta(days=1), payload=payload
+        schema_version=BASE["meta"]["schema_version"],
+        version=version,
+        effective_at=AT - timedelta(days=1),
+        payload=payload,
     )
     return publish_game_config(config, published_at=AT - timedelta(days=2))
 
@@ -110,7 +116,7 @@ def test_concurrent_referral_activation_settles_bonuses_once(monkeypatch) -> Non
             code="activation-race",
             title="Activation",
             starts_at=AT - timedelta(days=1),
-            ends_at=AT + timedelta(days=10),
+            ends_at=AT + timedelta(days=44),
             baseline_config=config,
         )
     )
@@ -187,7 +193,7 @@ def test_concurrent_two_group_settlement_respects_creator_daily_cap(monkeypatch)
             code="daily-cap-race",
             title="Daily cap",
             starts_at=AT - timedelta(days=1),
-            ends_at=AT + timedelta(days=10),
+            ends_at=AT + timedelta(days=44),
             baseline_config=config,
         )
     )
@@ -256,7 +262,7 @@ def test_activity_insert_serializes_with_window_finalization(monkeypatch) -> Non
             code="window-insert-race",
             title="Window race",
             starts_at=AT - timedelta(days=1),
-            ends_at=AT + timedelta(days=10),
+            ends_at=AT + timedelta(days=44),
             baseline_config=config,
         )
     )
@@ -312,7 +318,7 @@ def test_closed_season_activity_race_is_included_or_explicitly_late(monkeypatch)
             code="closed-window-race",
             title="Closed race",
             starts_at=AT - timedelta(days=1),
-            ends_at=AT + timedelta(days=10),
+            ends_at=AT + timedelta(days=44),
             baseline_config=config,
         )
     )

@@ -453,14 +453,14 @@ def test_old_season_credit_is_not_moved_to_new_season(
     phase4_config_factory, player_factory, season_factory
 ) -> None:
     config = phase4_config_factory()
-    old = season_factory(config, ends_at=BASE + timedelta(days=1))
+    old = season_factory(config, starts_at=BASE, ends_at=BASE + timedelta(days=45))
     player = player_factory()
     phrase()
     attempt = valid_attempt(player, "old", BASE)
     old.status = Season.Status.CLOSED
     old.save(update_fields=["status"])
-    season_factory(config, starts_at=BASE + timedelta(days=1), ends_at=BASE + timedelta(days=10))
-    new_claim, _ = claim_wallet(player, "new-season", BASE + timedelta(days=2))
+    season_factory(config, starts_at=BASE + timedelta(days=46), ends_at=BASE + timedelta(days=91))
+    new_claim, _ = claim_wallet(player, "new-season", BASE + timedelta(days=47))
     assert new_claim.amount == 0
     assert (
         TypingWallet.objects.get(player=player, season=old).claimable_balance

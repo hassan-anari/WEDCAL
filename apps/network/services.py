@@ -25,7 +25,11 @@ from apps.network.models import (
 from apps.players.models import Player
 from apps.rewards.services import settle_player_reward
 from apps.seasons.models import Season
-from apps.seasons.services import resolve_current_season, resolve_historical_season
+from apps.seasons.services import (
+    is_reward_earning_time,
+    resolve_current_season,
+    resolve_historical_season,
+)
 from apps.telegram.bot_api import get_chat_member
 from apps.telegram.models import TelegramGroup
 
@@ -249,6 +253,7 @@ def _record_activity_locked(
     active = bool(
         config.network.enabled
         and season is not None
+        and is_reward_earning_time(season, observed_at)
         and registration.state == CreatorGroupRegistration.State.ACTIVE
         and registration.reward_eligible_since
         and observed_at >= registration.reward_eligible_since
