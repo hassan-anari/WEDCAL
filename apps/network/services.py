@@ -3,6 +3,7 @@ import secrets
 import unicodedata
 from datetime import UTC, datetime, timedelta
 
+import structlog
 from django.conf import settings
 from django.db import IntegrityError, connection, transaction
 from django.db.models import Sum
@@ -26,12 +27,15 @@ from apps.players.models import Player
 from apps.rewards.services import settle_player_reward
 from apps.seasons.models import Season
 from apps.seasons.services import (
+    economic_window_end,
     is_reward_earning_time,
     resolve_current_season,
     resolve_historical_season,
 )
 from apps.telegram.bot_api import get_chat_member
 from apps.telegram.models import TelegramGroup
+
+logger = structlog.get_logger(__name__)
 
 
 def create_registration_intent(creator: Player) -> tuple[CreatorRegistrationIntent, str]:
@@ -456,7 +460,11 @@ def _settle_window_locked(
                 context="NETWORK_GROUP",
                 amount=points,
                 idempotency_key=f"creator:window:{settlement.pk}",
-                occurred_at=min(end, season.ends_at - timedelta(microseconds=1)),
+                occurred_at=min(
+                    end - timedelta(microseconds=1),
+                    economic_window_end(season) - timedelta(microseconds=1),
+                    season.ends_at - timedelta(microseconds=1),
+                ),
                 resolved_config=config,
                 source_season=season,
                 preserve_config_version=True,
@@ -511,12 +519,23 @@ def settle_completed_windows(*, limit: int = 200, now: datetime | None = None) -
         ):
             continue
         seen.add(identity)
-        settle_window(
-            registration_id=row["registration_id"],
-            window_start=start,
-            config_id=row["config_version_id"],
-            season_id=row["season_id"],
-        )
+        try:
+            settle_window(
+                registration_id=row["registration_id"],
+                window_start=start,
+                config_id=row["config_version_id"],
+                season_id=row["season_id"],
+            )
+        except Exception as exc:
+            logger.warning(
+                "creator_window_settlement_failed",
+                registration_id=row["registration_id"],
+                season_id=row["season_id"],
+                config_version_id=row["config_version_id"],
+                window_start=start.isoformat(),
+                error_category=type(exc).__name__,
+            )
+            continue
         processed += 1
     return processed
 

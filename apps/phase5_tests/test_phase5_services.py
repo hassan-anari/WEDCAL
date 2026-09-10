@@ -31,11 +31,12 @@ from apps.referrals.services import (
     get_or_create_code,
     process_source_reward,
 )
+from apps.referrals.tasks import reconcile_pending_referrals
 from apps.rewards.models import RewardLedger, RewardSettlementOutbox
 from apps.rewards.services import settle_player_reward
 from apps.rewards.tasks import consume_outbox
 from apps.seasons.models import Season
-from apps.seasons.services import activate_season
+from apps.seasons.services import activate_season, economic_window_end
 from apps.telegram.models import TelegramGroup
 
 AT = datetime(2026, 8, 1, 12, tzinfo=UTC)
@@ -274,6 +275,48 @@ def test_activation_is_two_sided_atomic_and_moderation_gated(world) -> None:  # 
 
 
 @pytest.mark.django_db
+def test_referral_activation_defers_cleanly_during_closing_window(world) -> None:  # type: ignore[no-untyped-def]
+    config, season, player = world
+    inviter, invitee = player(711), player(712)
+    relation = attribute_start(invitee, get_or_create_code(inviter).code, at=AT)
+    assert relation
+    PlayerProgression.objects.create(
+        player=invitee,
+        lifetime_points=2500,
+        level=5,
+        dexo_stage="explorer",
+        config_version=config,
+    )
+    closing_at = economic_window_end(season)
+    assert activate_relation(relation.pk, at=closing_at) is False
+    relation.refresh_from_db()
+    assert relation.status == ReferralRelation.Status.PENDING
+    assert relation.next_evaluation_at == closing_at + timedelta(hours=1)
+    assert not RewardLedger.objects.exists()
+
+
+@pytest.mark.django_db
+def test_referral_reconciler_continues_after_one_item_fails(world, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    _, _, player = world
+    first = ReferralRelation.objects.create(
+        inviter=player(721), invitee=player(722), attributed_at=AT - timedelta(days=1)
+    )
+    second = ReferralRelation.objects.create(
+        inviter=player(723), invitee=player(724), attributed_at=AT - timedelta(days=1)
+    )
+    ReferralRelation.objects.filter(pk__in=(first.pk, second.pk)).update(next_evaluation_at=AT)
+
+    def isolate(relation_id: int) -> bool:
+        if relation_id == first.pk:
+            raise ValueError("poison relation")
+        return relation_id == second.pk
+
+    monkeypatch.setattr("apps.referrals.tasks.activate_relation", isolate)
+    monkeypatch.setattr("apps.referrals.tasks.timezone.now", lambda: AT)
+    assert reconcile_pending_referrals() == 1
+
+
+@pytest.mark.django_db
 def test_passive_share_exact_once_and_runtime_non_recursion(world) -> None:  # type: ignore[no-untyped-def]
     config, season, player = world
     inviter, invitee = player(801), player(802)
@@ -345,6 +388,146 @@ def test_creator_scheduler_settles_600_chars_with_two_speakers_once(world) -> No
     assert settle_completed_windows(now=AT + timedelta(minutes=26)) == 1
     assert RewardLedger.objects.get(source_type="CREATOR").player_amount == 1
     assert settle_completed_windows(now=AT + timedelta(minutes=27)) == 0
+
+
+@pytest.mark.django_db
+def test_final_creator_window_uses_pre_cutoff_provenance(world) -> None:  # type: ignore[no-untyped-def]
+    config, season, player = world
+    creator, first, second = player(904), player(905), player(906)
+    cutoff = economic_window_end(season)
+    start = cutoff - timedelta(
+        seconds=config.payload["network_activity"]["creator_reward"]["aggregation_window_seconds"]
+    )
+    group = TelegramGroup.objects.create(
+        telegram_chat_id=-904,
+        chat_type="supergroup",
+        is_monitored=True,
+        first_seen_at=start,
+        last_seen_at=start,
+    )
+    registration = CreatorGroupRegistration.objects.create(
+        creator=creator,
+        group=group,
+        state=CreatorGroupRegistration.State.ACTIVE,
+        reward_eligible_since=start - timedelta(days=1),
+    )
+    for message_id, sender in enumerate((first, first, second), start=1):
+        record_activity(
+            registration=registration,
+            sender=sender,
+            message_id=message_id,
+            update_id=message_id,
+            text=str(message_id) * 200,
+            observed_at=start + timedelta(seconds=message_id),
+        )
+    assert settle_completed_windows(now=cutoff + timedelta(minutes=11)) == 1
+    reward = RewardLedger.objects.get(source_type="CREATOR")
+    assert reward.occurred_at == cutoff - timedelta(microseconds=1)
+    assert reward.season == season and reward.config_version == config
+
+
+@pytest.mark.django_db
+def test_straddling_creator_window_counts_only_pre_cutoff_activity(world) -> None:  # type: ignore[no-untyped-def]
+    config, season, player = world
+    shifted_start = season.starts_at + timedelta(minutes=7)
+    Season.objects.filter(pk=season.pk).update(
+        starts_at=shifted_start, ends_at=shifted_start + timedelta(days=45)
+    )
+    season.refresh_from_db()
+    cutoff = economic_window_end(season)
+    start = window_start_for(
+        cutoff, config.payload["network_activity"]["creator_reward"]["aggregation_window_seconds"]
+    )
+    creator, first, second, post = player(907), player(908), player(909), player(910)
+    group = TelegramGroup.objects.create(
+        telegram_chat_id=-907,
+        chat_type="supergroup",
+        is_monitored=True,
+        first_seen_at=start,
+        last_seen_at=start,
+    )
+    registration = CreatorGroupRegistration.objects.create(
+        creator=creator,
+        group=group,
+        state=CreatorGroupRegistration.State.ACTIVE,
+        reward_eligible_since=start - timedelta(days=1),
+    )
+    for message_id, sender in enumerate((first, first, second), start=1):
+        activity = record_activity(
+            registration=registration,
+            sender=sender,
+            message_id=message_id,
+            update_id=message_id,
+            text=str(message_id) * 200,
+            observed_at=start + timedelta(minutes=message_id),
+        )
+        assert activity and activity.rewardable_chars == 200
+    after = record_activity(
+        registration=registration,
+        sender=post,
+        message_id=4,
+        update_id=4,
+        text="p" * 200,
+        observed_at=cutoff + timedelta(seconds=1),
+    )
+    assert after and after.rewardable_chars == 0 and not after.program_active
+    window_end = start + timedelta(
+        seconds=config.payload["network_activity"]["creator_reward"]["aggregation_window_seconds"]
+    )
+    assert settle_completed_windows(now=window_end + timedelta(minutes=11)) == 1
+    settlement = CreatorWindowSettlement.objects.get(registration=registration)
+    assert settlement.eligible_chars == 600 and settlement.points == 1
+    assert settlement.reward and settlement.reward.occurred_at == cutoff - timedelta(microseconds=1)
+
+
+@pytest.mark.django_db
+def test_creator_batch_continues_after_one_window_fails(world, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    _, _, player = world
+    import apps.network.services as services
+
+    real_settle = services.settle_window
+    registrations = []
+    for offset in range(2):
+        creator, first, second = (
+            player(920 + offset * 3),
+            player(921 + offset * 3),
+            player(922 + offset * 3),
+        )
+        group = TelegramGroup.objects.create(
+            telegram_chat_id=-920 - offset,
+            chat_type="supergroup",
+            is_monitored=True,
+            first_seen_at=AT,
+            last_seen_at=AT,
+        )
+        registration = CreatorGroupRegistration.objects.create(
+            creator=creator,
+            group=group,
+            state=CreatorGroupRegistration.State.ACTIVE,
+            reward_eligible_since=AT - timedelta(days=1),
+        )
+        registrations.append(registration)
+        for message_id, sender in enumerate((first, first, second), start=1):
+            record_activity(
+                registration=registration,
+                sender=sender,
+                message_id=message_id,
+                update_id=100 * offset + message_id,
+                text=f"{offset}-{message_id}".ljust(200, "x"),
+                observed_at=AT + timedelta(seconds=message_id),
+            )
+
+    def fail_first(
+        registration_id: int, *args: object, **kwargs: object
+    ) -> CreatorWindowSettlement:
+        if registration_id == registrations[0].pk:
+            raise ValueError("poison window")
+        return real_settle(registration_id, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(services, "settle_window", fail_first)
+    assert settle_completed_windows(now=AT + timedelta(minutes=26)) == 1
+    assert not registrations[0].settlements.exists()
+    assert registrations[1].settlements.get().state == CreatorWindowSettlement.State.REWARDED
 
 
 @pytest.mark.django_db
