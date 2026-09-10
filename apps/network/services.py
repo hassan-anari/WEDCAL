@@ -389,17 +389,19 @@ def _settle_window_locked(
     source_season = Season.objects.get(pk=season_id)
     season = resolve_current_season(at=window_start, required=False)
     end = window_start + timedelta(seconds=config.network.window_seconds)
-    rows = NetworkActivity.objects.filter(
+    window_rows = NetworkActivity.objects.filter(
         registration=registration,
         season_id=season_id,
         config_version_id=config_id,
         observed_at__gte=window_start,
         observed_at__lt=end,
+    )
+    eligible_rows = window_rows.filter(
         program_active=True,
         rewardable_chars__gt=0,
     )
-    chars = rows.aggregate(total=Sum("rewardable_chars"))["total"] or 0
-    speakers = rows.values("sender_id").distinct().count()
+    chars = eligible_rows.aggregate(total=Sum("rewardable_chars"))["total"] or 0
+    speakers = eligible_rows.values("sender_id").distinct().count()
     if not season or season.pk != season_id:
         settlement, _ = CreatorWindowSettlement.objects.get_or_create(
             registration=registration,
@@ -413,13 +415,7 @@ def _settle_window_locked(
                 "unique_speakers": speakers,
             },
         )
-        NetworkActivity.objects.filter(
-            registration=registration,
-            season=source_season,
-            config_version=config_model,
-            observed_at__gte=window_start,
-            observed_at__lt=end,
-        ).update(window_processed=True)
+        window_rows.update(window_processed=True)
         return settlement
     raw = (
         min(chars // config.network.chars_per_point, config.network.max_points_per_window)
@@ -445,7 +441,7 @@ def _settle_window_locked(
             },
         )
         if not created:
-            rows.update(window_processed=True)
+            window_rows.update(window_processed=True)
             return settlement
         Player.objects.select_for_update().get(pk=registration.creator_id)
         allowance, _ = CreatorDailyAllowance.objects.select_for_update().get_or_create(
@@ -475,7 +471,7 @@ def _settle_window_locked(
             settlement.save(update_fields=("points", "reward", "state"))
             allowance.points += points
             allowance.save(update_fields=("points",))
-        rows.update(window_processed=True)
+        window_rows.update(window_processed=True)
     return settlement
 
 
