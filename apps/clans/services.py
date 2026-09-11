@@ -319,9 +319,16 @@ def create_personal_invite(invite: ClanInvite) -> ClanInvite:
             ClanInvite.State.REVOKED,
             ClanInvite.State.REVOKE_PENDING,
             ClanInvite.State.REVOKE_FAILED,
+            ClanInvite.State.MANUAL_REVIEW,
         }:
             return locked
         if locked.state == ClanInvite.State.UNCERTAIN:
+            return locked
+        if (
+            locked.state == ClanInvite.State.FAILED
+            and locked.next_create_retry_at is not None
+            and locked.next_create_retry_at > now
+        ):
             return locked
         if locked.state == ClanInvite.State.CREATING:
             if locked.claim_expires_at and locked.claim_expires_at > now:
@@ -344,6 +351,7 @@ def create_personal_invite(invite: ClanInvite) -> ClanInvite:
         locked.state = ClanInvite.State.CREATING
         locked.claim_token = token
         locked.claim_expires_at = now + timedelta(seconds=settings.CLAN_INVITE_CREATE_LEASE_SECONDS)
+        locked.next_create_retry_at = None
         locked.attempt_count += 1
         locked.telegram_invite_name = f"dexo-{locked.pk}-{locked.attempt_count}"
         locked.save()
@@ -365,12 +373,24 @@ def create_personal_invite(invite: ClanInvite) -> ClanInvite:
             locked.state = ClanInvite.State.ACTIVE
             locked.invite_link = result.result["invite_link"]
             locked.last_error_category = ""
+            locked.next_create_retry_at = None
         else:
             locked.state = (
                 ClanInvite.State.UNCERTAIN if result.ambiguous else ClanInvite.State.FAILED
             )
             locked.uncertain_since = now if result.ambiguous else None
             locked.last_error_category = result.category or "unknown"
+            if not result.ambiguous:
+                delay = (
+                    result.retry_after
+                    if result.category == "rate_limited" and result.retry_after is not None
+                    else min(
+                        settings.CLAN_INVITE_RETRY_MAX_SECONDS,
+                        settings.CLAN_INVITE_RETRY_BASE_SECONDS
+                        * (2 ** max(locked.attempt_count - 1, 0)),
+                    )
+                )
+                locked.next_create_retry_at = now + timedelta(seconds=delay)
         locked.save()
     if locked.state == ClanInvite.State.ACTIVE:
         dm = bot_api.send_message(
@@ -405,6 +425,70 @@ def release_uncertain_invite(invite: ClanInvite) -> ClanInvite:
                 pk=invite.join_request_id, state=ClanJoinRequest.State.ACCEPTED
             ).update(state=ClanJoinRequest.State.CANCELLED)
         return invite
+
+
+def recover_invite_creations(*, limit: int | None = None) -> int:
+    """Advance stale/ambiguous invite rows without holding locks across Telegram HTTP."""
+    now = timezone.now()
+    hold_before = now - timedelta(seconds=settings.CLAN_INVITE_UNCERTAIN_HOLD_SECONDS)
+    lease_before = now - timedelta(seconds=settings.CLAN_INVITE_CREATE_LEASE_SECONDS)
+    batch = limit or settings.TELEGRAM_INGRESS_REDRIVE_BATCH_SIZE
+    retry_ids: list[int] = []
+    with transaction.atomic():
+        rows = list(
+            ClanInvite.objects.select_for_update(skip_locked=True)
+            .filter(
+                models.Q(state=ClanInvite.State.CREATING)
+                & (
+                    models.Q(claim_expires_at__lte=now)
+                    | models.Q(claim_expires_at__isnull=True, updated_at__lte=lease_before)
+                )
+                | models.Q(state=ClanInvite.State.UNCERTAIN, uncertain_since__lte=hold_before)
+                | models.Q(state=ClanInvite.State.FAILED, next_create_retry_at__lte=now)
+            )
+            .order_by("updated_at", "pk")[:batch]
+        )
+        for invite in rows:
+            if invite.state == ClanInvite.State.CREATING:
+                invite.state = ClanInvite.State.UNCERTAIN
+                invite.uncertain_since = now
+                invite.claim_token = None
+                invite.claim_expires_at = None
+                invite.last_error_category = "create_lease_expired"
+                invite.save()
+                continue
+            if invite.attempt_count >= settings.CLAN_INVITE_MAX_CREATE_ATTEMPTS:
+                invite.state = ClanInvite.State.MANUAL_REVIEW
+                invite.next_create_retry_at = None
+                invite.last_error_category = "create_attempt_limit"
+                invite.save()
+                if invite.purpose == ClanInvite.Purpose.JOIN and invite.join_request_id:
+                    ClanJoinRequest.objects.filter(
+                        pk=invite.join_request_id,
+                        state=ClanJoinRequest.State.ACCEPTED,
+                    ).update(state=ClanJoinRequest.State.CANCELLED)
+                continue
+            if (
+                invite.state == ClanInvite.State.UNCERTAIN
+                and invite.purpose == ClanInvite.Purpose.JOIN
+            ):
+                # Unknown JOIN credentials are not duplicated: release the reserved seat.
+                invite.state = ClanInvite.State.MANUAL_REVIEW
+                invite.last_error_category = "uncertain_join_released"
+                invite.save()
+                if invite.join_request_id:
+                    ClanJoinRequest.objects.filter(
+                        pk=invite.join_request_id,
+                        state=ClanJoinRequest.State.ACCEPTED,
+                    ).update(state=ClanJoinRequest.State.CANCELLED)
+                continue
+            invite.state = ClanInvite.State.PENDING
+            invite.next_create_retry_at = None
+            invite.save(update_fields=("state", "next_create_retry_at", "updated_at"))
+            retry_ids.append(invite.pk)
+    for invite_id in retry_ids:
+        create_personal_invite(ClanInvite.objects.get(pk=invite_id))
+    return len(rows)
 
 
 def _dispatch_revoke(invite_id: int) -> None:

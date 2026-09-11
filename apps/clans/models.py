@@ -164,6 +164,7 @@ class ClanInvite(models.Model):
         REVOKED = "REVOKED", "Revoked"
         REVOKE_PENDING = "REVOKE_PENDING", "Revoke pending"
         REVOKE_FAILED = "REVOKE_FAILED", "Revoke failed"
+        MANUAL_REVIEW = "MANUAL_REVIEW", "Manual review"
 
     class Delivery(models.TextChoices):
         PENDING = "PENDING", "Pending"
@@ -188,6 +189,7 @@ class ClanInvite(models.Model):
     claim_token = models.UUIDField(null=True, blank=True)
     claim_expires_at = models.DateTimeField(null=True, blank=True)
     uncertain_since = models.DateTimeField(null=True, blank=True)
+    next_create_retry_at = models.DateTimeField(null=True, blank=True, db_index=True)
     revoke_attempts = models.PositiveSmallIntegerField(default=0)
     desired_terminal_state = models.CharField(max_length=8, blank=True)
     last_error_category = models.CharField(max_length=64, blank=True)

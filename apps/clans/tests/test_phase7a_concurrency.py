@@ -125,3 +125,45 @@ def test_invite_creation_has_single_external_caller(clan_world, monkeypatch) -> 
     )
     assert len(calls) == 1
     assert ClanInvite.objects.get(pk=req.invite.pk).state == ClanInvite.State.ACTIVE
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_invite_recovery_claims_one_external_attempt(
+    clan_world: Any, monkeypatch: Any, settings: Any
+) -> None:
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from apps.clans.services import recover_invite_creations
+
+    _, _, _, resolved, player, clan = clan_world
+    soldier, cs = player(ClanRole.SOLDIER), clan()
+    req = request_join(soldier, cs, resolved)
+    decide_request(cs.captain, req.pk, accept=True)
+    ClanInvite.objects.filter(pk=req.invite.pk).update(
+        state=ClanInvite.State.FAILED,
+        next_create_retry_at=timezone.now() - timedelta(seconds=1),
+    )
+    calls = []
+    lock = Lock()
+
+    def telegram(*_args: object) -> TelegramResult:
+        with lock:
+            calls.append(1)
+        return TelegramResult(True, {"invite_link": "recovered"})
+
+    monkeypatch.setattr("apps.clans.services.bot_api.create_chat_invite_link", telegram)
+    monkeypatch.setattr(
+        "apps.clans.services.bot_api.send_message", lambda *_: TelegramResult(True, {})
+    )
+    parallel(
+        [
+            lambda: recover_invite_creations(limit=1),
+            lambda: recover_invite_creations(limit=1),
+        ]
+    )
+    invite = ClanInvite.objects.get(pk=req.invite.pk)
+    assert calls == [1]
+    assert invite.state == ClanInvite.State.ACTIVE
+    assert invite.attempt_count == 1

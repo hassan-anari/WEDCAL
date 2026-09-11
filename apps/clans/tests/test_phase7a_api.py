@@ -67,3 +67,39 @@ def test_discovery_member_counts_have_bounded_queries(
     assert {row["member_count"] for row in large_rows} == {1}
     # Auth/config/Season overhead is fixed; six more Clans must not add six COUNT queries.
     assert large_query_count <= small_query_count + 1
+
+
+@pytest.mark.django_db
+def test_invite_polling_before_retry_time_does_not_repeat_telegram_create(
+    clan_world: Any, init_data_factory: Any, settings: Any, monkeypatch: Any
+) -> None:
+    from apps.clans.models import ClanRole
+    from apps.clans.services import decide_request, request_join
+    from apps.telegram.bot_api import TelegramResult
+
+    _, _, _, resolved, player, clan = clan_world
+    soldier, clan_season = player(ClanRole.SOLDIER), clan()
+    request = request_join(soldier, clan_season, resolved)
+    decide_request(clan_season.captain, request.pk, accept=True)
+    calls: list[int] = []
+
+    def rate_limited(*_args: object) -> TelegramResult:
+        calls.append(1)
+        return TelegramResult(False, category="rate_limited", retry_after=120)
+
+    monkeypatch.setattr("apps.clans.services.bot_api.create_chat_invite_link", rate_limited)
+    settings.TELEGRAM_BOT_TOKEN = "123456:test-token"
+    authorization = "tma " + init_data_factory(
+        user={"id": soldier.telegram_user_id, "first_name": "Soldier"}
+    )
+    client = Client()
+    for _ in range(4):
+        response = client.get(
+            "/api/v1/clans/invite/current",
+            headers={"Authorization": authorization},
+        )
+        assert response.status_code == 200
+        assert response.json()["state"] == "FAILED"
+    request.invite.refresh_from_db()
+    assert calls == [1]
+    assert request.invite.attempt_count == 1

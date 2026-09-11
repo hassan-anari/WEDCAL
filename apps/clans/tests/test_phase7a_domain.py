@@ -3,6 +3,7 @@ from typing import Any
 
 import pytest
 from django.core.exceptions import PermissionDenied
+from django.utils import timezone
 
 from apps.clans.models import (
     ClanInvite,
@@ -393,3 +394,186 @@ def test_registration_tag_conflict_is_domain_conflict(clan_world, monkeypatch) -
         register_clan(
             captains[1], season, resolved, group_id=groups[1].pk, name="Two", tag="same", motto=""
         )
+
+
+@pytest.mark.django_db
+def test_invite_rate_limit_honors_retry_after_without_consuming_poll_attempts(
+    clan_world: Any, monkeypatch: Any, settings: Any
+) -> None:
+    _, _, _, resolved, player, clan = clan_world
+    soldier, cs = player(ClanRole.SOLDIER), clan()
+    req = request_join(soldier, cs, resolved)
+    decide_request(cs.captain, req.pk, accept=True)
+    calls = []
+
+    def rate_limited(*_args: object) -> TelegramResult:
+        calls.append(1)
+        return TelegramResult(False, category="rate_limited", retry_after=90)
+
+    monkeypatch.setattr("apps.clans.services.bot_api.create_chat_invite_link", rate_limited)
+    first = create_personal_invite(req.invite)
+    retry_at = first.next_create_retry_at
+    assert retry_at is not None and retry_at >= timezone.now() + timedelta(seconds=85)
+    create_personal_invite(first)
+    create_personal_invite(first)
+    first.refresh_from_db()
+    assert len(calls) == 1
+    assert first.attempt_count == 1
+
+
+@pytest.mark.django_db
+def test_explicit_invite_failure_uses_backoff_without_poll_attempts(
+    clan_world: Any, monkeypatch: Any, settings: Any
+) -> None:
+    _, _, _, resolved, player, clan = clan_world
+    soldier, cs = player(ClanRole.SOLDIER), clan()
+    req = request_join(soldier, cs, resolved)
+    decide_request(cs.captain, req.pk, accept=True)
+    calls: list[int] = []
+
+    def unavailable(*_args: object) -> TelegramResult:
+        calls.append(1)
+        return TelegramResult(False, category="connection_error")
+
+    monkeypatch.setattr("apps.clans.services.bot_api.create_chat_invite_link", unavailable)
+    invite = create_personal_invite(req.invite)
+    assert invite.next_create_retry_at is not None
+    create_personal_invite(invite)
+    assert calls == [1]
+    assert invite.attempt_count == 1
+
+
+@pytest.mark.django_db
+def test_ambiguous_join_recovery_releases_capacity_reservation(
+    clan_world: Any, monkeypatch: Any, settings: Any
+) -> None:
+    from apps.clans.services import recover_invite_creations
+
+    _, _, _, resolved, player, clan = clan_world
+    soldier, cs = player(ClanRole.SOLDIER), clan()
+    req = request_join(soldier, cs, resolved)
+    decide_request(cs.captain, req.pk, accept=True)
+    monkeypatch.setattr(
+        "apps.clans.services.bot_api.create_chat_invite_link",
+        lambda *_: TelegramResult(False, category="timeout", ambiguous=True),
+    )
+    invite = create_personal_invite(req.invite)
+    ClanInvite.objects.filter(pk=invite.pk).update(
+        uncertain_since=timezone.now()
+        - timedelta(seconds=settings.CLAN_INVITE_UNCERTAIN_HOLD_SECONDS + 1)
+    )
+    assert recover_invite_creations() == 1
+    invite.refresh_from_db()
+    req.refresh_from_db()
+    assert invite.state == ClanInvite.State.MANUAL_REVIEW
+    assert req.state == ClanJoinRequest.State.CANCELLED
+
+
+@pytest.mark.django_db
+def test_ambiguous_rejoin_recovers_with_cumulative_attempt_cap(
+    clan_world: Any, monkeypatch: Any, settings: Any
+) -> None:
+    from apps.clans.services import recover_invite_creations
+
+    now, config, season, _, player, clan = clan_world
+    member, cs = player(ClanRole.SOLDIER), clan()
+    membership = ClanMembership.objects.create(
+        player=member,
+        season=season,
+        clan_season=cs,
+        role=ClanRole.SOLDIER,
+        access_state=ClanMembership.Access.ACCESS_LOST,
+        started_at=now,
+        config_version=config,
+    )
+    replies = iter(
+        [
+            TelegramResult(False, category="timeout", ambiguous=True),
+            TelegramResult(True, {"invite_link": "recovered"}),
+        ]
+    )
+    monkeypatch.setattr(
+        "apps.clans.services.bot_api.create_chat_invite_link", lambda *_: next(replies)
+    )
+    monkeypatch.setattr(
+        "apps.clans.services.bot_api.send_message", lambda *_: TelegramResult(True, {})
+    )
+    invite = get_or_create_rejoin_invite(member, membership)
+    ClanInvite.objects.filter(pk=invite.pk).update(
+        uncertain_since=timezone.now()
+        - timedelta(seconds=settings.CLAN_INVITE_UNCERTAIN_HOLD_SECONDS + 1)
+    )
+    assert recover_invite_creations() == 1
+    invite.refresh_from_db()
+    assert invite.state == ClanInvite.State.ACTIVE
+    assert invite.attempt_count == 2 <= settings.CLAN_INVITE_MAX_CREATE_ATTEMPTS
+    assert ClanMembership.objects.filter(player=member, ended_at__isnull=True).count() == 1
+
+
+@pytest.mark.django_db
+def test_stale_creating_lease_enters_uncertain_recovery_without_external_call(
+    clan_world: Any, monkeypatch: Any, settings: Any
+) -> None:
+    from apps.clans.services import recover_invite_creations
+
+    _, _, _, resolved, player, clan = clan_world
+    soldier, cs = player(ClanRole.SOLDIER), clan()
+    req = request_join(soldier, cs, resolved)
+    decide_request(cs.captain, req.pk, accept=True)
+    ClanInvite.objects.filter(pk=req.invite.pk).update(
+        state=ClanInvite.State.CREATING,
+        claim_expires_at=timezone.now() - timedelta(seconds=1),
+    )
+    calls = []
+    monkeypatch.setattr(
+        "apps.clans.services.bot_api.create_chat_invite_link", lambda *_: calls.append(1)
+    )
+    assert recover_invite_creations() == 1
+    invite = ClanInvite.objects.get(pk=req.invite.pk)
+    assert invite.state == ClanInvite.State.UNCERTAIN
+    assert not calls
+    ClanInvite.objects.filter(pk=invite.pk).update(
+        uncertain_since=timezone.now()
+        - timedelta(seconds=settings.CLAN_INVITE_UNCERTAIN_HOLD_SECONDS + 1)
+    )
+    assert recover_invite_creations() == 1
+    invite.refresh_from_db()
+    req.refresh_from_db()
+    assert invite.state == ClanInvite.State.MANUAL_REVIEW
+    assert req.state == ClanJoinRequest.State.CANCELLED
+
+
+@pytest.mark.django_db
+def test_rejoin_recovery_stops_at_cumulative_attempt_cap(
+    clan_world: Any, monkeypatch: Any, settings: Any
+) -> None:
+    from apps.clans.services import recover_invite_creations
+
+    now, config, season, _, player, clan = clan_world
+    member, cs = player(ClanRole.SOLDIER), clan()
+    membership = ClanMembership.objects.create(
+        player=member,
+        season=season,
+        clan_season=cs,
+        role=ClanRole.SOLDIER,
+        access_state=ClanMembership.Access.ACCESS_LOST,
+        started_at=now,
+        config_version=config,
+    )
+    invite = ClanInvite.objects.create(
+        membership=membership,
+        purpose=ClanInvite.Purpose.REJOIN,
+        state=ClanInvite.State.UNCERTAIN,
+        attempt_count=settings.CLAN_INVITE_MAX_CREATE_ATTEMPTS,
+        uncertain_since=timezone.now()
+        - timedelta(seconds=settings.CLAN_INVITE_UNCERTAIN_HOLD_SECONDS + 1),
+    )
+    calls: list[int] = []
+    monkeypatch.setattr(
+        "apps.clans.services.bot_api.create_chat_invite_link", lambda *_: calls.append(1)
+    )
+    assert recover_invite_creations() == 1
+    invite.refresh_from_db()
+    assert invite.state == ClanInvite.State.MANUAL_REVIEW
+    assert invite.attempt_count == settings.CLAN_INVITE_MAX_CREATE_ATTEMPTS
+    assert not calls

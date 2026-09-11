@@ -2,7 +2,7 @@ from celery import shared_task
 from django.conf import settings
 
 from apps.clans.models import ClanInvite
-from apps.clans.services import revoke_invite_remote
+from apps.clans.services import recover_invite_creations, revoke_invite_remote
 
 
 @shared_task  # type: ignore[untyped-decorator]
@@ -21,3 +21,8 @@ def recover_invite_revocations() -> int:
     for invite_id in ids:
         revoke_clan_invite.delay(invite_id)
     return len(ids)
+
+
+@shared_task  # type: ignore[untyped-decorator]
+def recover_invite_creation() -> int:
+    return recover_invite_creations()

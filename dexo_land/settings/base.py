@@ -131,6 +131,8 @@ TELEGRAM_INGRESS_REDRIVE_BATCH_SIZE = int(os.getenv("TELEGRAM_INGRESS_REDRIVE_BA
 CLAN_INVITE_CREATE_LEASE_SECONDS = int(os.getenv("CLAN_INVITE_CREATE_LEASE_SECONDS", "60"))
 CLAN_INVITE_UNCERTAIN_HOLD_SECONDS = int(os.getenv("CLAN_INVITE_UNCERTAIN_HOLD_SECONDS", "300"))
 CLAN_INVITE_MAX_CREATE_ATTEMPTS = int(os.getenv("CLAN_INVITE_MAX_CREATE_ATTEMPTS", "3"))
+CLAN_INVITE_RETRY_BASE_SECONDS = int(os.getenv("CLAN_INVITE_RETRY_BASE_SECONDS", "30"))
+CLAN_INVITE_RETRY_MAX_SECONDS = int(os.getenv("CLAN_INVITE_RETRY_MAX_SECONDS", "1800"))
 CLAN_INVITE_MAX_REVOKE_ATTEMPTS = int(os.getenv("CLAN_INVITE_MAX_REVOKE_ATTEMPTS", "5"))
 NETWORK_REGISTRATION_INTENT_TTL_SECONDS = int(
     os.getenv("NETWORK_REGISTRATION_INTENT_TTL_SECONDS", "900")
@@ -172,6 +174,10 @@ CELERY_BEAT_SCHEDULE.update(
         },
         "recover-clan-invite-revocations": {
             "task": "apps.clans.tasks.recover_invite_revocations",
+            "schedule": 60,
+        },
+        "recover-clan-invite-creation": {
+            "task": "apps.clans.tasks.recover_invite_creation",
             "schedule": 60,
         },
     }
