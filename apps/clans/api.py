@@ -224,25 +224,6 @@ def discover(request: HttpRequest, q: str = "", limit: int = 20, offset: int = 0
     return [clan_out(x) for x in rows[offset : offset + limit]]
 
 
-@router.get("/{clan_id}", response=ClanOut)
-def details(request: HttpRequest, clan_id: int) -> ClanOut:
-    season, _ = context()
-    return clan_out(
-        get_object_or_404(ClanSeason.objects.select_related("clan"), clan_id=clan_id, season=season)
-    )
-
-
-@router.post("/{clan_id}/join-requests", response=RequestOut)
-def join(request: HttpRequest, clan_id: int) -> RequestOut:
-    season, config = context()
-    cs = get_object_or_404(ClanSeason, clan_id=clan_id, season=season)
-    try:
-        row = request_join(player(request), cs, config)
-        return RequestOut(id=row.pk, state=row.state)
-    except (ValidationError, PermissionDenied) as exc:
-        raise fail(exc) from exc
-
-
 @router.post("/join-requests/{request_id}/decision", response=RequestOut)
 def decision(request: HttpRequest, request_id: int, payload: DecisionIn) -> RequestOut:
     try:
@@ -364,3 +345,24 @@ def leave(request: HttpRequest) -> tuple[int, None]:
     except (ValidationError, PermissionDenied) as exc:
         raise fail(exc) from exc
     return 204, None
+
+
+# Ninja resolves routes in registration order. Keep dynamic identifiers last so
+# static Phase 7A operations are never parsed as integer Clan identifiers.
+@router.get("/{clan_id}", response=ClanOut)
+def details(request: HttpRequest, clan_id: int) -> ClanOut:
+    season, _ = context()
+    return clan_out(
+        get_object_or_404(ClanSeason.objects.select_related("clan"), clan_id=clan_id, season=season)
+    )
+
+
+@router.post("/{clan_id}/join-requests", response=RequestOut)
+def join(request: HttpRequest, clan_id: int) -> RequestOut:
+    season, config = context()
+    cs = get_object_or_404(ClanSeason, clan_id=clan_id, season=season)
+    try:
+        row = request_join(player(request), cs, config)
+        return RequestOut(id=row.pk, state=row.state)
+    except (ValidationError, PermissionDenied) as exc:
+        raise fail(exc) from exc

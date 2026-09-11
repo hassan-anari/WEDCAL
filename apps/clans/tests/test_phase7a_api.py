@@ -26,6 +26,31 @@ def test_clan_api_requires_mini_app_auth_and_openapi_path(
 
 
 @pytest.mark.django_db
+def test_static_clan_routes_are_not_shadowed_by_dynamic_clan_id_route(
+    clan_world: Any, init_data_factory: Any, settings: Any
+) -> None:
+    _, _, _, _, player, _ = clan_world
+    owner = player()
+    settings.TELEGRAM_BOT_TOKEN = "123456:test-token"
+    authorization = "tma " + init_data_factory(
+        user={"id": owner.telegram_user_id, "first_name": "Routes"}
+    )
+    client = Client()
+    headers = {"Authorization": authorization}
+
+    expected = {
+        "/api/v1/clans/state": 200,
+        "/api/v1/clans/eligible-groups": 403,
+        "/api/v1/clans/applicants": 200,
+        "/api/v1/clans/invite/current": 404,
+        "/api/v1/clans/membership/current": 200,
+    }
+    for path, status in expected.items():
+        response = client.get(path, headers=headers)
+        assert response.status_code == status, (path, response.content)
+
+
+@pytest.mark.django_db
 def test_discovery_member_counts_have_bounded_queries(
     clan_world: Any, init_data_factory: Any, settings: Any
 ) -> None:

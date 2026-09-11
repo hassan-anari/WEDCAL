@@ -641,6 +641,11 @@ def queue_invite_revoke(invite_id: int, *, terminal: str) -> None:
             ClanInvite.State.USED,
         }:
             return
+        if invite.unknown_credential_risk and not invite.invite_link:
+            invite.desired_terminal_state = terminal
+            invite.state = ClanInvite.State.MANUAL_REVIEW
+            invite.save(update_fields=("desired_terminal_state", "state", "updated_at"))
+            return
         if not invite.invite_link:
             invite.state = terminal
             invite.desired_terminal_state = ""
@@ -820,7 +825,10 @@ def reconcile_telegram_membership(
                     occurred_at=observed_at,
                 )
                 recovery = ClanInvite.objects.filter(membership=membership).first()
-                if recovery and recovery.state == ClanInvite.State.ACTIVE:
+                if recovery and recovery.state not in {
+                    ClanInvite.State.USED,
+                    ClanInvite.State.REVOKED,
+                }:
                     revoke_id = recovery.pk
             elif not present and old_access == ClanMembership.Access.ACTIVE:
                 policy = resolve_game_config_version(membership.config_version_id).clan
