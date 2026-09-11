@@ -4,8 +4,9 @@
 **Repository:** `hassan-anari/Dalexio-Game-Backend`  
 **Initial scope reviewed:** Phases 0–5 + Season 1 Economy Contract Sync + Base Tap  
 **Verified against Phase 6 PR:** `33e14c0b5178d1b79e2c3b5668ff257b012d23f1` (correction base)
+**Phase 7A review base:** `132bcc187512bf38cf34e0e123f79c3b01493e6e`
 **Initial review date:** 2026-09-10  
-**Last reviewed:** 2026-09-10 (Phase 6 Profile & Collection)
+**Last reviewed:** 2026-09-11 (Phase 7A final lifecycle review)
 **Owner:** repository/product owner  
 
 ---
@@ -102,7 +103,7 @@ Until functional MVP is complete:
 
 | ID | Area | State | Gate | Target / Promotion Trigger | Impact |
 |---|---|---|---|---|---|
-| PH-001 | Telegram inbound worker-loss redrive | OPEN | PHASE-BLOCKER | Before Phase 7 relies on Telegram membership/activity for Clan correctness; no later than public launch | High |
+| PH-001 | Telegram inbound worker-loss redrive | RESOLVED | PHASE-BLOCKER | Resolved in Phase 7A before Clan membership consumes Telegram events | High |
 | PH-002 | GameConfig publication bypass | OPEN | LAUNCH-BLOCKER | Before operators publish real economy configs | High |
 | PH-003 | RewardLedger append-only enforcement | OPEN | PHASE-BLOCKER | Before Phase 9 uses XP history for confirmed DLX allocation | High |
 | PH-004 | Mission DB definition ↔ config rule binding | OPEN | LAUNCH-BLOCKER | Before real production missions can be authored/enabled | High |
@@ -138,6 +139,9 @@ Until functional MVP is complete:
 | PH-034 | Metrics, alerting, SLOs and runbooks | OPEN | LAUNCH-BLOCKER | Phase 10/11 | High |
 | PH-035 | DB connection pool / worker / broker sizing | WATCH | MEASURE-BEFORE-LAUNCH | Phase 11 | High at scale |
 | PH-036 | Large-table migration safety policy | WATCH | LAUNCH-BLOCKER | Becomes mandatory once tables carry production-scale data | High |
+| PH-045 | Unresolved Clan lifecycle product decisions | OPEN | PHASE-BLOCKER | Phase 7B dissolution/recovery design | Medium/High |
+| PH-046 | Multi-Season Clan identity/state isolation | OPEN | SEASON-2-BLOCKER | Before a persistent Clan enters Season 2 | High |
+| PH-047 | Accepted JOIN reservation and credential liveness | OPEN | PHASE-BLOCKER / LAUNCH-BLOCKER | Before Phase 8 capacity economy or public launch | High |
 | PH-037 | Main-branch protection / ruleset enforcement | OPEN | LAUNCH-BLOCKER | Before multiple operators/agents or production release flow | Medium/High process |
 | PH-038 | Contract-gate robustness beyond prose substring checks | OPEN | POLISH / GOVERNANCE | Before production governance freeze | Medium |
 | PH-039 | Dependency/container vulnerability review | OPEN | LAUNCH-BLOCKER | Phase 11 | Medium/High |
@@ -149,12 +153,47 @@ Until functional MVP is complete:
 
 ---
 
+## PH-045 — Unresolved Clan lifecycle product decisions
+
+**Origin:** Phase 7A Clan Core
+**State:** `OPEN`
+**Gate:** `PHASE-BLOCKER` before Phase 7B dissolution/recovery behavior
+
+The contract does not yet decide Creator Group/Clan Home coexistence, repeated same-Season recreation after dissolution, or detailed Telegram authority-loss recovery triggers. Phase 7A does not invent these answers; Phase 7B requires owner-approved decisions and transition tests.
+
+Phase 10 operational tooling must also provide an audited resolution action for Phase 7A
+`MANUAL_REVIEW` invite rows carrying `unknown_credential_risk`; until resolved, the same
+applicant cannot start another JOIN credential lifecycle for that ClanSeason/Home Base.
+
+## PH-046 — Multi-Season Clan identity and state isolation
+
+**Origin:** Phase 7A Clan Core
+**State:** `OPEN`
+**Gate:** `SEASON-2-BLOCKER`
+
+Before Season 2, prove that one persistent `Clan` can receive a later `ClanSeason` without
+recreating its identity and that stale Season 1 requests, invites, roles, and current-state
+queries neither block nor authorize Season 2 membership. This is a future multi-Season
+integration risk only; Phase 7A intentionally does not implement Season 2 behavior.
+
+## PH-047 — Accepted JOIN reservation and credential liveness
+
+**Origin:** Phase 7A final lifecycle review
+**State:** `OPEN`
+**Gate:** `PHASE-BLOCKER` before Phase 8 capacity economy; `LAUNCH-BLOCKER`
+
+The product contract must decide how a known ACTIVE invite is released when an accepted Soldier
+never joins, whether the Soldier or Captain may cancel an accepted-but-not-activated path,
+whether versioned Season config defines an invite TTL, and how regeneration works when Telegram
+invalidates or revokes a known invite without a backend observation. Phase 7A does not invent an
+expiry duration; Phase 10 must expose audited manual resolution where automatic proof is absent.
+
 # 5. Detailed findings from completed phases
 
 ## PH-001 — Durable Telegram inbound redrive after worker loss
 
 **Origin:** Phase 2 Telegram Identity & Ingestion  
-**State:** `OPEN`  
+**State:** `RESOLVED`
 **Gate:** `PHASE-BLOCKER` before Telegram becomes critical to Clan correctness; `LAUNCH-BLOCKER` regardless  
 **Evidence on current main:**
 
@@ -174,6 +213,19 @@ Until functional MVP is complete:
 - Track oldest pending age and failed count.
 
 **Target:** resolve before Phase 7 is approved if Clan membership/activity depends on these events.
+
+**Resolution evidence (Phase 7A):**
+
+- Durable claims commit the incremented processing attempt before event effects begin; failure
+  reconciliation is token-checked and row-locked. Rows also retain processing leases, retry
+  schedules, error categories, and terminal `DEAD_LETTER` state.
+- Beat runs a bounded PostgreSQL redrive using `SELECT ... FOR UPDATE SKIP LOCKED`; per-row dispatch failure cannot starve the batch.
+- Tests cover stale `PENDING`, retryable `FAILED`, abandoned `PROCESSING`, non-starvation, and terminal poison behavior.
+- Both exception and abandoned-worker paths enforce the same durable attempt ceiling; stale
+  `PROCESSING` rows at the ceiling become `DEAD_LETTER` without redispatch.
+- Expired `DEAD_LETTER` payload content is purged while update ID, terminal state, attempts, and
+  error metadata remain durable; retryable payloads are retained.
+- Telegram `update_id` and PostgreSQL remain correctness truth; Redis is not involved.
 
 ---
 
@@ -997,6 +1049,7 @@ Append immutable resolution records here when open items are closed.
 | Date | ID | PR / commit | Evidence | Notes |
 |---|---|---|---|---|
 | 2026-09-10 | Initial backlog created | main `85226d4c...` | Review of Phases 0–5, PR reviews, current main source and PR #7 sync/Base Tap | Open items above are intentionally carried forward. |
+| 2026-09-10 | PH-001 | Phase 7A | PostgreSQL lease/redrive/dead-letter implementation and processing regressions | Worker-loss blocker resolved before Clan event dependency. |
 
 ---
 

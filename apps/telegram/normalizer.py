@@ -23,6 +23,12 @@ def normalize_update(payload: dict[str, Any]) -> NormalizedTelegramEvent | None:
             bot_user_id=int(user["id"]),
             status=str(new_member["status"]),
             observed_at=_timestamp(item.get("date")),
+            can_invite_users=bool(new_member.get("can_invite_users")),
+            actor_telegram_user_id=(
+                int(item["from"]["id"])
+                if isinstance(item.get("from"), dict) and "id" in item["from"]
+                else None
+            ),
         )
     if isinstance(payload.get("chat_member"), dict):
         item = payload["chat_member"]
@@ -33,6 +39,17 @@ def normalize_update(payload: dict[str, Any]) -> NormalizedTelegramEvent | None:
             telegram_user_id=int(user["id"]),
             status=str(new_member["status"]),
             observed_at=_timestamp(item.get("date")),
+            previous_status=str(item.get("old_chat_member", {}).get("status", "")),
+            is_member=(
+                new_member.get("is_member")
+                if isinstance(new_member.get("is_member"), bool)
+                else None
+            ),
+            actor_telegram_user_id=(
+                int(item["from"]["id"])
+                if isinstance(item.get("from"), dict) and "id" in item["from"]
+                else None
+            ),
         )
     return None
 

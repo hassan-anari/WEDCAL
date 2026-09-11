@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     "apps.network",
     "apps.base_tap",
     "apps.profile_collection",
+    "apps.clans",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -118,6 +119,28 @@ telegram_bot_id = os.getenv("TELEGRAM_BOT_ID", "").strip()
 TELEGRAM_BOT_ID = int(telegram_bot_id) if telegram_bot_id else None
 TELEGRAM_INIT_DATA_MAX_AGE_SECONDS = int(os.getenv("TELEGRAM_INIT_DATA_MAX_AGE_SECONDS", "3600"))
 TELEGRAM_INGRESS_RETENTION_SECONDS = int(os.getenv("TELEGRAM_INGRESS_RETENTION_SECONDS", "604800"))
+TELEGRAM_INGRESS_PROCESSING_LEASE_SECONDS = int(
+    os.getenv("TELEGRAM_INGRESS_PROCESSING_LEASE_SECONDS", "300")
+)
+TELEGRAM_INGRESS_RETRY_BASE_SECONDS = int(os.getenv("TELEGRAM_INGRESS_RETRY_BASE_SECONDS", "30"))
+TELEGRAM_INGRESS_RETRY_MAX_SECONDS = int(os.getenv("TELEGRAM_INGRESS_RETRY_MAX_SECONDS", "1800"))
+TELEGRAM_INGRESS_MAX_PROCESSING_ATTEMPTS = int(
+    os.getenv("TELEGRAM_INGRESS_MAX_PROCESSING_ATTEMPTS", "6")
+)
+TELEGRAM_INGRESS_REDRIVE_BATCH_SIZE = int(os.getenv("TELEGRAM_INGRESS_REDRIVE_BATCH_SIZE", "100"))
+CLAN_INVITE_CREATE_LEASE_SECONDS = int(os.getenv("CLAN_INVITE_CREATE_LEASE_SECONDS", "60"))
+CLAN_INVITE_UNCERTAIN_HOLD_SECONDS = int(os.getenv("CLAN_INVITE_UNCERTAIN_HOLD_SECONDS", "300"))
+CLAN_INVITE_MAX_CREATE_ATTEMPTS = int(os.getenv("CLAN_INVITE_MAX_CREATE_ATTEMPTS", "3"))
+CLAN_INVITE_RETRY_BASE_SECONDS = int(os.getenv("CLAN_INVITE_RETRY_BASE_SECONDS", "30"))
+CLAN_INVITE_RETRY_MAX_SECONDS = int(os.getenv("CLAN_INVITE_RETRY_MAX_SECONDS", "1800"))
+CLAN_INVITE_MAX_REVOKE_ATTEMPTS = int(os.getenv("CLAN_INVITE_MAX_REVOKE_ATTEMPTS", "5"))
+CLAN_INVITE_REVOKE_LEASE_SECONDS = int(os.getenv("CLAN_INVITE_REVOKE_LEASE_SECONDS", "60"))
+CLAN_INVITE_REVOKE_RETRY_BASE_SECONDS = int(
+    os.getenv("CLAN_INVITE_REVOKE_RETRY_BASE_SECONDS", "30")
+)
+CLAN_INVITE_REVOKE_RETRY_MAX_SECONDS = int(
+    os.getenv("CLAN_INVITE_REVOKE_RETRY_MAX_SECONDS", "1800")
+)
 NETWORK_REGISTRATION_INTENT_TTL_SECONDS = int(
     os.getenv("NETWORK_REGISTRATION_INTENT_TTL_SECONDS", "900")
 )
@@ -150,6 +173,18 @@ CELERY_BEAT_SCHEDULE.update(
         },
         "recover-pending-base-taps": {
             "task": "apps.base_tap.tasks.recover_pending_base_taps",
+            "schedule": 60,
+        },
+        "redrive-telegram-inbound-updates": {
+            "task": "apps.telegram.tasks.redrive_telegram_inbound_updates",
+            "schedule": 60,
+        },
+        "recover-clan-invite-revocations": {
+            "task": "apps.clans.tasks.recover_invite_revocations",
+            "schedule": 60,
+        },
+        "recover-clan-invite-creation": {
+            "task": "apps.clans.tasks.recover_invite_creation",
             "schedule": 60,
         },
     }

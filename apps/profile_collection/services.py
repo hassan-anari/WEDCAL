@@ -23,6 +23,7 @@ from apps.referrals.models import ReferralRelation
 
 class ClanEntitlementProvider(Protocol):
     def active_membership(self, player: Player) -> bool: ...
+    def ever_member(self, player: Player) -> bool: ...
     def active_captain(self, player: Player) -> bool: ...
     def contribution_units(self, player: Player) -> int: ...
 
@@ -35,6 +36,31 @@ class NoClanEntitlements:
 
     def active_captain(self, player: Player) -> bool:
         return False
+
+    def ever_member(self, player: Player) -> bool:
+        return False
+
+    def contribution_units(self, player: Player) -> int:
+        return 0
+
+
+class ClanEntitlements:
+    def active_membership(self, player: Player) -> bool:
+        from apps.clans.models import ClanMembership
+
+        return ClanMembership.objects.filter(player=player, ended_at__isnull=True).exists()
+
+    def active_captain(self, player: Player) -> bool:
+        from apps.clans.models import ClanMembership, ClanRole
+
+        return ClanMembership.objects.filter(
+            player=player, ended_at__isnull=True, role=ClanRole.CAPTAIN
+        ).exists()
+
+    def ever_member(self, player: Player) -> bool:
+        from apps.clans.models import ClanMembership
+
+        return ClanMembership.objects.filter(player=player).exists()
 
     def contribution_units(self, player: Player) -> int:
         return 0
@@ -49,6 +75,7 @@ class ProfileFacts:
     valid_verified_activity: int
     level: int
     active_clan: bool
+    ever_clan: bool
     active_captain: bool
     contribution_units: int
 
@@ -63,7 +90,7 @@ def collect_profile_facts(
     resolved: ResolvedGameConfig,
     clan: ClanEntitlementProvider | None = None,
 ) -> ProfileFacts:
-    clan = clan or NoClanEntitlements()
+    clan = clan or ClanEntitlements()
     progression, _ = refresh_player_progression(player, resolved)
     claims = DailyClaim.objects.filter(player=player)
     latest_claim = (
@@ -86,6 +113,7 @@ def collect_profile_facts(
         ).count(),
         level=progression.level,
         active_clan=clan.active_membership(player),
+        ever_clan=clan.ever_member(player),
         active_captain=clan.active_captain(player),
         contribution_units=clan.contribution_units(player),
     )
@@ -99,7 +127,7 @@ def achievement_progress(key: str, facts: ProfileFacts) -> int:
         "thirty-day-streak": facts.maximum_daily_streak,
         "first-verified-activity": facts.valid_verified_activity,
         "clan-ready": facts.level,
-        "first-clan": int(facts.active_clan),
+        "first-clan": int(facts.ever_clan),
         "first-contribution": facts.contribution_units,
         "first-war": 0,
         "first-victory": 0,
