@@ -82,3 +82,26 @@ class TelegramUserMembership(models.Model):
             )
         ]
         indexes = [models.Index(fields=("telegram_user_id", "status"))]
+
+
+class TelegramGroupCandidate(models.Model):
+    """Server-observed user/group provenance; never proof of current authority."""
+
+    group = models.ForeignKey(TelegramGroup, on_delete=models.CASCADE, related_name="candidates")
+    telegram_user_id = models.BigIntegerField()
+    player = models.ForeignKey(
+        "players.Player",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="telegram_group_candidates",
+    )
+    last_update_id = models.BigIntegerField(default=0)
+    observed_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("group", "telegram_user_id"), name="telegram_unique_group_candidate"
+            )
+        ]

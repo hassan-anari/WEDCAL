@@ -2,11 +2,12 @@ import io
 import json
 import urllib.error
 from email.message import Message
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 
-from apps.telegram.bot_api import get_chat_member
+from apps.telegram.bot_api import create_chat_invite_link, get_chat_member
 
 
 class Response:
@@ -69,6 +70,19 @@ def test_bot_api_preserves_429_retry_after_without_token(settings, caplog) -> No
         result = get_chat_member(-100, 42)
     assert result.category == "rate_limited" and result.retry_after == 19
     assert settings.TELEGRAM_BOT_TOKEN not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("code", "ambiguous"), [(400, False), (429, False), (500, True), (503, True)]
+)
+def test_create_invite_http_server_failures_are_conservatively_ambiguous(
+    settings: Any, code: int, ambiguous: bool
+) -> None:
+    settings.TELEGRAM_BOT_TOKEN = "secret"
+    with patch("urllib.request.urlopen", side_effect=http_error(code)):
+        result = create_chat_invite_link(-100, "personal")
+    assert not result.ok
+    assert result.ambiguous is ambiguous
 
 
 @pytest.mark.parametrize(

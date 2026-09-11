@@ -18,7 +18,12 @@ from apps.telegram.events import (
     TelegramMessageObserved,
     UserMembershipChanged,
 )
-from apps.telegram.models import TelegramGroup, TelegramInboundUpdate, TelegramUserMembership
+from apps.telegram.models import (
+    TelegramGroup,
+    TelegramGroupCandidate,
+    TelegramInboundUpdate,
+    TelegramUserMembership,
+)
 from apps.telegram.normalizer import normalize_update
 
 logger = structlog.get_logger(__name__)
@@ -107,6 +112,14 @@ def _claim_inbound_attempt(inbound_id: int) -> uuid.UUID | None:
     with transaction.atomic():
         inbound = TelegramInboundUpdate.objects.select_for_update().get(pk=inbound_id)
         if inbound.state in TERMINAL_INGRESS_STATES:
+            return None
+        if inbound.processing_attempts >= settings.TELEGRAM_INGRESS_MAX_PROCESSING_ATTEMPTS:
+            inbound.state = TelegramInboundUpdate.State.DEAD_LETTER
+            inbound.claimed_at = None
+            inbound.processing_token = None
+            inbound.next_retry_at = None
+            inbound.last_error_category = "processing_attempt_limit"
+            inbound.save()
             return None
         if (
             inbound.state == TelegramInboundUpdate.State.PROCESSING
@@ -206,6 +219,17 @@ def redrive_retryable_inbound_updates(*, limit: int | None = None) -> int:
     stale_before = now - timedelta(seconds=settings.TELEGRAM_INGRESS_PROCESSING_LEASE_SECONDS)
     batch = limit or settings.TELEGRAM_INGRESS_REDRIVE_BATCH_SIZE
     with transaction.atomic():
+        TelegramInboundUpdate.objects.filter(
+            state=TelegramInboundUpdate.State.PROCESSING,
+            claimed_at__lte=stale_before,
+            processing_attempts__gte=settings.TELEGRAM_INGRESS_MAX_PROCESSING_ATTEMPTS,
+        ).update(
+            state=TelegramInboundUpdate.State.DEAD_LETTER,
+            claimed_at=None,
+            processing_token=None,
+            next_retry_at=None,
+            last_error_category="processing_attempt_limit",
+        )
         rows = list(
             TelegramInboundUpdate.objects.select_for_update(skip_locked=True)
             .filter(
@@ -253,6 +277,7 @@ def purge_expired_ingress_payloads() -> int:
             state__in=(
                 TelegramInboundUpdate.State.PROCESSED,
                 TelegramInboundUpdate.State.IGNORED,
+                TelegramInboundUpdate.State.DEAD_LETTER,
             ),
         )
         .exclude(payload={})
@@ -282,6 +307,9 @@ def resolve_telegram_player(
         telegram_update_id=telegram_update_id,
     )
     TelegramUserMembership.objects.filter(
+        telegram_user_id=profile.telegram_user_id, player__isnull=True
+    ).update(player=resolution.player)
+    TelegramGroupCandidate.objects.filter(
         telegram_user_id=profile.telegram_user_id, player__isnull=True
     ).update(player=resolution.player)
     return resolution
@@ -420,6 +448,22 @@ def _observe_bot_membership(event: BotMembershipChanged, telegram_update_id: int
         logger.warning("telegram_bot_identity_mismatch")
         return
     group = _upsert_group(event.chat, event.observed_at, telegram_update_id)
+    if event.actor_telegram_user_id is not None:
+        candidate, _ = TelegramGroupCandidate.objects.get_or_create(
+            group=group,
+            telegram_user_id=event.actor_telegram_user_id,
+            defaults={
+                "player": Player.objects.filter(
+                    telegram_user_id=event.actor_telegram_user_id
+                ).first(),
+                "last_update_id": telegram_update_id,
+                "observed_at": event.observed_at,
+            },
+        )
+        if telegram_update_id > candidate.last_update_id:
+            candidate.last_update_id = telegram_update_id
+            candidate.observed_at = event.observed_at
+            candidate.save(update_fields=("last_update_id", "observed_at"))
     if (
         group.bot_membership_last_update_id is not None
         and telegram_update_id <= group.bot_membership_last_update_id

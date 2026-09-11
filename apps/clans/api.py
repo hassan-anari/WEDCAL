@@ -29,7 +29,7 @@ from apps.clans.services import (
 from apps.game_config.services import ResolvedGameConfig, resolve_effective_game_config
 from apps.players.models import Player
 from apps.seasons.models import Season
-from apps.seasons.services import resolve_current_season
+from apps.seasons.services import NoActiveSeason, SeasonNotEligible, resolve_current_season
 from apps.telegram.mini_app_auth import mini_app_auth
 
 router = Router(tags=["clans"], auth=mini_app_auth)
@@ -115,8 +115,12 @@ def player(request: HttpRequest) -> Player:
 
 def context() -> tuple[Season, ResolvedGameConfig]:
     now = timezone.now()
-    season = resolve_current_season(at=now)
-    assert season is not None
+    try:
+        season = resolve_current_season(at=now)
+    except (NoActiveSeason, SeasonNotEligible) as exc:
+        raise HttpError(409, "No current Clan Season is available") from exc
+    if season is None:
+        raise HttpError(409, "No current Clan Season is available")
     return season, resolve_effective_game_config(now)
 
 
@@ -248,6 +252,8 @@ def decision(request: HttpRequest, request_id: int, payload: DecisionIn) -> Requ
         return RequestOut(id=row.pk, state=row.state)
     except (ValidationError, PermissionDenied) as exc:
         raise fail(exc) from exc
+    except ClanJoinRequest.DoesNotExist as exc:
+        raise HttpError(404, "Join request not found") from exc
 
 
 @router.delete("/join-requests/{request_id}", response=RequestOut)
@@ -255,8 +261,10 @@ def cancel(request: HttpRequest, request_id: int) -> RequestOut:
     try:
         row = cancel_request(player(request), request_id)
         return RequestOut(id=row.pk, state=row.state)
-    except (ValidationError, PermissionDenied, ClanJoinRequest.DoesNotExist) as exc:
+    except (ValidationError, PermissionDenied) as exc:
         raise fail(exc) from exc
+    except ClanJoinRequest.DoesNotExist as exc:
+        raise HttpError(404, "Join request not found") from exc
 
 
 @router.get("/applicants", response=list[ApplicantOut])

@@ -4,8 +4,9 @@
 **Repository:** `hassan-anari/Dalexio-Game-Backend`  
 **Initial scope reviewed:** Phases 0–5 + Season 1 Economy Contract Sync + Base Tap  
 **Verified against Phase 6 PR:** `33e14c0b5178d1b79e2c3b5668ff257b012d23f1` (correction base)
+**Phase 7A review base:** `132bcc187512bf38cf34e0e123f79c3b01493e6e`
 **Initial review date:** 2026-09-10  
-**Last reviewed:** 2026-09-10 (Phase 7A Clan Core & Telegram Membership)
+**Last reviewed:** 2026-09-11 (Phase 7A final lifecycle review)
 **Owner:** repository/product owner  
 
 ---
@@ -140,6 +141,7 @@ Until functional MVP is complete:
 | PH-036 | Large-table migration safety policy | WATCH | LAUNCH-BLOCKER | Becomes mandatory once tables carry production-scale data | High |
 | PH-045 | Unresolved Clan lifecycle product decisions | OPEN | PHASE-BLOCKER | Phase 7B dissolution/recovery design | Medium/High |
 | PH-046 | Multi-Season Clan identity/state isolation | OPEN | SEASON-2-BLOCKER | Before a persistent Clan enters Season 2 | High |
+| PH-047 | Accepted JOIN reservation and credential liveness | OPEN | PHASE-BLOCKER / LAUNCH-BLOCKER | Before Phase 8 capacity economy or public launch | High |
 | PH-037 | Main-branch protection / ruleset enforcement | OPEN | LAUNCH-BLOCKER | Before multiple operators/agents or production release flow | Medium/High process |
 | PH-038 | Contract-gate robustness beyond prose substring checks | OPEN | POLISH / GOVERNANCE | Before production governance freeze | Medium |
 | PH-039 | Dependency/container vulnerability review | OPEN | LAUNCH-BLOCKER | Phase 11 | Medium/High |
@@ -174,6 +176,18 @@ recreating its identity and that stale Season 1 requests, invites, roles, and cu
 queries neither block nor authorize Season 2 membership. This is a future multi-Season
 integration risk only; Phase 7A intentionally does not implement Season 2 behavior.
 
+## PH-047 — Accepted JOIN reservation and credential liveness
+
+**Origin:** Phase 7A final lifecycle review
+**State:** `OPEN`
+**Gate:** `PHASE-BLOCKER` before Phase 8 capacity economy; `LAUNCH-BLOCKER`
+
+The product contract must decide how a known ACTIVE invite is released when an accepted Soldier
+never joins, whether the Soldier or Captain may cancel an accepted-but-not-activated path,
+whether versioned Season config defines an invite TTL, and how regeneration works when Telegram
+invalidates or revokes a known invite without a backend observation. Phase 7A does not invent an
+expiry duration; Phase 10 must expose audited manual resolution where automatic proof is absent.
+
 # 5. Detailed findings from completed phases
 
 ## PH-001 — Durable Telegram inbound redrive after worker loss
@@ -207,6 +221,10 @@ integration risk only; Phase 7A intentionally does not implement Season 2 behavi
   schedules, error categories, and terminal `DEAD_LETTER` state.
 - Beat runs a bounded PostgreSQL redrive using `SELECT ... FOR UPDATE SKIP LOCKED`; per-row dispatch failure cannot starve the batch.
 - Tests cover stale `PENDING`, retryable `FAILED`, abandoned `PROCESSING`, non-starvation, and terminal poison behavior.
+- Both exception and abandoned-worker paths enforce the same durable attempt ceiling; stale
+  `PROCESSING` rows at the ceiling become `DEAD_LETTER` without redispatch.
+- Expired `DEAD_LETTER` payload content is purged while update ID, terminal state, attempts, and
+  error metadata remain durable; retryable payloads are retained.
 - Telegram `update_id` and PostgreSQL remain correctness truth; Redis is not involved.
 
 ---

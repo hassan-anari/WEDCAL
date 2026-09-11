@@ -167,3 +167,42 @@ def test_concurrent_invite_recovery_claims_one_external_attempt(
     assert calls == [1]
     assert invite.state == ClanInvite.State.ACTIVE
     assert invite.attempt_count == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_remote_revoke_claims_one_external_attempt(
+    clan_world: Any, monkeypatch: Any
+) -> None:
+    from django.utils import timezone
+
+    from apps.clans.services import queue_invite_revoke, revoke_invite_remote
+
+    _, _, _, resolved, player, clan = clan_world
+    soldier, cs = player(ClanRole.SOLDIER), clan()
+    req = request_join(soldier, cs, resolved)
+    decide_request(cs.captain, req.pk, accept=True)
+    ClanInvite.objects.filter(pk=req.invite.pk).update(
+        state=ClanInvite.State.ACTIVE, invite_link="known"
+    )
+    monkeypatch.setattr("apps.clans.services._dispatch_revoke", lambda _pk: None)
+    queue_invite_revoke(req.invite.pk, terminal=ClanInvite.State.REVOKED)
+    ClanInvite.objects.filter(pk=req.invite.pk).update(next_revoke_retry_at=timezone.now())
+    calls: list[int] = []
+    lock = Lock()
+
+    def revoke(*_args: object) -> TelegramResult:
+        with lock:
+            calls.append(1)
+        return TelegramResult(True, {})
+
+    monkeypatch.setattr("apps.clans.services.bot_api.revoke_chat_invite_link", revoke)
+    parallel(
+        [
+            lambda: revoke_invite_remote(req.invite.pk),
+            lambda: revoke_invite_remote(req.invite.pk),
+        ]
+    )
+    invite = ClanInvite.objects.get(pk=req.invite.pk)
+    assert calls == [1]
+    assert invite.state == ClanInvite.State.REVOKED
+    assert invite.invite_link == ""

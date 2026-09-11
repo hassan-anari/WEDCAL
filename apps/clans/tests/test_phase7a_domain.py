@@ -278,6 +278,7 @@ def test_accepted_already_present_user_activates_after_fresh_check(clan_world, m
     soldier, cs = player(ClanRole.SOLDIER), clan()
     req = request_join(soldier, cs, resolved)
     req = decide_request(cs.captain, req.pk, accept=True)
+    assert req.decided_at is not None
     monkeypatch.setattr(
         "apps.clans.services.bot_api.get_chat_member",
         lambda *_: TelegramResult(True, {"status": "member"}),
@@ -595,6 +596,10 @@ def test_periodic_recovery_processes_stranded_accepted_pending_invite(
         lambda *_: TelegramResult(True, {"invite_link": "recovered-pending"}),
     )
     monkeypatch.setattr(
+        "apps.clans.services.bot_api.get_chat_member",
+        lambda *_: TelegramResult(True, {"status": "left"}),
+    )
+    monkeypatch.setattr(
         "apps.clans.services.bot_api.send_message", lambda *_: TelegramResult(True, {})
     )
     assert recover_invite_creations() == 1
@@ -625,6 +630,10 @@ def test_later_beat_recovers_retry_row_stranded_after_pending_commit(
         return TelegramResult(True, {"invite_link": "later-beat"})
 
     monkeypatch.setattr("apps.clans.services.bot_api.create_chat_invite_link", create)
+    monkeypatch.setattr(
+        "apps.clans.services.bot_api.get_chat_member",
+        lambda *_: TelegramResult(True, {"status": "left"}),
+    )
     monkeypatch.setattr(
         "apps.clans.services.bot_api.send_message", lambda *_: TelegramResult(True, {})
     )
@@ -705,3 +714,328 @@ def test_unknown_join_manual_review_blocks_same_clan_reapplication(
         ).count()
         == 1
     )
+
+
+@pytest.mark.django_db
+def test_known_create_success_racing_terminalization_is_tracked_for_revoke(
+    clan_world: Any, monkeypatch: Any
+) -> None:
+    from apps.clans.services import queue_invite_revoke
+
+    _, _, _, resolved, player, clan = clan_world
+    soldier, cs = player(ClanRole.SOLDIER), clan()
+    req = request_join(soldier, cs, resolved)
+    decide_request(cs.captain, req.pk, accept=True)
+    invite = req.invite
+    dispatched: list[int] = []
+
+    def create(*_args: object) -> TelegramResult:
+        queue_invite_revoke(invite.pk, terminal=ClanInvite.State.USED)
+        return TelegramResult(True, {"invite_link": "must-not-be-lost"})
+
+    monkeypatch.setattr("apps.clans.services.bot_api.create_chat_invite_link", create)
+    monkeypatch.setattr("apps.clans.services._dispatch_revoke", dispatched.append)
+    result = create_personal_invite(invite)
+    assert result.state == ClanInvite.State.REVOKE_PENDING
+    assert result.invite_link == "must-not-be-lost"
+    assert result.desired_terminal_state == ClanInvite.State.USED
+    assert dispatched == [invite.pk]
+
+
+@pytest.mark.django_db
+def test_revoke_rate_limit_is_due_only_and_confirmed_revoke_clears_link(
+    clan_world: Any, monkeypatch: Any
+) -> None:
+    from apps.clans.services import queue_invite_revoke, revoke_invite_remote
+
+    _, _, _, resolved, player, clan = clan_world
+    soldier, cs = player(ClanRole.SOLDIER), clan()
+    req = request_join(soldier, cs, resolved)
+    decide_request(cs.captain, req.pk, accept=True)
+    invite = req.invite
+    ClanInvite.objects.filter(pk=invite.pk).update(
+        state=ClanInvite.State.ACTIVE, invite_link="known"
+    )
+    monkeypatch.setattr("apps.clans.services._dispatch_revoke", lambda _pk: None)
+    queue_invite_revoke(invite.pk, terminal=ClanInvite.State.REVOKED)
+    replies = iter(
+        [
+            TelegramResult(False, category="rate_limited", retry_after=60),
+            TelegramResult(True, {}),
+        ]
+    )
+    calls: list[int] = []
+
+    def revoke(*_args: object) -> TelegramResult:
+        calls.append(1)
+        return next(replies)
+
+    monkeypatch.setattr("apps.clans.services.bot_api.revoke_chat_invite_link", revoke)
+    failed = revoke_invite_remote(invite.pk)
+    assert failed.state == ClanInvite.State.REVOKE_FAILED
+    assert failed.invite_link == "known" and failed.next_revoke_retry_at is not None
+    revoke_invite_remote(invite.pk)
+    assert calls == [1]
+    ClanInvite.objects.filter(pk=invite.pk).update(next_revoke_retry_at=timezone.now())
+    done = revoke_invite_remote(invite.pk)
+    assert done.state == ClanInvite.State.REVOKED
+    assert done.invite_link == ""
+
+
+@pytest.mark.django_db
+def test_pre_accept_event_cannot_activate_but_fresh_verification_can(
+    clan_world: Any, monkeypatch: Any
+) -> None:
+    from apps.clans.services import finalize_accepted_request
+
+    _, _, _, resolved, player, clan = clan_world
+    soldier, cs = player(ClanRole.SOLDIER), clan()
+    req = request_join(soldier, cs, resolved)
+    req = decide_request(cs.captain, req.pk, accept=True)
+    assert req.decided_at is not None
+    reconcile_telegram_membership(
+        player=soldier,
+        group=cs.clan.telegram_group,
+        present=True,
+        telegram_update_id=50,
+        observed_at=req.decided_at - timedelta(seconds=2),
+    )
+    assert not ClanMembership.objects.filter(player=soldier).exists()
+    monkeypatch.setattr(
+        "apps.clans.services.bot_api.get_chat_member",
+        lambda *_: TelegramResult(True, {"status": "member"}),
+    )
+    assert finalize_accepted_request(req).state == ClanJoinRequest.State.ACTIVATED
+
+
+@pytest.mark.django_db
+def test_bot_membership_actor_is_discovery_candidate_but_registration_reverifies(
+    clan_world: Any, monkeypatch: Any, settings: Any
+) -> None:
+    from apps.clans.services import eligible_groups, register_clan
+    from apps.telegram.models import TelegramInboundUpdate, TelegramUserMembership
+    from apps.telegram.services import process_inbound_update
+
+    now, _, season, resolved, player, _ = clan_world
+    captain = player(ClanRole.CAPTAIN)
+    settings.TELEGRAM_BOT_ID = 999
+    inbound = TelegramInboundUpdate.objects.create(
+        update_id=990,
+        payload={
+            "update_id": 990,
+            "my_chat_member": {
+                "date": int(now.timestamp()),
+                "from": {"id": captain.telegram_user_id},
+                "chat": {"id": -9990, "type": "supergroup", "title": "Candidate"},
+                "new_chat_member": {
+                    "status": "administrator",
+                    "can_invite_users": True,
+                    "user": {"id": 999},
+                },
+            },
+        },
+        payload_expires_at=now + timedelta(days=1),
+    )
+    process_inbound_update(inbound.pk)
+    assert not TelegramUserMembership.objects.filter(player=captain).exists()
+    group = eligible_groups(captain, season, resolved).get(telegram_chat_id=-9990)
+    calls: list[int] = []
+
+    def verify(*_args: object) -> TelegramResult:
+        calls.append(1)
+        return TelegramResult(True, {"status": "administrator", "can_invite_users": True})
+
+    monkeypatch.setattr("apps.clans.services.bot_api.get_chat_member", verify)
+    registered = register_clan(
+        captain, season, resolved, group_id=group.pk, name="Candidate", tag="CAND", motto=""
+    )
+    assert len(calls) == 2
+    membership = ClanMembership.objects.get(player=captain, clan_season=registered)
+    assert membership.telegram_verified_at is not None
+    reconcile_telegram_membership(
+        player=captain,
+        group=group,
+        present=False,
+        telegram_update_id=991,
+        observed_at=membership.telegram_verified_at - timedelta(seconds=1),
+    )
+    membership.refresh_from_db()
+    assert membership.access_state == ClanMembership.Access.ACTIVE
+
+
+@pytest.mark.django_db
+def test_two_complete_rejoin_cycles_recycle_only_confirmed_safe_invite(
+    clan_world: Any, monkeypatch: Any
+) -> None:
+    from apps.clans.services import get_or_create_rejoin_invite, revoke_invite_remote
+
+    now, config, season, _, player, clan = clan_world
+    member, cs = player(ClanRole.SOLDIER), clan()
+    membership = ClanMembership.objects.create(
+        player=member,
+        season=season,
+        clan_season=cs,
+        role=ClanRole.SOLDIER,
+        started_at=now,
+        config_version=config,
+    )
+    links = iter(["cycle-one", "cycle-two"])
+    monkeypatch.setattr(
+        "apps.clans.services.bot_api.create_chat_invite_link",
+        lambda *_: TelegramResult(True, {"invite_link": next(links)}),
+    )
+    monkeypatch.setattr(
+        "apps.clans.services.bot_api.send_message", lambda *_: TelegramResult(True, {})
+    )
+    monkeypatch.setattr("apps.clans.services._dispatch_revoke", lambda _pk: None)
+    monkeypatch.setattr(
+        "apps.clans.services.bot_api.revoke_chat_invite_link",
+        lambda *_: TelegramResult(True, {}),
+    )
+    for cycle in (1, 2):
+        reconcile_telegram_membership(
+            player=member,
+            group=cs.clan.telegram_group,
+            present=False,
+            telegram_update_id=cycle * 10,
+            observed_at=now + timedelta(seconds=cycle * 10),
+        )
+        membership.refresh_from_db()
+        invite = get_or_create_rejoin_invite(member, membership)
+        assert invite.recovery_cycle == cycle and invite.state == ClanInvite.State.ACTIVE
+        reconcile_telegram_membership(
+            player=member,
+            group=cs.clan.telegram_group,
+            present=True,
+            telegram_update_id=cycle * 10 + 1,
+            observed_at=now + timedelta(seconds=cycle * 10 + 1),
+        )
+        invite = revoke_invite_remote(invite.pk)
+        assert invite.state == ClanInvite.State.USED and invite.invite_link == ""
+    assert ClanMembership.objects.filter(player=member).count() == 1
+
+
+@pytest.mark.django_db
+def test_rejoin_create_in_flight_restoration_tracks_known_success_for_revoke(
+    clan_world: Any, monkeypatch: Any
+) -> None:
+    now, config, season, _, player, clan = clan_world
+    member, cs = player(ClanRole.SOLDIER), clan()
+    membership = ClanMembership.objects.create(
+        player=member,
+        season=season,
+        clan_season=cs,
+        role=ClanRole.SOLDIER,
+        access_state=ClanMembership.Access.ACCESS_LOST,
+        started_at=now,
+        config_version=config,
+    )
+    invite = ClanInvite.objects.create(membership=membership, purpose=ClanInvite.Purpose.REJOIN)
+    monkeypatch.setattr("apps.clans.services._dispatch_revoke", lambda _pk: None)
+
+    def create(*_args: object) -> TelegramResult:
+        reconcile_telegram_membership(
+            player=member,
+            group=cs.clan.telegram_group,
+            present=True,
+            telegram_update_id=10,
+            observed_at=now + timedelta(seconds=1),
+        )
+        return TelegramResult(True, {"invite_link": "tracked-rejoin"})
+
+    monkeypatch.setattr("apps.clans.services.bot_api.create_chat_invite_link", create)
+    result = create_personal_invite(invite)
+    assert result.state == ClanInvite.State.REVOKE_PENDING
+    assert result.invite_link == "tracked-rejoin"
+
+
+@pytest.mark.django_db
+def test_interactive_actions_fail_closed_after_season_end(
+    clan_world: Any, monkeypatch: Any
+) -> None:
+    from apps.clans.services import get_or_create_rejoin_invite, recover_invite_creations
+
+    now, config, season, resolved, player, clan = clan_world
+    soldier, cs = player(ClanRole.SOLDIER), clan()
+    req = request_join(soldier, cs, resolved)
+    season.ends_at = now - timedelta(seconds=1)
+    season.save(update_fields=("ends_at",))
+    with pytest.raises(ClanConflict):
+        decide_request(cs.captain, req.pk, accept=True)
+    req.state = ClanJoinRequest.State.ACCEPTED
+    req.decided_at = now - timedelta(minutes=1)
+    req.save()
+    invite = ClanInvite.objects.create(join_request=req, purpose=ClanInvite.Purpose.JOIN)
+    calls: list[int] = []
+    monkeypatch.setattr(
+        "apps.clans.services.bot_api.create_chat_invite_link", lambda *_: calls.append(1)
+    )
+    recover_invite_creations()
+    assert not calls
+    member = player(ClanRole.SOLDIER)
+    membership = ClanMembership.objects.create(
+        player=member,
+        season=season,
+        clan_season=cs,
+        role=ClanRole.SOLDIER,
+        access_state=ClanMembership.Access.ACCESS_LOST,
+        started_at=now,
+        config_version=config,
+    )
+    with pytest.raises(ClanConflict):
+        get_or_create_rejoin_invite(member, membership)
+    invite.refresh_from_db()
+    assert invite.state == ClanInvite.State.REVOKED
+
+
+@pytest.mark.django_db
+def test_pending_join_recovery_fresh_verifies_existing_member_without_invite(
+    clan_world: Any, monkeypatch: Any
+) -> None:
+    from apps.clans.services import recover_invite_creations
+
+    _, _, _, resolved, player, clan = clan_world
+    soldier, cs = player(ClanRole.SOLDIER), clan()
+    req = request_join(soldier, cs, resolved)
+    decide_request(cs.captain, req.pk, accept=True)
+    creates: list[int] = []
+    monkeypatch.setattr(
+        "apps.clans.services.bot_api.get_chat_member",
+        lambda *_: TelegramResult(True, {"status": "member"}),
+    )
+    monkeypatch.setattr(
+        "apps.clans.services.bot_api.create_chat_invite_link", lambda *_: creates.append(1)
+    )
+    assert recover_invite_creations() == 1
+    req.refresh_from_db()
+    assert req.state == ClanJoinRequest.State.ACTIVATED
+    assert ClanMembership.objects.filter(player=soldier, ended_at__isnull=True).count() == 1
+    assert not creates
+
+
+@pytest.mark.django_db
+def test_revoke_exhaustion_is_observable_and_preserves_known_credential(
+    clan_world: Any, monkeypatch: Any, settings: Any
+) -> None:
+    from apps.clans.services import revoke_invite_remote
+
+    _, _, _, resolved, player, clan = clan_world
+    soldier, cs = player(ClanRole.SOLDIER), clan()
+    req = request_join(soldier, cs, resolved)
+    decide_request(cs.captain, req.pk, accept=True)
+    ClanInvite.objects.filter(pk=req.invite.pk).update(
+        state=ClanInvite.State.REVOKE_FAILED,
+        invite_link="still-live",
+        desired_terminal_state=ClanInvite.State.REVOKED,
+        revoke_attempts=settings.CLAN_INVITE_MAX_REVOKE_ATTEMPTS,
+        next_revoke_retry_at=timezone.now(),
+    )
+    calls: list[int] = []
+    monkeypatch.setattr(
+        "apps.clans.services.bot_api.revoke_chat_invite_link", lambda *_: calls.append(1)
+    )
+    invite = revoke_invite_remote(req.invite.pk)
+    assert invite.state == ClanInvite.State.MANUAL_REVIEW
+    assert invite.unknown_credential_risk
+    assert invite.invite_link == "still-live"
+    assert not calls

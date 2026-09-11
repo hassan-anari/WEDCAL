@@ -50,7 +50,12 @@ def request(method: str, parameters: dict[str, Any]) -> TelegramResult:
             status=exc.code,
             retry_after=retry_after,
         )
-        return TelegramResult(False, category=category, retry_after=retry_after)
+        return TelegramResult(
+            False,
+            category=category,
+            retry_after=retry_after,
+            ambiguous=method == "createChatInviteLink" and exc.code >= 500,
+        )
     except json.JSONDecodeError:
         return TelegramResult(
             False, category="non_json_response", ambiguous=method == "createChatInviteLink"

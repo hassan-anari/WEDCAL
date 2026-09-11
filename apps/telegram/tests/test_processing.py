@@ -395,3 +395,42 @@ def test_concurrent_redrive_workers_claim_each_row_once(monkeypatch, settings) -
         ]
     assert sum(results) == 8
     assert len(dispatched) == len(set(dispatched)) == 8
+
+
+@pytest.mark.django_db
+def test_worker_loss_at_attempt_cap_dead_letters_without_redispatch(monkeypatch, settings) -> None:  # type: ignore[no-untyped-def]
+    from apps.telegram.services import redrive_retryable_inbound_updates
+
+    settings.TELEGRAM_INGRESS_MAX_PROCESSING_ATTEMPTS = 2
+    settings.TELEGRAM_INGRESS_PROCESSING_LEASE_SECONDS = 1
+    row = inbound(900, {"poll": {"id": "abandoned"}})
+    TelegramInboundUpdate.objects.filter(pk=row.pk).update(
+        state=TelegramInboundUpdate.State.PROCESSING,
+        processing_attempts=2,
+        claimed_at=timezone.now() - timedelta(minutes=1),
+    )
+    calls: list[int] = []
+    monkeypatch.setattr(
+        "apps.telegram.services.dispatch_inbound_update", lambda item: calls.append(item.pk)
+    )
+    assert redrive_retryable_inbound_updates() == 0
+    row.refresh_from_db()
+    assert row.state == TelegramInboundUpdate.State.DEAD_LETTER
+    assert not calls
+
+
+@pytest.mark.django_db
+def test_retention_purges_dead_letter_but_keeps_retryable_payloads() -> None:
+    expired = timezone.now() - timedelta(seconds=1)
+    dead = inbound(901, {"poll": {"id": "dead"}})
+    retryable = inbound(902, {"poll": {"id": "retry"}})
+    TelegramInboundUpdate.objects.filter(pk=dead.pk).update(
+        state=TelegramInboundUpdate.State.DEAD_LETTER, payload_expires_at=expired
+    )
+    TelegramInboundUpdate.objects.filter(pk=retryable.pk).update(
+        state=TelegramInboundUpdate.State.FAILED, payload_expires_at=expired
+    )
+    assert purge_expired_ingress_payloads() == 1
+    dead.refresh_from_db()
+    retryable.refresh_from_db()
+    assert dead.payload == {} and retryable.payload != {}
