@@ -482,6 +482,24 @@ def _observe_bot_membership(event: BotMembershipChanged, telegram_update_id: int
             "updated_at",
         )
     )
+    from apps.clans.governance import observe_bot_admin_state
+    from apps.clans.models import ClanSeason
+
+    clan_season_id = (
+        ClanSeason.objects.filter(
+            clan__telegram_group=group,
+            state__in=[ClanSeason.State.ACTIVE, ClanSeason.State.RECOVERY],
+        )
+        .values_list("pk", flat=True)
+        .first()
+    )
+    if clan_season_id is not None:
+        observe_bot_admin_state(
+            clan_season_id,
+            is_admin=group.bot_is_admin and group.bot_can_invite_users,
+            authoritative=True,
+            observed_at=event.observed_at,
+        )
     if not group.bot_is_admin:
         from apps.network.models import CreatorGroupRegistration
 
@@ -548,6 +566,7 @@ def _observe_user_membership(event: UserMembershipChanged, telegram_update_id: i
             present=present,
             telegram_update_id=telegram_update_id,
             observed_at=event.observed_at,
+            telegram_actor_user_id=event.actor_telegram_user_id,
         )
     try:
         registration = group.creator_registration

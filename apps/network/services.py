@@ -536,16 +536,26 @@ def settle_completed_windows(*, limit: int = 200, now: datetime | None = None) -
     return processed
 
 
-def purge_activity_evidence(now: datetime | None = None) -> tuple[int, int]:
+def purge_activity_evidence(now: datetime | None = None, *, limit: int = 1000) -> tuple[int, int]:
+    from apps.moderation.services import protected_network_activity_ids
+
     now = now or timezone.now()
-    content = (
+    held = protected_network_activity_ids(now)
+    content_ids = list(
         NetworkActivity.objects.filter(content_expires_at__lte=now)
+        .exclude(pk__in=held)
         .exclude(text__isnull=True)
-        .update(text=None)
+        .order_by("content_expires_at", "pk")
+        .values_list("pk", flat=True)[:limit]
     )
-    fingerprints_count = (
+    content = NetworkActivity.objects.filter(pk__in=content_ids).update(text=None)
+    fingerprint_ids = list(
         NetworkActivity.objects.filter(fingerprint_expires_at__lte=now)
         .exclude(exact_fingerprint="", normalized_fingerprint="")
-        .update(exact_fingerprint="", normalized_fingerprint="")
+        .order_by("fingerprint_expires_at", "pk")
+        .values_list("pk", flat=True)[:limit]
+    )
+    fingerprints_count = NetworkActivity.objects.filter(pk__in=fingerprint_ids).update(
+        exact_fingerprint="", normalized_fingerprint=""
     )
     return content, fingerprints_count

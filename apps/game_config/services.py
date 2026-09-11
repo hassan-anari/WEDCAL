@@ -133,6 +133,7 @@ class NetworkConfig:
 class RetentionConfig:
     message_content_days: int
     fingerprint_days: int
+    moderation_evidence_after_close_days: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,6 +207,15 @@ class ClanConfig:
     leave_cooldown_hours: int
     max_voluntary_leaves_per_season: int
     access_rejoin_grace_hours: int
+    soldier_warning_days: int
+    soldier_removal_days: int
+    captain_warning_days: int
+    captain_recovery_days: int
+    governance_vote_hours: int
+    governance_quorum_bps: int
+    governance_approval_bps: int
+    governance_minimum_voters: int
+    bot_admin_restore_grace_hours: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -228,7 +238,7 @@ class ResolvedGameConfig:
 
 
 def parse_clan(payload: dict[str, Any]) -> ClanConfig:
-    """Parse only Phase 7A lifecycle policy; later Clan economy remains dormant."""
+    """Parse Clan lifecycle policy without activating the Phase 8 economy."""
     try:
         raw = _config_object(payload["clan"], "clan")
         unlock = _config_object(raw["unlock"], "clan.unlock")
@@ -236,12 +246,14 @@ def parse_clan(payload: dict[str, Any]) -> ClanConfig:
         curve = capacity["hq_curve"]
         leave = _config_object(raw["leave"], "clan.leave")
         recovery = _config_object(raw["telegram_recovery"], "clan.telegram_recovery")
+        inactivity = _config_object(raw["inactivity"], "clan.inactivity")
+        governance = _config_object(raw["governance"], "clan.governance")
         if not isinstance(curve, list) or not curve:
             raise TypeError
         base = _config_object(curve[0], "clan.capacity.hq_curve[0]")
         if _integer(base["hq_level"], "clan initial hq_level", minimum=1) != 1:
             raise ValidationError("Clan base capacity must come from HQ level 1")
-        return ClanConfig(
+        result = ClanConfig(
             enabled=_boolean(raw["enabled"], "clan.enabled"),
             min_level=_integer(unlock["min_level"], "clan.unlock.min_level", minimum=1),
             base_capacity=_integer(base["base_capacity"], "clan base capacity", minimum=1),
@@ -258,9 +270,44 @@ def parse_clan(payload: dict[str, Any]) -> ClanConfig:
                 "clan.telegram_recovery.access_rejoin_grace_hours",
                 minimum=1,
             ),
+            soldier_warning_days=_integer(
+                inactivity["soldier_warning_after_days"], "soldier warning", minimum=1
+            ),
+            soldier_removal_days=_integer(
+                inactivity["soldier_removal_eligible_after_days"], "soldier removal", minimum=1
+            ),
+            captain_warning_days=_integer(
+                inactivity["captain_warning_after_days"], "captain warning", minimum=1
+            ),
+            captain_recovery_days=_integer(
+                inactivity["captain_recovery_after_days"], "captain recovery", minimum=1
+            ),
+            governance_vote_hours=_integer(
+                governance["vote_duration_hours"], "governance duration", minimum=1
+            ),
+            governance_quorum_bps=_integer(
+                governance["quorum_bps"], "governance quorum", minimum=1
+            ),
+            governance_approval_bps=_integer(
+                governance["approval_threshold_bps"], "governance approval", minimum=1
+            ),
+            governance_minimum_voters=_integer(
+                governance["minimum_eligible_voters"], "governance minimum voters", minimum=1
+            ),
+            bot_admin_restore_grace_hours=_integer(
+                recovery["bot_admin_restore_grace_hours"], "bot admin restore grace", minimum=1
+            ),
         )
+        if (
+            result.soldier_warning_days >= result.soldier_removal_days
+            or result.captain_warning_days >= result.captain_recovery_days
+            or result.governance_quorum_bps > 10000
+            or result.governance_approval_bps > 10000
+        ):
+            raise ValidationError("Clan thresholds and basis points are invalid")
+        return result
     except (KeyError, TypeError) as exc:
-        raise ValidationError("Invalid Phase 7A Clan configuration shape") from exc
+        raise ValidationError("Invalid Clan configuration shape") from exc
 
 
 class GameConfigUnavailable(LookupError):
@@ -511,6 +558,11 @@ def parse_phase5(payload: dict[str, Any]) -> tuple[ReferralConfig, NetworkConfig
             _integer(retention["message_content_days"], "content retention", minimum=1),
             _integer(
                 retention["message_fingerprint_metadata_days"], "fingerprint retention", minimum=1
+            ),
+            _integer(
+                retention["moderation_case_evidence_after_close_days"],
+                "moderation evidence after close retention",
+                minimum=1,
             ),
         )
     except (KeyError, TypeError) as exc:
@@ -846,7 +898,7 @@ def _parse_resolved(
             TypingConfig(False, 1, "UTC", 1, True, 0, 1, (), (), 0, 1, 2),
             ReferralConfig(False, 1, 0, True, (), 1, 1, (), ()),
             NetworkConfig(False, 1, 1, 1, False, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2),
-            RetentionConfig(1, 1),
+            RetentionConfig(1, 1, 1),
             BaseTapConfig(False, 1, 1, "UTC", 1, 0, 1),
             None,
         )
@@ -864,7 +916,7 @@ def _parse_resolved(
             typing,
             ReferralConfig(False, 1, 0, True, (), 1, 1, (), ()),
             NetworkConfig(False, 1, 1, 1, False, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2),
-            RetentionConfig(1, 1),
+            RetentionConfig(1, 1, 1),
             BaseTapConfig(False, 1, 1, "UTC", 1, 0, 1),
             None,
         )

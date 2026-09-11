@@ -55,6 +55,10 @@ class ClanSeason(models.Model):
     config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    recovery_reason = models.CharField(max_length=32, blank=True)
+    recovery_started_at = models.DateTimeField(null=True, blank=True)
+    bot_admin_lost_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    bot_admin_restore_deadline = models.DateTimeField(null=True, blank=True, db_index=True)
 
     class Meta:
         constraints = [
@@ -74,6 +78,10 @@ class ClanMembership(models.Model):
 
     class EndReason(models.TextChoices):
         VOLUNTARY_LEAVE = "VOLUNTARY_LEAVE", "Voluntary leave"
+        INACTIVITY_REMOVAL = "INACTIVITY_REMOVAL", "Inactivity removal"
+        GOVERNANCE_REMOVAL = "GOVERNANCE_REMOVAL", "Governance removal"
+        MODERATION_REMOVAL = "MODERATION_REMOVAL", "Moderation removal"
+        CLAN_DISBAND_RELEASE = "CLAN_DISBAND_RELEASE", "Clan disband release"
 
     player = models.ForeignKey(
         "players.Player", on_delete=models.PROTECT, related_name="clan_memberships"
@@ -92,6 +100,8 @@ class ClanMembership(models.Model):
     last_telegram_update_id = models.BigIntegerField(default=0)
     telegram_verified_at = models.DateTimeField(null=True, blank=True)
     config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
+    last_clan_active_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    inactivity_warned_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -116,6 +126,114 @@ class ClanMembershipEvent(models.Model):
                 fields=("membership", "kind", "telegram_update_id"),
                 name="clan_unique_membership_event",
             )
+        ]
+
+
+class ClanMembershipIncident(models.Model):
+    membership = models.ForeignKey(
+        ClanMembership, on_delete=models.PROTECT, related_name="incidents"
+    )
+    kind = models.CharField(max_length=32, default="UNEXPECTED_TELEGRAM_REMOVAL")
+    telegram_update_id = models.BigIntegerField()
+    telegram_actor_user_id = models.BigIntegerField(null=True, blank=True)
+    observed_at = models.DateTimeField()
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("membership", "telegram_update_id"), name="clan_unique_membership_incident"
+            )
+        ]
+
+
+class ClanExpectedRemoval(models.Model):
+    membership = models.OneToOneField(
+        ClanMembership, on_delete=models.PROTECT, related_name="expected_removal"
+    )
+    reason = models.CharField(max_length=32, choices=ClanMembership.EndReason.choices)
+    source_type = models.CharField(max_length=32)
+    source_id = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+    reconciled_at = models.DateTimeField(null=True, blank=True)
+
+
+class ClanGovernanceCase(models.Model):
+    class Type(models.TextChoices):
+        SOLDIER_REMOVAL = "SOLDIER_REMOVAL", "Soldier removal"
+        CAPTAIN_DISSOLUTION = "CAPTAIN_DISSOLUTION", "Captain dissolution"
+        RECOVERY_DISSOLUTION = "RECOVERY_DISSOLUTION", "Recovery dissolution"
+
+    class Status(models.TextChoices):
+        OPEN = "OPEN", "Open"
+        APPROVED = "APPROVED", "Approved"
+        REJECTED = "REJECTED", "Rejected"
+
+    clan_season = models.ForeignKey(
+        ClanSeason, on_delete=models.PROTECT, related_name="governance_cases"
+    )
+    initiator = models.ForeignKey(
+        "players.Player", on_delete=models.PROTECT, related_name="initiated_governance_cases"
+    )
+    target_membership = models.ForeignKey(
+        ClanMembership, on_delete=models.PROTECT, null=True, blank=True
+    )
+    case_type = models.CharField(max_length=32, choices=Type.choices)
+    reason = models.CharField(max_length=32)
+    opened_at = models.DateTimeField()
+    voting_deadline = models.DateTimeField(db_index=True)
+    config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
+    quorum_bps = models.PositiveSmallIntegerField()
+    approval_bps = models.PositiveSmallIntegerField()
+    minimum_eligible_voters = models.PositiveSmallIntegerField()
+    eligible_count = models.PositiveIntegerField()
+    yes_count = models.PositiveIntegerField(default=0)
+    no_count = models.PositiveIntegerField(default=0)
+    valid_cast_count = models.PositiveIntegerField(default=0)
+    quorum_met = models.BooleanField(null=True)
+    approval_met = models.BooleanField(null=True)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.OPEN)
+    finalized_at = models.DateTimeField(null=True, blank=True)
+    execution_completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("clan_season", "case_type"),
+                condition=Q(status="OPEN"),
+                name="clan_one_open_governance_type",
+            ),
+            models.CheckConstraint(condition=Q(quorum_bps__lte=10000), name="clan_case_quorum_bps"),
+            models.CheckConstraint(
+                condition=Q(approval_bps__lte=10000), name="clan_case_approval_bps"
+            ),
+        ]
+
+
+class ClanGovernanceElector(models.Model):
+    case = models.ForeignKey(ClanGovernanceCase, on_delete=models.PROTECT, related_name="electors")
+    player = models.ForeignKey("players.Player", on_delete=models.PROTECT)
+    membership = models.ForeignKey(ClanMembership, on_delete=models.PROTECT)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("case", "player"), name="clan_unique_case_elector")
+        ]
+
+
+class ClanGovernanceVote(models.Model):
+    class Choice(models.TextChoices):
+        YES = "YES", "Yes"
+        NO = "NO", "No"
+
+    case = models.ForeignKey(ClanGovernanceCase, on_delete=models.PROTECT, related_name="votes")
+    voter = models.ForeignKey("players.Player", on_delete=models.PROTECT)
+    choice = models.CharField(max_length=3, choices=Choice.choices)
+    cast_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("case", "voter"), name="clan_one_vote_per_voter")
         ]
 
 

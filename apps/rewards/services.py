@@ -100,6 +100,11 @@ def settle_player_reward(
                 raise IdempotencyConflict("Idempotency key belongs to a different settlement")
             logger.info("reward_duplicate", player_id=player.pk, reward_id=existing.pk)
             return existing, False
+        if locked_player.moderation_state in {
+            Player.ModerationState.SUSPENDED,
+            Player.ModerationState.BANNED,
+        }:
+            raise InvalidReward("Player moderation state blocks reward generation")
         projection_config = (
             resolve_effective_game_config(projection_at or timezone.now())
             if allow_closed_source_season

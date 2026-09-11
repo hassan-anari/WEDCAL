@@ -15,6 +15,7 @@ from apps.clans.models import (
     ClanJoinRequest,
     ClanMembership,
     ClanMembershipEvent,
+    ClanMembershipIncident,
     ClanRole,
     ClanSeason,
     PlayerSeasonClanState,
@@ -221,6 +222,7 @@ def register_clan(
             clan_season=clan_season,
             role=ClanRole.CAPTAIN,
             started_at=timezone.now(),
+            last_clan_active_at=timezone.now(),
             last_telegram_update_id=observed_update_id,
             telegram_verified_at=verified_at,
             config_version=config,
@@ -793,6 +795,7 @@ def reconcile_telegram_membership(
     telegram_update_id: int,
     observed_at: datetime,
     fresh_verified_at: datetime | None = None,
+    telegram_actor_user_id: int | None = None,
 ) -> None:
     revoke_id: int | None = None
     with transaction.atomic():
@@ -845,6 +848,14 @@ def reconcile_telegram_membership(
                     telegram_update_id=telegram_update_id,
                     occurred_at=observed_at,
                 )
+                ClanMembershipIncident.objects.get_or_create(
+                    membership=membership,
+                    telegram_update_id=telegram_update_id,
+                    defaults={
+                        "telegram_actor_user_id": telegram_actor_user_id,
+                        "observed_at": observed_at,
+                    },
+                )
             membership.save(update_fields=(*fields,))
         elif present:
             req = (
@@ -881,6 +892,7 @@ def reconcile_telegram_membership(
                 clan_season=clan_season,
                 role=ClanRole.SOLDIER,
                 started_at=max(observed_at, req.decided_at),
+                last_clan_active_at=max(observed_at, req.decided_at),
                 last_telegram_update_id=telegram_update_id,
                 telegram_verified_at=fresh_verified_at,
                 config_version=clan_season.config_version,
