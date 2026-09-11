@@ -952,7 +952,7 @@ def test_rejoin_create_in_flight_restoration_tracks_known_success_for_revoke(
 
 @pytest.mark.django_db
 def test_rejoin_active_credential_restoration_uses_remote_revoke_lifecycle(
-    clan_world: Any, monkeypatch: Any
+    clan_world: Any, monkeypatch: Any, django_capture_on_commit_callbacks: Any
 ) -> None:
     now, config, season, _, player, clan = clan_world
     member, cs = player(ClanRole.SOLDIER), clan()
@@ -974,13 +974,14 @@ def test_rejoin_active_credential_restoration_uses_remote_revoke_lifecycle(
     dispatched: list[int] = []
     monkeypatch.setattr("apps.clans.services._dispatch_revoke", dispatched.append)
 
-    reconcile_telegram_membership(
-        player=member,
-        group=cs.clan.telegram_group,
-        present=True,
-        telegram_update_id=10,
-        observed_at=now + timedelta(seconds=1),
-    )
+    with django_capture_on_commit_callbacks(execute=True) as callbacks:
+        reconcile_telegram_membership(
+            player=member,
+            group=cs.clan.telegram_group,
+            present=True,
+            telegram_update_id=10,
+            observed_at=now + timedelta(seconds=1),
+        )
 
     membership.refresh_from_db()
     invite.refresh_from_db()
@@ -988,6 +989,7 @@ def test_rejoin_active_credential_restoration_uses_remote_revoke_lifecycle(
     assert invite.state == ClanInvite.State.REVOKE_PENDING
     assert invite.invite_link == "known-recovery-link"
     assert invite.desired_terminal_state == ClanInvite.State.USED
+    assert len(callbacks) == 1
     assert dispatched == [invite.pk]
 
 
