@@ -204,6 +204,14 @@ def request_join(
         player=player, season=clan_season.season, ended_at__isnull=True
     ).exists():
         raise ClanConflict("Player already has a current Clan")
+    if ClanInvite.objects.filter(
+        purpose=ClanInvite.Purpose.JOIN,
+        join_request__applicant=player,
+        join_request__clan_season=clan_season,
+        state=ClanInvite.State.MANUAL_REVIEW,
+        unknown_credential_risk=True,
+    ).exists():
+        raise ClanConflict("A previous unknown Telegram credential requires manual review")
     if clan_season.state != ClanSeason.State.ACTIVE or not clan_season.accepting_members:
         raise ClanConflict("Clan is not accepting members")
     request = ClanJoinRequest.objects.filter(
@@ -339,6 +347,7 @@ def create_personal_invite(invite: ClanInvite) -> ClanInvite:
             locked.claim_token = None
             locked.claim_expires_at = None
             locked.last_error_category = "create_lease_expired"
+            locked.unknown_credential_risk = True
             locked.save()
             return locked
         if locked.attempt_count >= settings.CLAN_INVITE_MAX_CREATE_ATTEMPTS:
@@ -374,11 +383,13 @@ def create_personal_invite(invite: ClanInvite) -> ClanInvite:
             locked.invite_link = result.result["invite_link"]
             locked.last_error_category = ""
             locked.next_create_retry_at = None
+            locked.unknown_credential_risk = False
         else:
             locked.state = (
                 ClanInvite.State.UNCERTAIN if result.ambiguous else ClanInvite.State.FAILED
             )
             locked.uncertain_since = now if result.ambiguous else None
+            locked.unknown_credential_risk = result.ambiguous
             locked.last_error_category = result.category or "unknown"
             if not result.ambiguous:
                 delay = (
@@ -445,16 +456,39 @@ def recover_invite_creations(*, limit: int | None = None) -> int:
                 )
                 | models.Q(state=ClanInvite.State.UNCERTAIN, uncertain_since__lte=hold_before)
                 | models.Q(state=ClanInvite.State.FAILED, next_create_retry_at__lte=now)
+                | models.Q(state=ClanInvite.State.PENDING)
             )
             .order_by("updated_at", "pk")[:batch]
         )
         for invite in rows:
+            if invite.purpose == ClanInvite.Purpose.JOIN:
+                target_valid = bool(
+                    invite.join_request_id
+                    and ClanJoinRequest.objects.filter(
+                        pk=invite.join_request_id, state=ClanJoinRequest.State.ACCEPTED
+                    ).exists()
+                )
+            else:
+                target_valid = bool(
+                    invite.membership_id
+                    and ClanMembership.objects.filter(
+                        pk=invite.membership_id,
+                        ended_at__isnull=True,
+                        access_state=ClanMembership.Access.ACCESS_LOST,
+                    ).exists()
+                )
+            if not target_valid:
+                invite.state = ClanInvite.State.REVOKED
+                invite.last_error_category = "invite_target_inactive"
+                invite.save()
+                continue
             if invite.state == ClanInvite.State.CREATING:
                 invite.state = ClanInvite.State.UNCERTAIN
                 invite.uncertain_since = now
                 invite.claim_token = None
                 invite.claim_expires_at = None
                 invite.last_error_category = "create_lease_expired"
+                invite.unknown_credential_risk = True
                 invite.save()
                 continue
             if invite.attempt_count >= settings.CLAN_INVITE_MAX_CREATE_ATTEMPTS:
@@ -567,12 +601,14 @@ def finalize_accepted_request(req: ClanJoinRequest) -> ClanJoinRequest:
             str(result.result.get("status", "")), result.result.get("is_member")
         )
         if present:
+            verified_at = timezone.now().replace(microsecond=0)
             reconcile_telegram_membership(
                 player=req.applicant,
                 group=req.clan_season.clan.telegram_group,
                 present=True,
                 telegram_update_id=0,
-                observed_at=timezone.now(),
+                observed_at=verified_at,
+                fresh_verified_at=verified_at,
             )
             return ClanJoinRequest.objects.get(pk=req.pk)
     create_personal_invite(req.invite)
@@ -586,6 +622,7 @@ def reconcile_telegram_membership(
     present: bool,
     telegram_update_id: int,
     observed_at: datetime,
+    fresh_verified_at: datetime | None = None,
 ) -> None:
     revoke_id: int | None = None
     with transaction.atomic():
@@ -598,6 +635,11 @@ def reconcile_telegram_membership(
         )
         if membership:
             if telegram_update_id <= membership.last_telegram_update_id:
+                return
+            if (
+                membership.telegram_verified_at is not None
+                and observed_at < membership.telegram_verified_at
+            ):
                 return
             old_access = membership.access_state
             membership.last_telegram_update_id = telegram_update_id
@@ -665,6 +707,7 @@ def reconcile_telegram_membership(
                 role=ClanRole.SOLDIER,
                 started_at=observed_at,
                 last_telegram_update_id=telegram_update_id,
+                telegram_verified_at=fresh_verified_at,
                 config_version=clan_season.config_version,
             )
             req.state = ClanJoinRequest.State.ACTIVATED

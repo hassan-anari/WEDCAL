@@ -577,3 +577,131 @@ def test_rejoin_recovery_stops_at_cumulative_attempt_cap(
     assert invite.state == ClanInvite.State.MANUAL_REVIEW
     assert invite.attempt_count == settings.CLAN_INVITE_MAX_CREATE_ATTEMPTS
     assert not calls
+
+
+@pytest.mark.django_db
+def test_periodic_recovery_processes_stranded_accepted_pending_invite(
+    clan_world: Any, monkeypatch: Any
+) -> None:
+    from apps.clans.services import recover_invite_creations
+
+    _, _, _, resolved, player, clan = clan_world
+    soldier, cs = player(ClanRole.SOLDIER), clan()
+    req = request_join(soldier, cs, resolved)
+    decide_request(cs.captain, req.pk, accept=True)
+    assert req.invite.state == ClanInvite.State.PENDING
+    monkeypatch.setattr(
+        "apps.clans.services.bot_api.create_chat_invite_link",
+        lambda *_: TelegramResult(True, {"invite_link": "recovered-pending"}),
+    )
+    monkeypatch.setattr(
+        "apps.clans.services.bot_api.send_message", lambda *_: TelegramResult(True, {})
+    )
+    assert recover_invite_creations() == 1
+    req.invite.refresh_from_db()
+    assert req.invite.state == ClanInvite.State.ACTIVE
+    assert req.invite.attempt_count == 1
+
+
+@pytest.mark.django_db
+def test_later_beat_recovers_retry_row_stranded_after_pending_commit(
+    clan_world: Any, monkeypatch: Any
+) -> None:
+    from apps.clans.services import recover_invite_creations
+
+    _, _, _, resolved, player, clan = clan_world
+    soldier, cs = player(ClanRole.SOLDIER), clan()
+    req = request_join(soldier, cs, resolved)
+    decide_request(cs.captain, req.pk, accept=True)
+    # Simulate recovery committing FAILED -> PENDING and dying before external I/O.
+    ClanInvite.objects.filter(pk=req.invite.pk).update(
+        state=ClanInvite.State.PENDING,
+        next_create_retry_at=None,
+    )
+    calls: list[int] = []
+
+    def create(*_args: object) -> TelegramResult:
+        calls.append(1)
+        return TelegramResult(True, {"invite_link": "later-beat"})
+
+    monkeypatch.setattr("apps.clans.services.bot_api.create_chat_invite_link", create)
+    monkeypatch.setattr(
+        "apps.clans.services.bot_api.send_message", lambda *_: TelegramResult(True, {})
+    )
+    assert recover_invite_creations() == 1
+    assert calls == [1]
+    assert ClanInvite.objects.get(pk=req.invite.pk).state == ClanInvite.State.ACTIVE
+
+
+@pytest.mark.django_db
+def test_fresh_verification_rejects_delayed_leave_but_accepts_newer_leave(
+    clan_world: Any, monkeypatch: Any
+) -> None:
+    from apps.clans.services import finalize_accepted_request
+
+    now, _, _, resolved, player, clan = clan_world
+    soldier, cs = player(ClanRole.SOLDIER), clan()
+    req = request_join(soldier, cs, resolved)
+    req = decide_request(cs.captain, req.pk, accept=True)
+    monkeypatch.setattr(
+        "apps.clans.services.bot_api.get_chat_member",
+        lambda *_: TelegramResult(True, {"status": "member"}),
+    )
+    monkeypatch.setattr("apps.clans.services._dispatch_revoke", lambda _pk: None)
+    assert finalize_accepted_request(req).state == ClanJoinRequest.State.ACTIVATED
+    membership = ClanMembership.objects.get(player=soldier)
+    assert membership.telegram_verified_at is not None
+    reconcile_telegram_membership(
+        player=soldier,
+        group=cs.clan.telegram_group,
+        present=False,
+        telegram_update_id=100,
+        observed_at=membership.telegram_verified_at - timedelta(seconds=1),
+    )
+    membership.refresh_from_db()
+    assert membership.access_state == ClanMembership.Access.ACTIVE
+    reconcile_telegram_membership(
+        player=soldier,
+        group=cs.clan.telegram_group,
+        present=False,
+        telegram_update_id=101,
+        observed_at=membership.telegram_verified_at + timedelta(seconds=1),
+    )
+    membership.refresh_from_db()
+    assert membership.access_state == ClanMembership.Access.ACCESS_LOST
+
+
+@pytest.mark.django_db
+def test_unknown_join_manual_review_blocks_same_clan_reapplication(
+    clan_world: Any, monkeypatch: Any, settings: Any
+) -> None:
+    from apps.clans.services import recover_invite_creations
+
+    _, _, _, resolved, player, clan = clan_world
+    soldier, cs = player(ClanRole.SOLDIER), clan()
+    req = request_join(soldier, cs, resolved)
+    decide_request(cs.captain, req.pk, accept=True)
+    monkeypatch.setattr(
+        "apps.clans.services.bot_api.create_chat_invite_link",
+        lambda *_: TelegramResult(False, category="timeout", ambiguous=True),
+    )
+    invite = create_personal_invite(req.invite)
+    ClanInvite.objects.filter(pk=invite.pk).update(
+        uncertain_since=timezone.now()
+        - timedelta(seconds=settings.CLAN_INVITE_UNCERTAIN_HOLD_SECONDS + 1)
+    )
+    assert recover_invite_creations() == 1
+    req.refresh_from_db()
+    invite.refresh_from_db()
+    assert req.state == ClanJoinRequest.State.CANCELLED
+    assert invite.state == ClanInvite.State.MANUAL_REVIEW
+    assert invite.unknown_credential_risk
+    with pytest.raises(ClanConflict):
+        request_join(soldier, cs, resolved)
+    assert (
+        ClanInvite.objects.filter(
+            join_request__applicant=soldier,
+            join_request__clan_season=cs,
+        ).count()
+        == 1
+    )

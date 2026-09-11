@@ -159,6 +159,10 @@ Until functional MVP is complete:
 
 The contract does not yet decide Creator Group/Clan Home coexistence, repeated same-Season recreation after dissolution, or detailed Telegram authority-loss recovery triggers. Phase 7A does not invent these answers; Phase 7B requires owner-approved decisions and transition tests.
 
+Phase 10 operational tooling must also provide an audited resolution action for Phase 7A
+`MANUAL_REVIEW` invite rows carrying `unknown_credential_risk`; until resolved, the same
+applicant cannot start another JOIN credential lifecycle for that ClanSeason/Home Base.
+
 ## PH-046 — Multi-Season Clan identity and state isolation
 
 **Origin:** Phase 7A Clan Core

@@ -90,6 +90,7 @@ class ClanMembership(models.Model):
     access_lost_at = models.DateTimeField(null=True, blank=True)
     access_rejoin_deadline = models.DateTimeField(null=True, blank=True)
     last_telegram_update_id = models.BigIntegerField(default=0)
+    telegram_verified_at = models.DateTimeField(null=True, blank=True)
     config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
 
     class Meta:
@@ -190,6 +191,7 @@ class ClanInvite(models.Model):
     claim_expires_at = models.DateTimeField(null=True, blank=True)
     uncertain_since = models.DateTimeField(null=True, blank=True)
     next_create_retry_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    unknown_credential_risk = models.BooleanField(default=False)
     revoke_attempts = models.PositiveSmallIntegerField(default=0)
     desired_terminal_state = models.CharField(max_length=8, blank=True)
     last_error_category = models.CharField(max_length=64, blank=True)
