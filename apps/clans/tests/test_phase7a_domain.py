@@ -1,0 +1,395 @@
+from datetime import timedelta
+from typing import Any
+
+import pytest
+from django.core.exceptions import PermissionDenied
+
+from apps.clans.models import (
+    ClanInvite,
+    ClanJoinRequest,
+    ClanMembership,
+    ClanMembershipEvent,
+    ClanRole,
+    PlayerSeasonClanState,
+)
+from apps.clans.services import (
+    ClanConflict,
+    choose_role,
+    create_personal_invite,
+    decide_request,
+    get_or_create_rejoin_invite,
+    reconcile_telegram_membership,
+    request_join,
+    voluntary_leave,
+)
+from apps.rewards.models import RewardLedger
+from apps.telegram.bot_api import TelegramResult
+from apps.telegram.models import TelegramGroup
+
+
+@pytest.mark.django_db
+def test_roles_are_closed_idempotent_and_immutable(clan_world) -> None:  # type: ignore[no-untyped-def]
+    _, _, season, _, player, _ = clan_world
+    row = player()
+    first = choose_role(row, season, ClanRole.SOLDIER)
+    assert choose_role(row, season, ClanRole.SOLDIER).pk == first.pk
+    with pytest.raises(ClanConflict):
+        choose_role(row, season, ClanRole.CAPTAIN)
+    with pytest.raises(ClanConflict):
+        choose_role(player(), season, "OFFICER")
+
+
+@pytest.mark.django_db
+def test_duplicate_request_and_acceptance_is_not_membership(clan_world) -> None:  # type: ignore[no-untyped-def]
+    _, _, _, resolved, player, clan = clan_world
+    soldier, cs = player(ClanRole.SOLDIER), clan()
+    req = request_join(soldier, cs, resolved)
+    assert request_join(soldier, cs, resolved).pk == req.pk
+    assert decide_request(cs.captain, req.pk, accept=True).state == ClanJoinRequest.State.ACCEPTED
+    assert not ClanMembership.objects.filter(player=soldier).exists()
+    assert decide_request(cs.captain, req.pk, accept=True).state == ClanJoinRequest.State.ACCEPTED
+
+
+@pytest.mark.django_db
+def test_accept_rechecks_current_membership_and_stale_clan_state(clan_world) -> None:  # type: ignore[no-untyped-def]
+    now, config, season, resolved, player, clan = clan_world
+    soldier, target, other = player(ClanRole.SOLDIER), clan(), clan()
+    req = request_join(soldier, target, resolved)
+    ClanMembership.objects.create(
+        player=soldier,
+        season=season,
+        clan_season=other,
+        role=ClanRole.SOLDIER,
+        started_at=now,
+        config_version=config,
+    )
+    with pytest.raises(ClanConflict):
+        decide_request(target.captain, req.pk, accept=True)
+    ClanMembership.objects.filter(player=soldier).delete()
+    target.accepting_members = False
+    target.save(update_fields=("accepting_members",))
+    with pytest.raises(ClanConflict):
+        decide_request(target.captain, req.pk, accept=True)
+
+
+@pytest.mark.django_db
+def test_activation_requires_accepted_path_and_source_time(clan_world) -> None:  # type: ignore[no-untyped-def]
+    now, _, season, resolved, player, clan = clan_world
+    random_user, accepted, cs = player(ClanRole.SOLDIER), player(ClanRole.SOLDIER), clan()
+    reconcile_telegram_membership(
+        player=random_user,
+        group=cs.clan.telegram_group,
+        present=True,
+        telegram_update_id=1,
+        observed_at=now,
+    )
+    assert not ClanMembership.objects.filter(player=random_user).exists()
+    req = request_join(accepted, cs, resolved)
+    decide_request(cs.captain, req.pk, accept=True)
+    reconcile_telegram_membership(
+        player=accepted,
+        group=cs.clan.telegram_group,
+        present=True,
+        telegram_update_id=2,
+        observed_at=season.ends_at,
+    )
+    assert not ClanMembership.objects.filter(player=accepted).exists()
+    reconcile_telegram_membership(
+        player=accepted,
+        group=cs.clan.telegram_group,
+        present=True,
+        telegram_update_id=3,
+        observed_at=season.ends_at - timedelta(seconds=1),
+    )
+    assert ClanMembership.objects.filter(player=accepted, ended_at__isnull=True).count() == 1
+
+
+@pytest.mark.django_db
+def test_access_transitions_do_not_extend_or_fabricate_events(clan_world, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    now, _, _, resolved, player, clan = clan_world
+    monkeypatch.setattr("apps.clans.services._dispatch_revoke", lambda _pk: None)
+    soldier, cs = player(ClanRole.SOLDIER), clan()
+    req = request_join(soldier, cs, resolved)
+    decide_request(cs.captain, req.pk, accept=True)
+    reconcile_telegram_membership(
+        player=soldier,
+        group=cs.clan.telegram_group,
+        present=True,
+        telegram_update_id=10,
+        observed_at=now,
+    )
+    membership = ClanMembership.objects.get(player=soldier)
+    reconcile_telegram_membership(
+        player=soldier,
+        group=cs.clan.telegram_group,
+        present=True,
+        telegram_update_id=11,
+        observed_at=now,
+    )
+    assert not ClanMembershipEvent.objects.filter(
+        membership=membership, kind="ACCESS_RESTORED"
+    ).exists()
+    reconcile_telegram_membership(
+        player=soldier,
+        group=cs.clan.telegram_group,
+        present=False,
+        telegram_update_id=12,
+        observed_at=now,
+    )
+    membership.refresh_from_db()
+    deadline = membership.access_rejoin_deadline
+    reconcile_telegram_membership(
+        player=soldier,
+        group=cs.clan.telegram_group,
+        present=False,
+        telegram_update_id=13,
+        observed_at=now + timedelta(hours=1),
+    )
+    membership.refresh_from_db()
+    assert membership.access_rejoin_deadline == deadline
+    reconcile_telegram_membership(
+        player=soldier,
+        group=cs.clan.telegram_group,
+        present=True,
+        telegram_update_id=14,
+        observed_at=now + timedelta(hours=2),
+    )
+    membership.refresh_from_db()
+    assert membership.access_state == ClanMembership.Access.ACTIVE
+    assert (
+        ClanMembershipEvent.objects.filter(membership=membership, kind="ACCESS_RESTORED").count()
+        == 1
+    )
+
+
+@pytest.mark.django_db
+def test_rejoin_invite_is_target_only_and_idempotent(clan_world, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    now, config, season, _, player, clan = clan_world
+    member, stranger, cs = player(ClanRole.SOLDIER), player(ClanRole.SOLDIER), clan()
+    membership = ClanMembership.objects.create(
+        player=member,
+        season=season,
+        clan_season=cs,
+        role=ClanRole.SOLDIER,
+        access_state=ClanMembership.Access.ACCESS_LOST,
+        started_at=now,
+        config_version=config,
+    )
+    monkeypatch.setattr(
+        "apps.clans.services.bot_api.create_chat_invite_link",
+        lambda *_: TelegramResult(True, {"invite_link": "secret"}),
+    )
+    monkeypatch.setattr(
+        "apps.clans.services.bot_api.send_message", lambda *_: TelegramResult(True, {})
+    )
+    first = get_or_create_rejoin_invite(member, membership)
+    assert get_or_create_rejoin_invite(member, membership).pk == first.pk
+    with pytest.raises(PermissionDenied):
+        get_or_create_rejoin_invite(stranger, membership)
+
+
+@pytest.mark.django_db
+def test_invite_create_claim_and_ambiguous_outcome_are_bounded(clan_world, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    _, _, _, resolved, player, clan = clan_world
+    soldier, cs = player(ClanRole.SOLDIER), clan()
+    req = request_join(soldier, cs, resolved)
+    decide_request(cs.captain, req.pk, accept=True)
+    calls = []
+
+    def ambiguous(*_args: object) -> TelegramResult:
+        calls.append(1)
+        return TelegramResult(False, category="timeout", ambiguous=True)
+
+    monkeypatch.setattr(
+        "apps.clans.services.bot_api.create_chat_invite_link",
+        ambiguous,
+    )
+    invite = create_personal_invite(req.invite)
+    assert invite.state == ClanInvite.State.UNCERTAIN
+    create_personal_invite(invite)
+    assert len(calls) == 1
+
+
+@pytest.mark.django_db
+def test_soldier_leave_is_idempotent_and_preserves_points(clan_world, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    now, config, season, resolved, player, clan = clan_world
+    monkeypatch.setattr("apps.clans.services._dispatch_revoke", lambda _pk: None)
+    soldier, cs = player(ClanRole.SOLDIER), clan()
+    membership = ClanMembership.objects.create(
+        player=soldier,
+        season=season,
+        clan_season=cs,
+        role=ClanRole.SOLDIER,
+        started_at=now,
+        config_version=config,
+    )
+    assert voluntary_leave(soldier, season, resolved) == membership
+    assert voluntary_leave(soldier, season, resolved) is None
+    assert RewardLedger.objects.filter(player=soldier).count() == 0
+    state = PlayerSeasonClanState.objects.get(player=soldier, season=season)
+    assert state.voluntary_leave_count == 1 and state.leave_cooldown_until is not None
+    with pytest.raises(PermissionDenied):
+        voluntary_leave(cs.captain, season, resolved)
+
+
+@pytest.mark.django_db
+def test_profile_first_clan_is_historical_frames_are_current(clan_world) -> None:  # type: ignore[no-untyped-def]
+    from apps.profile_collection.services import entitlement, reconcile_profile
+
+    now, config, season, resolved, player, clan = clan_world
+    soldier, cs = player(ClanRole.SOLDIER), clan()
+    membership = ClanMembership.objects.create(
+        player=soldier,
+        season=season,
+        clan_season=cs,
+        role=ClanRole.SOLDIER,
+        started_at=now,
+        config_version=config,
+    )
+    _, facts, unlocks, _ = reconcile_profile(soldier, resolved, now)
+    assert "first-clan" in unlocks and facts.active_clan and not facts.active_captain
+    assert resolved.profile_collection is not None
+    frame = next(x for x in resolved.profile_collection.frames if x.key == "clan")
+    assert entitlement(frame, facts, set(unlocks), set())
+    voluntary_leave(soldier, season, resolved)
+    _, facts, unlocks, _ = reconcile_profile(soldier, resolved, now + timedelta(seconds=1))
+    assert "first-clan" in unlocks and not facts.active_clan
+    membership.refresh_from_db()
+    assert membership.ended_at is not None
+    assert RewardLedger.objects.filter(player=soldier).count() == 0
+
+
+@pytest.mark.django_db
+def test_captain_frame_tracks_current_captain_membership(clan_world) -> None:  # type: ignore[no-untyped-def]
+    from apps.profile_collection.services import reconcile_profile
+
+    now, _, _, resolved, _, clan = clan_world
+    cs = clan()
+    _, facts, _, _ = reconcile_profile(cs.captain, resolved, now)
+    assert facts.active_clan and facts.active_captain
+
+
+@pytest.mark.django_db
+def test_accepted_already_present_user_activates_after_fresh_check(clan_world, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from apps.clans.services import finalize_accepted_request
+
+    _, _, _, resolved, player, clan = clan_world
+    soldier, cs = player(ClanRole.SOLDIER), clan()
+    req = request_join(soldier, cs, resolved)
+    req = decide_request(cs.captain, req.pk, accept=True)
+    monkeypatch.setattr(
+        "apps.clans.services.bot_api.get_chat_member",
+        lambda *_: TelegramResult(True, {"status": "member"}),
+    )
+    monkeypatch.setattr("apps.clans.services._dispatch_revoke", lambda _pk: None)
+    assert finalize_accepted_request(req).state == ClanJoinRequest.State.ACTIVATED
+    assert ClanMembership.objects.filter(player=soldier, ended_at__isnull=True).count() == 1
+
+
+@pytest.mark.django_db
+def test_failed_remote_revoke_preserves_credential(clan_world, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from apps.clans.services import queue_invite_revoke, revoke_invite_remote
+
+    _, _, _, resolved, player, clan = clan_world
+    soldier, cs = player(ClanRole.SOLDIER), clan()
+    req = request_join(soldier, cs, resolved)
+    decide_request(cs.captain, req.pk, accept=True)
+    invite = req.invite
+    invite.state = ClanInvite.State.ACTIVE
+    invite.invite_link = "credential-must-survive"
+    invite.save()
+    monkeypatch.setattr("apps.clans.services._dispatch_revoke", lambda _pk: None)
+    monkeypatch.setattr(
+        "apps.clans.services.bot_api.revoke_chat_invite_link",
+        lambda *_: TelegramResult(False, category="rate_limited", retry_after=1),
+    )
+    queue_invite_revoke(invite.pk, terminal=ClanInvite.State.REVOKED)
+    invite = revoke_invite_remote(invite.pk)
+    assert invite.state == ClanInvite.State.REVOKE_FAILED
+    assert invite.invite_link == "credential-must-survive"
+
+
+@pytest.mark.django_db
+def test_registration_requires_backend_group_authority_and_bot_capability(
+    clan_world: Any, monkeypatch: Any
+) -> None:
+    from apps.clans.services import register_clan
+    from apps.telegram.models import TelegramUserMembership
+
+    now, _, season, resolved, player, _ = clan_world
+    captain = player(ClanRole.CAPTAIN)
+    group = TelegramGroup.objects.create(
+        telegram_chat_id=-79991,
+        chat_type="supergroup",
+        title="Eligible",
+        bot_is_admin=True,
+        bot_can_invite_users=True,
+        first_seen_at=now,
+        last_seen_at=now,
+    )
+    TelegramUserMembership.objects.create(
+        group=group,
+        telegram_user_id=captain.telegram_user_id,
+        player=captain,
+        status="administrator",
+        is_admin=True,
+        observed_at=now,
+    )
+    replies = iter(
+        [
+            TelegramResult(True, {"status": "administrator"}),
+            TelegramResult(True, {"status": "administrator", "can_invite_users": True}),
+        ]
+    )
+    monkeypatch.setattr("apps.clans.services.bot_api.get_chat_member", lambda *_: next(replies))
+    monkeypatch.setattr("apps.clans.services.settings.TELEGRAM_BOT_ID", 999)
+    created = register_clan(
+        captain, season, resolved, group_id=group.pk, name="Eligible", tag="ELG", motto=""
+    )
+    assert created.captain == captain
+    outsider = player(ClanRole.CAPTAIN)
+    with pytest.raises(PermissionDenied):
+        register_clan(
+            outsider, season, resolved, group_id=group.pk, name="Other", tag="OTH", motto=""
+        )
+
+
+@pytest.mark.django_db
+def test_registration_tag_conflict_is_domain_conflict(clan_world, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from apps.clans.services import register_clan
+    from apps.telegram.models import TelegramUserMembership
+
+    now, _, season, resolved, player, _ = clan_world
+    monkeypatch.setattr("apps.clans.services.settings.TELEGRAM_BOT_ID", 999)
+    monkeypatch.setattr(
+        "apps.clans.services.bot_api.get_chat_member",
+        lambda *_: TelegramResult(True, {"status": "administrator", "can_invite_users": True}),
+    )
+    captains = [player(ClanRole.CAPTAIN), player(ClanRole.CAPTAIN)]
+    groups = []
+    for index, captain in enumerate(captains):
+        group = TelegramGroup.objects.create(
+            telegram_chat_id=-79980 - index,
+            chat_type="supergroup",
+            title=f"G{index}",
+            bot_is_admin=True,
+            bot_can_invite_users=True,
+            first_seen_at=now,
+            last_seen_at=now,
+        )
+        TelegramUserMembership.objects.create(
+            group=group,
+            telegram_user_id=captain.telegram_user_id,
+            player=captain,
+            status="administrator",
+            is_admin=True,
+            observed_at=now,
+        )
+        groups.append(group)
+    register_clan(
+        captains[0], season, resolved, group_id=groups[0].pk, name="One", tag="SAME", motto=""
+    )
+    with pytest.raises(ClanConflict):
+        register_clan(
+            captains[1], season, resolved, group_id=groups[1].pk, name="Two", tag="same", motto=""
+        )

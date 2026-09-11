@@ -36,6 +36,7 @@ class BotMembershipChanged:
     bot_user_id: int
     status: str
     observed_at: datetime
+    can_invite_users: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +45,9 @@ class UserMembershipChanged:
     telegram_user_id: int
     status: str
     observed_at: datetime
+    previous_status: str = ""
+    is_member: bool | None = None
+    actor_telegram_user_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
