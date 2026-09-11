@@ -30,7 +30,7 @@ def test_discovery_member_counts_have_bounded_queries(
     clan_world: Any, init_data_factory: Any, settings: Any
 ) -> None:
     _, _, _, _, _, clan = clan_world
-    for _ in range(6):
+    for _ in range(2):
         clan()
     settings.TELEGRAM_BOT_TOKEN = "123456:test-token"
     client = Client()
@@ -38,11 +38,32 @@ def test_discovery_member_counts_have_bounded_queries(
         "HTTP_AUTHORIZATION": "tma "
         + init_data_factory(user={"id": 79998, "first_name": "Queries"})
     }
-    # Auth/config/season overhead is fixed; adding Clans must not add one COUNT per row.
-    with CaptureQueriesContext(connection) as captured:
-        response = client.get(
+
+    def discover() -> tuple[int, list[dict[str, object]]]:
+        with CaptureQueriesContext(connection) as captured:
+            response = client.get(
+                "/api/v1/clans/?limit=100",
+                headers={"Authorization": header["HTTP_AUTHORIZATION"]},
+            )
+        assert response.status_code == 200
+        return len(captured), response.json()
+
+    # Resolve the authenticated Player before either measured request.
+    assert (
+        client.get(
             "/api/v1/clans/?limit=100",
             headers={"Authorization": header["HTTP_AUTHORIZATION"]},
-        )
-    assert response.status_code == 200 and len(response.json()) == 6
-    assert len(captured) <= 12
+        ).status_code
+        == 200
+    )
+
+    small_query_count, small_rows = discover()
+    for _ in range(6):
+        clan()
+    large_query_count, large_rows = discover()
+
+    assert len(small_rows) == 2
+    assert len(large_rows) == 8
+    assert {row["member_count"] for row in large_rows} == {1}
+    # Auth/config/Season overhead is fixed; six more Clans must not add six COUNT queries.
+    assert large_query_count <= small_query_count + 1
