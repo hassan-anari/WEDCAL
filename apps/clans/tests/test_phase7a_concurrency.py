@@ -6,9 +6,8 @@ from typing import Any
 import pytest
 from django.db import close_old_connections
 
-from apps.clans.models import ClanInvite, ClanJoinRequest, ClanRole
+from apps.clans.models import ClanInvite, ClanJoinRequest, ClanMembership, ClanRole
 from apps.clans.services import (
-    ClanConflict,
     choose_role,
     create_personal_invite,
     decide_request,
@@ -66,7 +65,19 @@ def test_two_clans_accepting_one_soldier_has_one_winner(clan_world) -> None:  # 
         ).count()
         == 1
     )
-    assert sum(isinstance(x, ClanConflict) for x in results) == 1
+    assert all(isinstance(result, ClanJoinRequest) for result in results)
+    assert {result.state for result in results} == {
+        ClanJoinRequest.State.ACCEPTED,
+        ClanJoinRequest.State.CANCELLED,
+    }
+    assert not ClanMembership.objects.filter(player=soldier).exists()
+    assert (
+        ClanInvite.objects.filter(
+            join_request__applicant=soldier,
+            join_request__state=ClanJoinRequest.State.ACCEPTED,
+        ).count()
+        == 1
+    )
 
 
 @pytest.mark.django_db(transaction=True)
