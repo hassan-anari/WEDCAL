@@ -196,7 +196,8 @@ Captain cancellation both enter the durable revoke state machine; `UNCERTAIN`, u
 credential is issued while unresolved risk exists. The PostgreSQL suite now covers local-before-create cancellation, Captain/applicant paths,
 unsafe-state reservation retention, global effective-capacity final-slot serialization,
 create/revoke races, and concurrent Captain/applicant cancellation versus Telegram presence
-observation. These races prove that activation and cancellation serialize, unsafe credentials
+observation. The final Phase 8 matrix also races positively confirmed and failed/unknown remote
+revocation against presence activation. These races prove that activation and cancellation serialize, unsafe credentials
 continue to reserve, safe terminalization releases exactly once, and neither path applies a
 voluntary-leave count or cooldown. PH-047 is therefore resolved for the approved no-TTL policy.
 

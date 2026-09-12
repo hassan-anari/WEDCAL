@@ -1,24 +1,94 @@
-import hashlib
 import logging
 from datetime import datetime, timedelta
 
-from django.db import connection, transaction
+from django.db import models, transaction
 from django.db.models import Sum
 from django.utils import timezone
 
 from apps.clans.economy import settle_clan_reward
 from apps.clans.models import ClanActivity, ClanActivityWindow
-from apps.core.activity import window_start_for
-from apps.game_config.services import resolve_game_config_version
+from apps.core.activity import lock_activity_window, qualify_text, window_start_for
+from apps.game_config.services import ClanConfig, resolve_game_config_version
+from apps.players.services import reward_gameplay_allowed_at
+from apps.seasons.services import is_reward_earning_time
 
 logger = logging.getLogger(__name__)
 
 
-def _lock_window(membership_id: int, config_id: int, start: datetime) -> None:
-    raw = f"clan:{membership_id}:{config_id}:{start.isoformat()}".encode()
-    key = int.from_bytes(hashlib.sha256(raw).digest()[:8], "big", signed=True)
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT pg_advisory_xact_lock(%s)", [key])
+def _requalify(source: models.QuerySet[ClanActivity], policy: ClanConfig) -> None:
+    """Persist canonical classifications in total source order before settlement."""
+    rows = list(
+        source.select_related("membership", "sender", "season").order_by(
+            "observed_at", "telegram_update_id", "telegram_message_id", "pk"
+        )
+    )
+    for row in rows:
+        prior = ClanActivity.objects.filter(
+            clan_season_id=row.clan_season_id, sender_id=row.sender_id
+        ).filter(
+            models.Q(observed_at__lt=row.observed_at)
+            | models.Q(observed_at=row.observed_at, telegram_update_id__lt=row.telegram_update_id)
+            | models.Q(
+                observed_at=row.observed_at,
+                telegram_update_id=row.telegram_update_id,
+                telegram_message_id__lt=row.telegram_message_id,
+            )
+            | models.Q(
+                observed_at=row.observed_at,
+                telegram_update_id=row.telegram_update_id,
+                telegram_message_id=row.telegram_message_id,
+                pk__lt=row.pk,
+            )
+        )
+        rate = prior.filter(observed_at__gt=row.observed_at - timedelta(seconds=60)).count()
+        exact = (
+            prior.filter(
+                exact_fingerprint=row.exact_fingerprint,
+                observed_at__gt=row.observed_at
+                - timedelta(seconds=policy.anti_fraud.exact_duplicate_window_seconds),
+            ).count()
+            + 1
+        )
+        near = (
+            prior.filter(
+                normalized_fingerprint=row.normalized_fingerprint,
+                observed_at__gt=row.observed_at
+                - timedelta(seconds=policy.anti_fraud.near_duplicate_window_seconds),
+            ).count()
+            + 1
+        )
+        member = row.membership
+        assert row.sender is not None
+        eligible = bool(
+            member
+            and member.started_at <= row.observed_at
+            and (member.ended_at is None or row.observed_at < member.ended_at)
+            and row.membership_eligible_at_source
+            and row.home_integrity_at_source
+            and row.context_owned_at_source
+            and is_reward_earning_time(row.season, row.observed_at)
+            and reward_gameplay_allowed_at(row.sender, row.observed_at)
+        )
+        result = qualify_text(
+            text="x" * row.character_count,
+            eligible=eligible,
+            min_chars=policy.activity.min_message_chars,
+            max_chars=policy.activity.max_rewardable_chars,
+            rate_count=rate,
+            rate_limit=policy.activity.max_messages_per_minute,
+            duplicate_count=max(exact, near),
+            suspicious_count=policy.anti_fraud.suspicious_count,
+            reject_count=policy.anti_fraud.reject_count,
+        )
+        row.classification = (
+            ClanActivity.Classification.SUSPICIOUS
+            if result.suspicious
+            else ClanActivity.Classification.VALID
+            if result.accepted
+            else ClanActivity.Classification.REJECTED
+        )
+        row.rewardable_chars = result.rewardable_chars
+        row.save(update_fields=("classification", "rewardable_chars"))
 
 
 def _finalize(activity: ClanActivity, now: datetime) -> bool:
@@ -36,7 +106,7 @@ def _finalize(activity: ClanActivity, now: datetime) -> bool:
     if end + timedelta(seconds=qualification_horizon) > now:
         return False
     with transaction.atomic():
-        _lock_window(activity.membership_id, activity.config_version_id, start)
+        lock_activity_window(activity.membership_id, activity.config_version_id, start)
         window, _ = ClanActivityWindow.objects.get_or_create(
             membership_id=activity.membership_id,
             season_id=activity.season_id,
@@ -58,6 +128,7 @@ def _finalize(activity: ClanActivity, now: datetime) -> bool:
             observed_at__gte=start,
             observed_at__lt=end,
         )
+        _requalify(source, policy)
         chars = (
             source.filter(
                 classification__in=[
@@ -111,6 +182,13 @@ def _finalize(activity: ClanActivity, now: datetime) -> bool:
             window.settlement = settlement
         window.save()
         source.update(window_processed=True)
+        latest_accepted = source.filter(rewardable_chars__gt=0).order_by("-observed_at").first()
+        if latest_accepted and latest_accepted.membership_id:
+            from apps.clans.governance import record_clan_activity as advance_activity_clock
+
+            advance_activity_clock(
+                latest_accepted.membership_id, occurred_at=latest_accepted.observed_at
+            )
         return True
 
 

@@ -5,6 +5,8 @@ import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
 
+from django.db import connection
+
 
 def fingerprints(text: str) -> tuple[str, str]:
     exact = unicodedata.normalize("NFC", text)
@@ -17,6 +19,16 @@ def fingerprints(text: str) -> tuple[str, str]:
 def window_start_for(at: datetime, seconds: int) -> datetime:
     epoch = int(at.timestamp())
     return datetime.fromtimestamp(epoch - epoch % seconds, tz=at.tzinfo)
+
+
+def lock_activity_window(membership_id: int, config_id: int, start: datetime) -> None:
+    """Serialize ingestion/finalization for one durable economic window."""
+    digest = hashlib.sha256(
+        f"clan:{membership_id}:{config_id}:{start.isoformat()}".encode()
+    ).digest()
+    key = int.from_bytes(digest[:8], "big", signed=True)
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(%s)", [key])
 
 
 @dataclass(frozen=True, slots=True)

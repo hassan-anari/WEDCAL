@@ -187,8 +187,11 @@ def test_qualified_activity_clears_warning_through_canonical_clock(clan_world) -
         text="meaningful clan home activity" * 6,
         observed_at=timezone.now(),
     )
+    assert row is not None
+    finalize_due_windows(now=row.observed_at + timedelta(hours=1))
     member.refresh_from_db()
-    assert row and row.rewardable_chars > 0
+    row.refresh_from_db()
+    assert row.rewardable_chars > 0
     assert member.inactivity_warned_at is None and member.next_inactivity_check_at is not None
 
 

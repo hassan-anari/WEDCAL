@@ -7,7 +7,7 @@ from apps.clans.models import (
     ClanMembership,
     ClanSeason,
 )
-from apps.core.activity import fingerprints, qualify_text, window_start_for
+from apps.core.activity import fingerprints, lock_activity_window, qualify_text, window_start_for
 from apps.game_config.models import GameConfigVersion
 from apps.game_config.services import resolve_effective_game_config
 from apps.players.models import Player
@@ -123,28 +123,27 @@ def record_clan_activity(
         reject_count=policy.anti_fraud.reject_count,
     )
     start = window_start_for(observed_at, policy.activity.window_seconds)
-    finalized = (
-        clan_season.clanactivitywindow_set.filter(
-            membership=membership,
-            config_version_id=config.id,
-            window_start=start,
-            finalized_at__isnull=False,
-        ).exists()
-        if membership
-        else False
-    )
     classification = (
-        ClanActivity.Classification.LATE
-        if finalized
-        else ClanActivity.Classification.SUSPICIOUS
+        ClanActivity.Classification.SUSPICIOUS
         if result.suspicious
         else ClanActivity.Classification.VALID
         if result.accepted
         else ClanActivity.Classification.REJECTED
     )
-    rewardable = 0 if finalized else result.rewardable_chars
     try:
         with transaction.atomic():
+            finalized = False
+            if membership:
+                lock_activity_window(membership.pk, config.id, start)
+                finalized = clan_season.clanactivitywindow_set.filter(
+                    membership=membership,
+                    config_version_id=config.id,
+                    window_start=start,
+                    finalized_at__isnull=False,
+                ).exists()
+            if finalized:
+                classification = ClanActivity.Classification.LATE
+            rewardable = 0 if finalized else result.rewardable_chars
             row = ClanActivity.objects.create(
                 clan_season=clan_season,
                 membership=membership,
@@ -169,8 +168,4 @@ def record_clan_activity(
         return ClanActivity.objects.filter(
             group=clan_season.clan.telegram_group, telegram_message_id=message_id
         ).first()
-    if membership and rewardable:
-        from apps.clans.governance import record_clan_activity as advance_activity_clock
-
-        advance_activity_clock(membership.pk, occurred_at=observed_at)
     return row
