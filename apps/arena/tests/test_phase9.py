@@ -85,6 +85,30 @@ def test_player_ranking_exact_tie_order(  # type: ignore[no-untyped-def]
 
 
 @pytest.mark.django_db
+def test_player_tie_provenance_is_independent_of_source_processing_order(  # type: ignore[no-untyped-def]
+    phase4_config_factory, season_factory, player_factory, monkeypatch
+) -> None:
+    monkeypatch.setattr("apps.rewards.services.dispatch_reward_outbox_safely", lambda _pk: None)
+    config = phase4_config_factory()
+    season_factory(config)
+    player = player_factory()
+    resolved = resolve_game_config_version(config.pk)
+    later = AT + timedelta(hours=1)
+    for source, occurred in (("later", later), ("earlier", AT)):
+        settle_player_reward(
+            player=player,
+            source_type="MISSION",
+            source_id=source,
+            context="MISSION",
+            amount=5,
+            idempotency_key=f"tie:{source}",
+            occurred_at=occurred,
+            resolved_config=resolved,
+        )
+    assert PlayerSeason.objects.get(player=player).score_reached_at == later
+
+
+@pytest.mark.django_db
 def test_six_source_time_epochs(phase4_config_factory, season_factory) -> None:  # type: ignore[no-untyped-def]
     config = phase4_config_factory()
     season = season_factory(config)

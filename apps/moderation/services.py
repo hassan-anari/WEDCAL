@@ -17,6 +17,21 @@ class ModerationIdempotencyConflict(ValidationError):
     pass
 
 
+def moderation_state_at(player: Player, at: datetime) -> str:
+    """Resolve audited moderation state at source time without using today's projection."""
+    action = (
+        ModerationAction.objects.filter(target=player, created_at__lte=at)
+        .order_by("-created_at", "-id")
+        .values_list("resulting_state", flat=True)
+        .first()
+    )
+    if action is None:
+        # Phase-7 rows may predate auditable actions; fail closed for a legacy blocked projection.
+        has_any_audit = ModerationAction.objects.filter(target=player).exists()
+        return Player.ModerationState.ACTIVE if has_any_audit else player.moderation_state
+    return str(action.get("moderation_state", Player.ModerationState.ACTIVE))
+
+
 @transaction.atomic
 def create_report(
     *,

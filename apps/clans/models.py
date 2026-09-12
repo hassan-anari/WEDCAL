@@ -68,6 +68,7 @@ class ClanSeason(models.Model):
     contribution_total = models.PositiveBigIntegerField(default=0)
     competitive_score = models.PositiveBigIntegerField(default=0)
     score_reached_at = models.DateTimeField(null=True, blank=True)
+    ranking_generation = models.PositiveBigIntegerField(default=0)
     hq_conversion_remainder = models.PositiveBigIntegerField(default=0)
     score_conversion_remainder = models.PositiveBigIntegerField(default=0)
 

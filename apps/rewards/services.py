@@ -4,7 +4,7 @@ from typing import Any
 
 import structlog
 from django.db import IntegrityError, transaction
-from django.db.models import Sum
+from django.db.models import Max, Sum
 from django.utils import timezone
 
 from apps.game_config.models import GameConfigVersion
@@ -230,8 +230,18 @@ def settle_reward(
         )
         player_season, _ = PlayerSeason.objects.get_or_create(player=locked_player, season=season)
         player_season.season_points += amount
-        player_season.score_reached_at = occurred_at
-        player_season.save(update_fields=["season_points", "score_reached_at", "updated_at"])
+        player_season.score_reached_at = max(
+            filter(None, (player_season.score_reached_at, occurred_at))
+        )
+        player_season.ranking_generation += 1
+        player_season.save(
+            update_fields=[
+                "season_points",
+                "score_reached_at",
+                "ranking_generation",
+                "updated_at",
+            ]
+        )
         from apps.arena.services import publish_player_ranking
 
         publish_player_ranking(player_season, source_id=f"reward:{ledger.pk}")
@@ -288,7 +298,7 @@ def rebuild_player_reward_projections(
         totals = (
             RewardLedger.objects.filter(player=player)
             .values("season_id")
-            .annotate(total=Sum("player_amount"))
+            .annotate(total=Sum("player_amount"), reached_at=Max("occurred_at"))
         )
         seen: set[int] = set()
         for row in totals:
@@ -296,9 +306,15 @@ def rebuild_player_reward_projections(
             total = int(row["total"])
             if total < 0:
                 raise InvalidReward("Ledger would create a negative season projection")
-            PlayerSeason.objects.update_or_create(
-                player=player, season_id=season_id, defaults={"season_points": total}
+            current, _ = PlayerSeason.objects.get_or_create(player=player, season_id=season_id)
+            changed = (
+                current.season_points != total or current.score_reached_at != row["reached_at"]
             )
+            current.season_points = total
+            current.score_reached_at = row["reached_at"]
+            if changed:
+                current.ranking_generation += 1
+            current.save()
             seen.add(season_id)
         PlayerSeason.objects.filter(player=player).exclude(season_id__in=seen).update(
             season_points=0

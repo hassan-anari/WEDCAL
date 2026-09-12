@@ -69,7 +69,10 @@ def rebuild_clan_projections(clan_season: ClanSeason) -> ClanSeason:
         )
         contribution = cs.contribution_entries.aggregate(v=models.Sum("amount"))["v"] or 0
         hq_xp = cs.hq_xp_entries.aggregate(v=models.Sum("amount"))["v"] or 0
-        score = cs.economic_settlements.aggregate(v=models.Sum("clan_score_amount"))["v"] or 0
+        score_source = cs.economic_settlements.aggregate(
+            v=models.Sum("clan_score_amount"), reached_at=models.Max("occurred_at")
+        )
+        score = score_source["v"] or 0
         policy = resolve_game_config_version(cs.config_version_id).clan
         if policy is None or debits > credits:
             raise ValidationError("Clan durable sources cannot produce a valid projection")
@@ -86,7 +89,13 @@ def rebuild_clan_projections(clan_season: ClanSeason) -> ClanSeason:
         cs.treasury_earned_total = credits
         cs.contribution_total = contribution
         cs.hq_xp = hq_xp
+        score_changed = (
+            cs.competitive_score != score or cs.score_reached_at != score_source["reached_at"]
+        )
         cs.competitive_score = score
+        cs.score_reached_at = score_source["reached_at"] if score else None
+        if score_changed:
+            cs.ranking_generation += 1
         cs.capacity_bonus = capacity_bonus
         rule = hq_rule(policy, hq_xp)
         cs.hq_level = rule.level
@@ -362,7 +371,8 @@ def settle_clan_reward(
     cs.contribution_total += contribution
     cs.competitive_score += score
     if score:
-        cs.score_reached_at = occurred_at
+        cs.score_reached_at = max(filter(None, (cs.score_reached_at, occurred_at)))
+        cs.ranking_generation += 1
     cs.save()
     if score:
         from apps.arena.services import publish_clan_ranking

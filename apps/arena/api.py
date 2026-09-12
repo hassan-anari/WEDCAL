@@ -1,14 +1,16 @@
 from typing import Any
 
+from django.db import models
 from django.http import HttpRequest
 from django.utils import timezone
 from ninja import Query, Router, Schema
 from ninja.errors import HttpError
 
 from apps.arena.epochs import player_dlx_balance
-from apps.arena.services import clan_ranking_queryset, player_ranking_queryset, standing
+from apps.arena.models import RankingProjectionEvent
+from apps.arena.services import RankingProjectionUnavailable, read_ranking_slice
 from apps.clans.economy import effective_capacity
-from apps.clans.models import ClanMembership
+from apps.clans.models import ClanMembership, ClanSeason
 from apps.game_config.services import resolve_game_config_version
 from apps.players.models import Player
 from apps.seasons.models import PlayerSeason
@@ -51,19 +53,37 @@ def player_rankings(request: HttpRequest, query: Query[PageQuery]) -> dict[str, 
     assert season
     policy = resolve_game_config_version(season.baseline_config_id).rankings
     offset, limit = _page(query, policy)
-    qs = player_ranking_queryset(season).filter(season_points__gte=policy.minimum_score)
-    page = list(qs[offset : offset + limit])
     own_row = PlayerSeason.objects.filter(player=player, season=season).first()
-    own = standing(qs, own_row.pk) if own_row else None
+    try:
+        ranking = read_ranking_slice(
+            season_id=season.pk,
+            entity_type=RankingProjectionEvent.Entity.PLAYER,
+            offset=offset,
+            limit=limit,
+            own_entity_id=player.pk if own_row else None,
+        )
+    except RankingProjectionUnavailable as exc:
+        raise HttpError(503, str(exc)) from exc
+    ids = [entity_id for entity_id, _ in ranking.ranked_ids]
+    if player.pk not in ids and ranking.own_rank is not None:
+        ids.append(player.pk)
+    rows = {
+        row.player_id: row
+        for row in PlayerSeason.objects.filter(season=season, player_id__in=ids).select_related(
+            "player", "player__progression"
+        )
+    }
+    memberships = {
+        membership.player_id: membership
+        for membership in ClanMembership.objects.filter(
+            player_id__in=ids, season=season, ended_at__isnull=True
+        ).select_related("clan_season__clan")
+    }
+    if any(entity_id not in rows for entity_id, _ in ranking.ranked_ids):
+        raise HttpError(503, "Ranking projection is awaiting reconciliation")
 
     def item(rank: int, row: PlayerSeason) -> dict[str, Any]:
-        membership = (
-            ClanMembership.objects.filter(
-                player_id=row.player_id, season=season, ended_at__isnull=True
-            )
-            .select_related("clan_season__clan")
-            .first()
-        )
+        membership = memberships.get(row.player_id)
         return {
             "rank": rank,
             "player_id": row.player_id,
@@ -80,8 +100,12 @@ def player_rankings(request: HttpRequest, query: Query[PageQuery]) -> dict[str, 
         }
 
     return {
-        "items": [item(offset + i, row) for i, row in enumerate(page, 1)],
-        "own_standing": item(own[0], own[1]) if own else None,
+        "items": [item(rank, rows[entity_id]) for entity_id, rank in ranking.ranked_ids],
+        "own_standing": (
+            item(ranking.own_rank, rows[player.pk])
+            if ranking.own_rank is not None and player.pk in rows
+            else None
+        ),
         "offset": offset,
         "limit": limit,
     }
@@ -94,12 +118,34 @@ def clan_rankings(request: HttpRequest, query: Query[PageQuery]) -> dict[str, An
     assert season
     config = resolve_game_config_version(season.baseline_config_id)
     offset, limit = _page(query, config.rankings)
-    qs = clan_ranking_queryset(season).filter(competitive_score__gte=config.rankings.minimum_score)
-    page = list(qs[offset : offset + limit])
     membership = ClanMembership.objects.filter(
         player=player, season=season, ended_at__isnull=True
     ).first()
-    own = standing(qs, membership.clan_season_id) if membership else None
+    try:
+        ranking = read_ranking_slice(
+            season_id=season.pk,
+            entity_type=RankingProjectionEvent.Entity.CLAN,
+            offset=offset,
+            limit=limit,
+            own_entity_id=membership.clan_season_id if membership else None,
+        )
+    except RankingProjectionUnavailable as exc:
+        raise HttpError(503, str(exc)) from exc
+    ids = [entity_id for entity_id, _ in ranking.ranked_ids]
+    if membership and membership.clan_season_id not in ids and ranking.own_rank is not None:
+        ids.append(membership.clan_season_id)
+    rows = {
+        row.pk: row
+        for row in ClanSeason.objects.filter(pk__in=ids, season=season)
+        .select_related("clan")
+        .annotate(
+            member_count=models.Count(
+                "memberships", filter=models.Q(memberships__ended_at__isnull=True)
+            )
+        )
+    }
+    if any(entity_id not in rows for entity_id, _ in ranking.ranked_ids):
+        raise HttpError(503, "Ranking projection is awaiting reconciliation")
 
     def item(rank: int, row: Any) -> dict[str, Any]:
         return {
@@ -115,8 +161,12 @@ def clan_rankings(request: HttpRequest, query: Query[PageQuery]) -> dict[str, An
         }
 
     return {
-        "items": [item(offset + i, row) for i, row in enumerate(page, 1)],
-        "own_standing": item(own[0], own[1]) if own else None,
+        "items": [item(rank, rows[entity_id]) for entity_id, rank in ranking.ranked_ids],
+        "own_standing": (
+            item(ranking.own_rank, rows[membership.clan_season_id])
+            if membership and ranking.own_rank is not None and membership.clan_season_id in rows
+            else None
+        ),
         "offset": offset,
         "limit": limit,
     }

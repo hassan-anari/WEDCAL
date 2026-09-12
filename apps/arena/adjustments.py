@@ -1,4 +1,4 @@
-from django.db import IntegrityError, transaction
+from django.db import connection, transaction
 from django.db.models import Sum
 
 from apps.arena.models import DlxAdjustment, DlxAllocation
@@ -21,6 +21,35 @@ def record_adjustment(
 ) -> tuple[DlxAdjustment, bool]:
     if kind not in DlxAdjustment.Kind.values or amount <= 0:
         raise ValueError("Invalid DLX adjustment")
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            [f"dlx-adjustment:{idempotency_key}"],
+        )
+    safe_metadata = metadata or {}
+    existing = DlxAdjustment.objects.filter(idempotency_key=idempotency_key).first()
+    if existing:
+        if (
+            existing.allocation_id,
+            existing.kind,
+            existing.amount,
+            existing.reason_code,
+            existing.evidence_reference,
+            existing.actor_player_id,
+            existing.system_actor,
+            existing.metadata,
+        ) != (
+            allocation.pk,
+            kind,
+            amount,
+            reason_code,
+            evidence_reference,
+            actor.pk if actor else None,
+            system_actor,
+            safe_metadata,
+        ):
+            raise ValueError("DLX adjustment idempotency conflict")
+        return existing, False
     allocation = DlxAllocation.objects.select_for_update().get(pk=allocation.pk)
     totals = {
         row["kind"]: row["v"]
@@ -39,29 +68,18 @@ def record_adjustment(
         raise ValueError("Hold release exceeds held amount")
     if kind == DlxAdjustment.Kind.REVERSAL and amount > forfeited:
         raise ValueError("Reversal exceeds forfeited amount")
-    try:
-        return DlxAdjustment.objects.create(
-            allocation=allocation,
-            kind=kind,
-            amount=amount,
-            reason_code=reason_code,
-            evidence_reference=evidence_reference,
-            actor_player=actor,
-            system_actor=system_actor,
-            config_version=allocation.config_version,
-            idempotency_key=idempotency_key,
-            metadata=metadata or {},
-        ), True
-    except IntegrityError:
-        row = DlxAdjustment.objects.get(idempotency_key=idempotency_key)
-        if (row.allocation_id, row.kind, row.amount, row.reason_code) != (
-            allocation.pk,
-            kind,
-            amount,
-            reason_code,
-        ):
-            raise ValueError("DLX adjustment idempotency conflict") from None
-        return row, False
+    return DlxAdjustment.objects.create(
+        allocation=allocation,
+        kind=kind,
+        amount=amount,
+        reason_code=reason_code,
+        evidence_reference=evidence_reference,
+        actor_player=actor,
+        system_actor=system_actor,
+        config_version=allocation.config_version,
+        idempotency_key=idempotency_key,
+        metadata=safe_metadata,
+    ), True
 
 
 def adjustment_totals(player: Player, season: Season) -> dict[str, int]:

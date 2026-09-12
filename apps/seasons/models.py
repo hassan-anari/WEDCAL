@@ -44,6 +44,7 @@ class PlayerSeason(models.Model):
     season = models.ForeignKey(Season, on_delete=models.PROTECT, related_name="players")
     season_points = models.BigIntegerField(default=0)
     score_reached_at = models.DateTimeField(null=True, blank=True)
+    ranking_generation = models.PositiveBigIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

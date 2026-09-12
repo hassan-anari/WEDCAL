@@ -18,6 +18,7 @@ class RankingProjectionEvent(models.Model):
     score_reached_at = models.DateTimeField()
     operation = models.CharField(max_length=8, choices=Operation.choices)
     source_id = models.CharField(max_length=200)
+    generation = models.PositiveBigIntegerField(default=0)
     processed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -95,6 +96,7 @@ class EconomicEpoch(models.Model):
     growth_budget = models.PositiveBigIntegerField(default=0)
     freeze_watermark = models.JSONField(default=dict)
     frozen_at = models.DateTimeField(null=True)
+    snapshots_completed_at = models.DateTimeField(null=True)
     settlement_started_at = models.DateTimeField(null=True)
     settlement_completed_at = models.DateTimeField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -151,6 +153,31 @@ class EpochPerformanceSnapshot(models.Model):
         indexes = [models.Index(fields=("epoch", "category"), name="arena_snapshot_category")]
 
 
+class PerformanceSourceFact(models.Model):
+    """Permanent source-time input for aggregates whose operational receipts may expire."""
+
+    season = models.ForeignKey("seasons.Season", on_delete=models.PROTECT)
+    player = models.ForeignKey("players.Player", on_delete=models.PROTECT)
+    category = models.CharField(max_length=40)
+    source_type = models.CharField(max_length=40)
+    source_id = models.CharField(max_length=128)
+    source_time = models.DateTimeField()
+    amount = models.PositiveBigIntegerField()
+    config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
+    metadata = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("source_type", "source_id"), name="arena_performance_source"
+            )
+        ]
+        indexes = [
+            models.Index(fields=("season", "source_time", "category"), name="arena_source_epoch")
+        ]
+
+
 class EpochCategoryBudget(models.Model):
     epoch = models.ForeignKey(
         EconomicEpoch, on_delete=models.PROTECT, related_name="category_budgets"
@@ -160,6 +187,7 @@ class EpochCategoryBudget(models.Model):
     base_epoch_budget = models.PositiveBigIntegerField()
     growth_contribution = models.PositiveBigIntegerField(default=0)
     carry_in = models.PositiveBigIntegerField(default=0)
+    carry_materialized = models.BooleanField(default=False)
     effective_budget = models.PositiveBigIntegerField()
     allocated_amount = models.PositiveBigIntegerField(default=0)
     carry_out = models.PositiveBigIntegerField(default=0)
@@ -226,7 +254,8 @@ class DlxAllocation(models.Model):
             models.Index(fields=("epoch", "category"), name="arena_allocation_category"),
         ]
         constraints = [
-            models.CheckConstraint(condition=Q(amount__gt=0), name="arena_allocation_positive")
+            models.CheckConstraint(condition=Q(amount__gt=0), name="arena_allocation_positive"),
+            models.UniqueConstraint(fields=("batch", "snapshot"), name="arena_allocation_snapshot"),
         ]
 
 

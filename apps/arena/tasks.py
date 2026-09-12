@@ -36,6 +36,11 @@ def reconcile_rankings() -> int:
     return count
 
 
+@shared_task(name="apps.arena.tasks.rebuild_one_ranking")  # type: ignore[untyped-decorator]
+def rebuild_one_ranking(season_id: int, entity_type: str) -> bool:
+    return rebuild_ranking(Season.objects.get(pk=season_id), entity_type)
+
+
 @shared_task(name="apps.arena.tasks.drain_and_freeze_epochs")  # type: ignore[untyped-decorator]
 def drain_and_freeze_epochs() -> int:
     count = 0
