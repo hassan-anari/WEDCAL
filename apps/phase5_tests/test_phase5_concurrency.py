@@ -103,6 +103,8 @@ def run_parallel(calls) -> None:  # type: ignore[no-untyped-def]
 
 @pytest.mark.django_db(transaction=True)
 def test_concurrent_referral_activation_settles_bonuses_once(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from apps.arena.models import QualificationDecision
+    from apps.arena.qualification import record_qualification_decision
     from apps.progression.models import PlayerProgression
     from apps.referrals.services import activate_relation
     from apps.rewards.models import RewardLedger
@@ -129,6 +131,16 @@ def test_concurrent_referral_activation_settles_bonuses_once(monkeypatch) -> Non
         level=5,
         dexo_stage="explorer",
         config_version=config,
+    )
+    record_qualification_decision(
+        player=invitee,
+        policy_key="QUALIFIED_PLAYER",
+        policy_version=1,
+        decision=QualificationDecision.Decision.QUALIFIED,
+        effective_at=AT - timedelta(days=1),
+        reason_code="TEST_AUTHORITY",
+        source="TEST",
+        source_id="activation-race",
     )
     run_parallel(
         [

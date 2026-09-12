@@ -230,7 +230,11 @@ def settle_reward(
         )
         player_season, _ = PlayerSeason.objects.get_or_create(player=locked_player, season=season)
         player_season.season_points += amount
-        player_season.save(update_fields=["season_points", "updated_at"])
+        player_season.score_reached_at = occurred_at
+        player_season.save(update_fields=["season_points", "score_reached_at", "updated_at"])
+        from apps.arena.services import publish_player_ranking
+
+        publish_player_ranking(player_season, source_id=f"reward:{ledger.pk}")
         if outbox is not None:
             transaction.on_commit(lambda: dispatch_reward_outbox_safely(outbox.pk))
     logger.info(

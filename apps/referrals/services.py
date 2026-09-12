@@ -167,8 +167,22 @@ def referral_activation_is_safe(
         if progression
         else 1
     )
+    anti_sybil_ok = True
+    if config.referral.anti_sybil_pass_required:
+        from apps.arena.qualification import is_player_qualified
+
+        predicate = (
+            config.dlx_distribution.qualified_player_predicate if config.dlx_distribution else {}
+        )
+        anti_sybil_ok = is_player_qualified(
+            relation.invitee,
+            policy_key=str(predicate.get("policy_key", "QUALIFIED_PLAYER")),
+            policy_version=int(predicate.get("policy_version", 1)),
+            at=at,
+        )
     return bool(
-        progression
+        anti_sybil_ok
+        and progression
         and level >= config.referral.min_level
         and relation.invitee.first_seen_at
         <= at - timedelta(hours=config.referral.min_account_age_hours)

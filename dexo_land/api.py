@@ -1,5 +1,6 @@
 from ninja import NinjaAPI
 
+from apps.arena.api import router as arena_router
 from apps.base_tap.api import router as base_tap_router
 from apps.clans.api import router as clans_router
 from apps.daily.api import router as daily_router
@@ -26,3 +27,4 @@ api.add_router("/base", base_tap_router)
 api.add_router("/profile", profile_router)
 api.add_router("/clans", clans_router)
 api.add_router("/moderation", moderation_router)
+api.add_router("/arena", arena_router)

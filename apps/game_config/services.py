@@ -169,6 +169,13 @@ class DlxDistributionConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class RankingsConfig:
+    default_page_size: int
+    max_page_size: int
+    minimum_score: int
+
+
+@dataclass(frozen=True, slots=True)
 class AchievementRule:
     key: str
     available_s1: bool
@@ -320,6 +327,33 @@ class ResolvedGameConfig:
     profile_collection: ProfileCollectionConfig | None
     season_honors: SeasonHonorsConfig | None
     clan: ClanConfig | None
+    rankings: RankingsConfig
+
+
+def parse_rankings(payload: dict[str, Any]) -> RankingsConfig:
+    try:
+        raw = _config_object(payload["rankings"], "rankings")
+        result = RankingsConfig(
+            _integer(raw["default_page_size"], "ranking default page size", minimum=1),
+            _integer(raw["max_page_size"], "ranking maximum page size", minimum=1),
+            _integer(raw["minimum_points_to_rank"], "ranking minimum score"),
+        )
+    except (KeyError, TypeError) as exc:
+        raise ValidationError("Invalid rankings configuration shape") from exc
+    if result.default_page_size > result.max_page_size:
+        raise ValidationError("Ranking default page size cannot exceed its maximum")
+    if raw.get("player_tie_break") != [
+        "SEASON_POINTS_DESC",
+        "SCORE_REACHED_AT_ASC",
+        "PLAYER_ID_ASC",
+    ] or raw.get("clan_tie_break") != ["CLAN_SCORE_DESC", "SCORE_REACHED_AT_ASC", "CLAN_ID_ASC"]:
+        raise ValidationError("Ranking tie policies must match the canonical order")
+    return result
+
+
+def _resolved_rankings(payload: dict[str, Any]) -> RankingsConfig:
+    # Immutable pre-Phase-9 snapshots did not contain ranking policy and cannot be rewritten.
+    return parse_rankings(payload) if "rankings" in payload else RankingsConfig(50, 100, 1)
 
 
 def parse_clan(payload: dict[str, Any]) -> ClanConfig:
@@ -949,6 +983,24 @@ def parse_economy_sync(payload: dict[str, Any]) -> tuple[BaseTapConfig, DlxDistr
     available_growth = result.max_pool_dlx_amount - result.base_pool_dlx_amount
     if sum(item.unlock_dlx_amount for item in milestones) > available_growth:
         raise ValidationError("Growth milestone unlocks exceed the maximum DLX pool")
+    dlx = payload.get("dlx")
+    if (
+        distribution.get("accounting_unit") != "OFF_CHAIN_DLX_ALLOCATION_AMOUNT"
+        or distribution.get("native_chain_decimal_precision") is not None
+        or distribution.get("performance_basis") != "CURRENT_EPOCH_QUALIFIED_PERFORMANCE"
+        or distribution.get("unused_category_budget") != "CARRY_FORWARD_SAME_CATEGORY"
+        or distribution.get("confirmed_allocation_is_claimable_or_transferable") is not False
+        or distribution.get("reward_ledger_is_dlx_ledger") is not False
+        or growth.get("counter") != "QUALIFIED_PLAYERS"
+        or predicate.get("policy_key") != "QUALIFIED_PLAYER"
+        or not isinstance(predicate.get("policy_version"), int)
+        or not isinstance(dlx, dict)
+        or dlx.get("price_status") != "UNAVAILABLE"
+        or dlx.get("confirmed_allocation_claimable_transferable_or_tradable") is not False
+        or dlx.get("wallet_withdrawal_or_on_chain_claim_enabled") is not False
+        or dlx.get("fixed_point_to_dlx_ratio_defined") is not False
+    ):
+        raise ValidationError("Season 1 off-chain DLX safety invariants are invalid")
     return base_tap, result
 
 
@@ -1234,6 +1286,7 @@ def publish_game_config(
                 parse_profile_collection(config.payload)
             if "clan" in config.payload:
                 parse_clan(config.payload)
+            parse_rankings(config.payload)
         elif any(name in config.payload for name in ("daily", "missions", "typing")):
             parse_progression(config.payload)
             parse_daily(config.payload)
@@ -1296,6 +1349,7 @@ def resolve_effective_game_config(at: datetime) -> ResolvedGameConfig:
         profile,
         honors,
         parse_clan(config.payload) if "clan" in config.payload else None,
+        _resolved_rankings(config.payload),
     )
 
 
@@ -1330,4 +1384,5 @@ def resolve_game_config_version(config_id: int) -> ResolvedGameConfig:
         profile,
         honors,
         parse_clan(config.payload) if "clan" in config.payload else None,
+        _resolved_rankings(config.payload),
     )

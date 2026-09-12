@@ -67,10 +67,12 @@ class ClanSeason(models.Model):
     treasury_earned_total = models.PositiveBigIntegerField(default=0)
     contribution_total = models.PositiveBigIntegerField(default=0)
     competitive_score = models.PositiveBigIntegerField(default=0)
+    score_reached_at = models.DateTimeField(null=True, blank=True)
     hq_conversion_remainder = models.PositiveBigIntegerField(default=0)
     score_conversion_remainder = models.PositiveBigIntegerField(default=0)
 
     class Meta:
+        indexes = [models.Index(fields=("season", "-competitive_score", "score_reached_at", "id"))]
         constraints = [
             models.UniqueConstraint(fields=("clan", "season"), name="clan_unique_identity_season"),
             models.UniqueConstraint(

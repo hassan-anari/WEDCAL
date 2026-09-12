@@ -361,7 +361,13 @@ def settle_clan_reward(
     cs.treasury_earned_total += treasury
     cs.contribution_total += contribution
     cs.competitive_score += score
+    if score:
+        cs.score_reached_at = occurred_at
     cs.save()
+    if score:
+        from apps.arena.services import publish_clan_ranking
+
+        publish_clan_ranking(cs, source_id=f"clan-settlement:{economic.pk}")
     member.contribution_total += contribution
     member.save(update_fields=("contribution_total",))
     if contribution:
