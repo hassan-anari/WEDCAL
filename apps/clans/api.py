@@ -124,6 +124,16 @@ class GovernanceOut(Schema):
     status: str
     voting_deadline: datetime
     eligible_count: int
+    reason: str
+    target_membership_id: int | None
+    target_first_name: str | None
+    target_username: str | None
+    is_eligible_voter: bool
+    own_vote: str | None
+    yes_count: int | None
+    no_count: int | None
+    valid_cast_count: int | None
+    result: str | None
 
 
 class RecoveryOut(Schema):
@@ -138,6 +148,30 @@ def player(request: HttpRequest) -> Player:
     value = getattr(request, "auth", None)
     assert isinstance(value, Player)
     return value
+
+
+def governance_out(row: ClanGovernanceCase, viewer: Player) -> GovernanceOut:
+    target_membership = row.target_membership if row.target_membership_id else None
+    target = target_membership.player if target_membership is not None else None
+    own_vote = row.votes.filter(voter=viewer).values_list("choice", flat=True).first()
+    finalized = row.finalized_at is not None
+    return GovernanceOut(
+        id=row.pk,
+        case_type=row.case_type,
+        status=row.status,
+        voting_deadline=row.voting_deadline,
+        eligible_count=row.eligible_count,
+        reason=row.reason,
+        target_membership_id=row.target_membership_id,
+        target_first_name=target.first_name if target else None,
+        target_username=target.username if target else None,
+        is_eligible_voter=row.electors.filter(player=viewer).exists(),
+        own_vote=own_vote,
+        yes_count=row.yes_count if finalized else None,
+        no_count=row.no_count if finalized else None,
+        valid_cast_count=row.valid_cast_count if finalized else None,
+        result=row.result_reason if finalized else None,
+    )
 
 
 def context() -> tuple[Season, ResolvedGameConfig]:
@@ -382,18 +416,13 @@ def governance(request: HttpRequest) -> list[GovernanceOut]:
     ).first()
     if membership is None:
         return []
-    return [
-        GovernanceOut(
-            id=row.pk,
-            case_type=row.case_type,
-            status=row.status,
-            voting_deadline=row.voting_deadline,
-            eligible_count=row.eligible_count,
-        )
-        for row in ClanGovernanceCase.objects.filter(clan_season=membership.clan_season).order_by(
-            "-opened_at"
-        )[:100]
-    ]
+    viewer = player(request)
+    rows = (
+        ClanGovernanceCase.objects.filter(clan_season=membership.clan_season)
+        .select_related("target_membership__player")
+        .order_by("-opened_at")[:100]
+    )
+    return [governance_out(row, viewer) for row in rows]
 
 
 @router.post("/removal-cases", response=GovernanceOut)
@@ -411,13 +440,7 @@ def removal_case(request: HttpRequest, payload: RemovalCaseIn) -> GovernanceOut:
             reason=payload.reason,
             target=target,
         )
-        return GovernanceOut(
-            id=row.pk,
-            case_type=row.case_type,
-            status=row.status,
-            voting_deadline=row.voting_deadline,
-            eligible_count=row.eligible_count,
-        )
+        return governance_out(row, player(request))
     except (
         ValidationError,
         PermissionDenied,
@@ -432,13 +455,7 @@ def vote(request: HttpRequest, case_id: int, payload: VoteIn) -> GovernanceOut:
     try:
         ballot = cast_vote(case_id=case_id, voter=player(request), choice=payload.choice)
         row = ballot.case
-        return GovernanceOut(
-            id=row.pk,
-            case_type=row.case_type,
-            status=row.status,
-            voting_deadline=row.voting_deadline,
-            eligible_count=row.eligible_count,
-        )
+        return governance_out(row, player(request))
     except (ValidationError, PermissionDenied, ClanGovernanceCase.DoesNotExist) as exc:
         raise fail(exc) from exc
 
@@ -453,13 +470,7 @@ def dissolution(request: HttpRequest):  # type: ignore[no-untyped-def]
         row = request_dissolution(player(request), cs)
         if row is None:
             return 204, None
-        return 200, GovernanceOut(
-            id=row.pk,
-            case_type=row.case_type,
-            status=row.status,
-            voting_deadline=row.voting_deadline,
-            eligible_count=row.eligible_count,
-        )
+        return 200, governance_out(row, player(request))
     except (ValidationError, PermissionDenied, ClanSeason.DoesNotExist) as exc:
         raise fail(exc) from exc
 

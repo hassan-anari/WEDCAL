@@ -12,6 +12,7 @@ from apps.core.periods import resolve_daily_period
 from apps.game_config.models import GameConfigVersion
 from apps.game_config.services import resolve_effective_game_config
 from apps.players.models import Player
+from apps.players.services import reward_gameplay_allowed
 from apps.rewards.services import settle_player_reward
 from apps.seasons.services import require_reward_earning_time, resolve_current_season
 from apps.typing_game.calculations import accuracy_bps, calculate_reward, calculate_wpm
@@ -125,7 +126,12 @@ def submit_attempt(
         except ValueError:
             wpm = 0
         full = len(normalized_submitted) >= normalized_length
-        if at > attempt.expires_at or elapsed_ms <= 0 or wpm >= resolved.typing.reject_wpm:
+        if (
+            not reward_gameplay_allowed(player)
+            or at > attempt.expires_at
+            or elapsed_ms <= 0
+            or wpm >= resolved.typing.reject_wpm
+        ):
             status = TypingAttempt.Status.REJECTED
         elif wpm >= resolved.typing.suspicious_wpm:
             status = TypingAttempt.Status.SUSPICIOUS

@@ -444,3 +444,243 @@ def test_vote_database_constraint(clan_world):  # type: ignore[no-untyped-def]
     ClanGovernanceVote.objects.create(case=case, voter=voter, choice="YES", cast_at=now)
     with pytest.raises(IntegrityError):
         ClanGovernanceVote.objects.create(case=case, voter=voter, choice="NO", cast_at=now)
+
+
+def test_rejected_recovery_episode_cannot_auto_cancel(clan_world):  # type: ignore[no-untyped-def]
+    now, *_ = clan_world
+    cs = clan_world[-1]()
+    members = electorate(clan_world, cs)
+    cs.state = ClanSeason.State.RECOVERY
+    cs.recovery_reason = "CAPTAIN_INACTIVITY"
+    cs.recovery_started_at = now
+    cs.save()
+    case = open_case(
+        initiator=cs.captain,
+        clan_season=cs,
+        case_type=ClanGovernanceCase.Type.RECOVERY_DISSOLUTION,
+        reason="CAPTAIN_INACTIVITY",
+        now=now,
+    )
+    finalize_case(case.pk, now=case.voting_deadline)
+    record_clan_activity(
+        cs.memberships.get(role=ClanRole.CAPTAIN).pk,
+        occurred_at=case.voting_deadline + timedelta(seconds=1),
+    )
+    cs.refresh_from_db()
+    assert cs.state == ClanSeason.State.RECOVERY
+    observe_bot_admin_state(cs.pk, is_admin=False, authoritative=True, observed_at=now)
+    observe_bot_admin_state(
+        cs.pk,
+        is_admin=True,
+        authoritative=True,
+        observed_at=case.voting_deadline + timedelta(seconds=2),
+    )
+    cs.refresh_from_db()
+    assert cs.bot_admin_lost_at is None and cs.state == ClanSeason.State.RECOVERY
+    assert members
+
+
+def test_final_result_reason_is_explicit(clan_world):  # type: ignore[no-untyped-def]
+    now, *_ = clan_world
+    cs = clan_world[-1]()
+    target = add_member(clan_world, cs)
+    electorate(clan_world, cs)
+    case = open_case(
+        initiator=cs.captain,
+        clan_season=cs,
+        case_type=ClanGovernanceCase.Type.SOLDIER_REMOVAL,
+        reason="SPAM",
+        target=target,
+        now=now,
+    )
+    result = finalize_case(case.pk, now=case.voting_deadline)
+    assert result.result_reason == "NO_QUORUM"
+
+
+def test_concurrent_finalizers_execute_due_case_once(clan_world):  # type: ignore[no-untyped-def]
+    from concurrent.futures import ThreadPoolExecutor
+
+    from django.db import close_old_connections
+
+    now, *_ = clan_world
+    cs = clan_world[-1]()
+    target = add_member(clan_world, cs)
+    electorate(clan_world, cs)
+    case = open_case(
+        initiator=cs.captain,
+        clan_season=cs,
+        case_type=ClanGovernanceCase.Type.SOLDIER_REMOVAL,
+        reason="SPAM",
+        target=target,
+        now=now,
+    )
+    for elector in case.electors.select_related("player")[:2]:
+        cast_vote(case_id=case.pk, voter=elector.player, choice="YES", now=now)
+
+    def run():  # type: ignore[no-untyped-def]
+        close_old_connections()
+        try:
+            return finalize_case(case.pk, now=case.voting_deadline).status
+        finally:
+            close_old_connections()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        statuses = list(pool.map(lambda _: run(), range(2)))
+    assert statuses == [ClanGovernanceCase.Status.APPROVED] * 2
+    assert (
+        ClanMembershipEvent.objects.filter(
+            membership=target, kind=ClanMembership.EndReason.GOVERNANCE_REMOVAL
+        ).count()
+        == 1
+    )
+
+
+def test_concurrent_inactivity_sweepers_warn_once(clan_world):  # type: ignore[no-untyped-def]
+    from concurrent.futures import ThreadPoolExecutor
+
+    from django.db import close_old_connections
+
+    now, *_ = clan_world
+    cs = clan_world[-1]()
+    member = add_member(clan_world, cs)
+    member.last_clan_active_at = now - timedelta(days=3)
+    member.next_inactivity_check_at = now
+    member.save(update_fields=("last_clan_active_at", "next_inactivity_check_at"))
+
+    def run():  # type: ignore[no-untyped-def]
+        close_old_connections()
+        try:
+            return sweep_inactivity(now=now)
+        finally:
+            close_old_connections()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        list(pool.map(lambda _: run(), range(2)))
+    assert (
+        ClanMembershipEvent.objects.filter(membership=member, kind="INACTIVITY_WARNING").count()
+        == 1
+    )
+
+
+@pytest.mark.parametrize(("second_offset", "activates"), [(0, True), (-1, False), (-30, False)])
+def test_telegram_acceptance_uses_exact_source_second(clan_world, second_offset, activates):  # type: ignore[no-untyped-def]
+    from apps.clans.services import decide_request, request_join
+
+    _, _, _, resolved, make_player, make_clan = clan_world
+    cs = make_clan()
+    soldier = make_player(ClanRole.SOLDIER)
+    request = decide_request(cs.captain, request_join(soldier, cs, resolved).pk, accept=True)
+    assert request.decided_at is not None
+    acceptance_second = request.decided_at.replace(microsecond=0)
+    reconcile_telegram_membership(
+        player=soldier,
+        group=cs.clan.telegram_group,
+        present=True,
+        telegram_update_id=500,
+        observed_at=acceptance_second + timedelta(seconds=second_offset, microseconds=900000),
+    )
+    assert ClanMembership.objects.filter(player=soldier).exists() is activates
+
+
+def test_direct_dissolution_race_cannot_end_with_current_soldier(clan_world):  # type: ignore[no-untyped-def]
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    from django.db import close_old_connections, transaction
+
+    now, config, season, _, make_player, make_clan = clan_world
+    cs = make_clan()
+    soldier = make_player(ClanRole.SOLDIER)
+    barrier = Barrier(2)
+
+    def dissolve():  # type: ignore[no-untyped-def]
+        close_old_connections()
+        barrier.wait()
+        try:
+            return request_dissolution(cs.captain, cs, now=now)
+        except ClanConflict:
+            return "conflict"
+        finally:
+            close_old_connections()
+
+    def join():  # type: ignore[no-untyped-def]
+        close_old_connections()
+        barrier.wait()
+        try:
+            with transaction.atomic():
+                locked = ClanSeason.objects.select_for_update().get(pk=cs.pk)
+                if locked.state != ClanSeason.State.ACTIVE:
+                    return False
+                ClanMembership.objects.create(
+                    player=soldier,
+                    season=season,
+                    clan_season=locked,
+                    role=ClanRole.SOLDIER,
+                    started_at=now,
+                    config_version=config,
+                )
+                return True
+        finally:
+            close_old_connections()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(dissolve), pool.submit(join)]
+        [future.result() for future in futures]
+    cs.refresh_from_db()
+    assert not (
+        cs.state == ClanSeason.State.ENDED
+        and ClanMembership.objects.filter(player=soldier, ended_at__isnull=True).exists()
+    )
+
+
+def test_recovery_case_open_race_never_cancels_open_case(clan_world):  # type: ignore[no-untyped-def]
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    from django.db import close_old_connections
+
+    now, *_ = clan_world
+    cs = clan_world[-1]()
+    electorate(clan_world, cs)
+    cs.state, cs.recovery_reason, cs.recovery_started_at = (
+        ClanSeason.State.RECOVERY,
+        "CAPTAIN_INACTIVITY",
+        now,
+    )
+    cs.save()
+    captain = cs.memberships.get(role=ClanRole.CAPTAIN)
+    barrier = Barrier(2)
+
+    def open_recovery():  # type: ignore[no-untyped-def]
+        close_old_connections()
+        barrier.wait()
+        try:
+            return open_case(
+                initiator=cs.captain,
+                clan_season=cs,
+                case_type=ClanGovernanceCase.Type.RECOVERY_DISSOLUTION,
+                reason="CAPTAIN_INACTIVITY",
+                now=now,
+            )
+        except ClanConflict:
+            return None
+        finally:
+            close_old_connections()
+
+    def return_activity():  # type: ignore[no-untyped-def]
+        close_old_connections()
+        barrier.wait()
+        try:
+            return record_clan_activity(captain.pk, occurred_at=now + timedelta(seconds=1))
+        finally:
+            close_old_connections()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        [future.result() for future in (pool.submit(open_recovery), pool.submit(return_activity))]
+    cs.refresh_from_db()
+    if ClanGovernanceCase.objects.filter(
+        clan_season=cs, case_type=ClanGovernanceCase.Type.RECOVERY_DISSOLUTION
+    ).exists():
+        assert (
+            cs.state == ClanSeason.State.RECOVERY and cs.recovery_governance_opened_at is not None
+        )

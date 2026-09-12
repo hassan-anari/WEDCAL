@@ -33,3 +33,20 @@ def test_phase7b_openapi_and_no_moderator_action_surface() -> None:
     }
     assert expected <= paths.keys()
     assert not any("actions" in path and "moderation" in path for path in paths)
+
+
+def test_governance_schema_exposes_server_owned_voting_state() -> None:
+    schema = api.get_openapi_schema()
+    properties = schema["components"]["schemas"]["GovernanceOut"]["properties"]
+    assert {
+        "reason",
+        "target_membership_id",
+        "target_first_name",
+        "target_username",
+        "is_eligible_voter",
+        "own_vote",
+        "yes_count",
+        "no_count",
+        "valid_cast_count",
+        "result",
+    } <= properties.keys()

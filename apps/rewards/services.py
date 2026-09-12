@@ -10,6 +10,7 @@ from django.utils import timezone
 from apps.game_config.models import GameConfigVersion
 from apps.game_config.services import ResolvedGameConfig, resolve_effective_game_config
 from apps.players.models import Player
+from apps.players.services import reward_gameplay_allowed
 from apps.progression.models import PlayerProgression
 from apps.progression.services import calculate_progression
 from apps.rewards.models import RewardLedger, RewardSettlementOutbox
@@ -100,10 +101,7 @@ def settle_player_reward(
                 raise IdempotencyConflict("Idempotency key belongs to a different settlement")
             logger.info("reward_duplicate", player_id=player.pk, reward_id=existing.pk)
             return existing, False
-        if locked_player.moderation_state in {
-            Player.ModerationState.SUSPENDED,
-            Player.ModerationState.BANNED,
-        }:
+        if not reward_gameplay_allowed(locked_player):
             raise InvalidReward("Player moderation state blocks reward generation")
         projection_config = (
             resolve_effective_game_config(projection_at or timezone.now())

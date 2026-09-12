@@ -59,6 +59,7 @@ class ClanSeason(models.Model):
     recovery_started_at = models.DateTimeField(null=True, blank=True)
     bot_admin_lost_at = models.DateTimeField(null=True, blank=True, db_index=True)
     bot_admin_restore_deadline = models.DateTimeField(null=True, blank=True, db_index=True)
+    recovery_governance_opened_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -213,6 +214,7 @@ class ClanGovernanceCase(models.Model):
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.OPEN)
     finalized_at = models.DateTimeField(null=True, blank=True)
     execution_completed_at = models.DateTimeField(null=True, blank=True)
+    result_reason = models.CharField(max_length=40, blank=True)
 
     class Meta:
         constraints = [

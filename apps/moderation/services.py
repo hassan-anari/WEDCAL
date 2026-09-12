@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Q
 from django.utils import timezone
 
@@ -96,15 +96,18 @@ def apply_action(
         raise PermissionDenied("An actor is required")
     if action_type not in ModerationAction.Type.values or not reason.strip() or not idempotency_key:
         raise ValidationError("Invalid moderation action")
-    case_identity = ModerationCase.objects.values("target_id").get(pk=case_id)
     with transaction.atomic():
-        target = Player.objects.select_for_update().get(pk=case_identity["target_id"])
+        # Serialize the globally unique key before any case/player row locks.
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [idempotency_key]
+            )
         existing = ModerationAction.objects.filter(idempotency_key=idempotency_key).first()
         if existing:
             if not _same_action(
                 existing,
                 case_id=case_id,
-                target_id=target.pk,
+                target_id=existing.target_id,
                 action_type=action_type,
                 reason=reason,
                 actor_id=actor.pk if actor else None,
@@ -113,7 +116,13 @@ def apply_action(
                 raise ModerationIdempotencyConflict("Idempotency key belongs to another action")
             return existing
         case = ModerationCase.objects.select_for_update().get(pk=case_id)
-        previous = {"moderation_state": target.moderation_state}
+        if case.status == ModerationCase.Status.CLOSED:
+            raise ValidationError("Moderation case is closed")
+        target = Player.objects.select_for_update().get(pk=case.target_id)
+        previous: dict[str, object] = {
+            "moderation_state": target.moderation_state,
+            "case_status": case.status,
+        }
         transitions: dict[str, str] = {
             str(ModerationAction.Type.FLAG): str(Player.ModerationState.FLAGGED),
             str(ModerationAction.Type.SUSPEND): str(Player.ModerationState.SUSPENDED),
@@ -139,6 +148,11 @@ def apply_action(
             )
             if membership is None:
                 raise ValidationError("Target has no current membership in the case Clan")
+            previous["membership"] = {
+                "membership_id": membership.pk,
+                "ended_at": None,
+                "end_reason": membership.end_reason,
+            }
             _close_membership(
                 membership,
                 ClanMembership.EndReason.MODERATION_REMOVAL,
@@ -148,6 +162,18 @@ def apply_action(
             )
         if action_type == ModerationAction.Type.DISMISS:
             close_case(case)
+        resulting: dict[str, object] = {
+            "moderation_state": target.moderation_state,
+            "case_status": case.status,
+        }
+        if action_type == ModerationAction.Type.REMOVE_FROM_CLAN:
+            assert membership is not None
+            membership.refresh_from_db()
+            resulting["membership"] = {
+                "membership_id": membership.pk,
+                "ended_at": membership.ended_at.isoformat() if membership.ended_at else None,
+                "end_reason": membership.end_reason,
+            }
         return ModerationAction.objects.create(
             case=case,
             actor=actor,
@@ -156,7 +182,7 @@ def apply_action(
             action_type=action_type,
             reason=reason,
             previous_state=previous,
-            resulting_state={"moderation_state": target.moderation_state},
+            resulting_state=resulting,
             idempotency_key=idempotency_key,
         )
 

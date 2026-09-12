@@ -280,3 +280,66 @@ def test_concurrent_duplicate_action_executes_once(clan_world):  # type: ignore[
         ids = list(pool.map(lambda _: run(), range(2)))
     assert ids[0] == ids[1]
     assert ModerationAction.objects.filter(idempotency_key="concurrent").count() == 1
+
+
+def test_closed_case_replays_existing_but_rejects_new_action(clan_world):  # type: ignore[no-untyped-def]
+    reporter, target = clan_world[-2](), clan_world[-2]()
+    case = create_report(reporter=reporter, target=target, category="risk", reason="reason")
+    dismissed = apply_action(
+        case_id=case.pk,
+        action_type="DISMISS",
+        reason="done",
+        idempotency_key="dismiss",
+        system_actor="test",
+    )
+    assert (
+        apply_action(
+            case_id=case.pk,
+            action_type="DISMISS",
+            reason="done",
+            idempotency_key="dismiss",
+            system_actor="test",
+        ).pk
+        == dismissed.pk
+    )
+    with pytest.raises(ValidationError):
+        apply_action(
+            case_id=case.pk,
+            action_type="BAN",
+            reason="late",
+            idempotency_key="late",
+            system_actor="test",
+        )
+
+
+def test_cross_target_global_idempotency_race_is_domain_safe(clan_world):  # type: ignore[no-untyped-def]
+    from concurrent.futures import ThreadPoolExecutor
+
+    from django.db import close_old_connections
+
+    reporter, first_target, second_target = clan_world[-2](), clan_world[-2](), clan_world[-2]()
+    cases = [
+        create_report(reporter=reporter, target=target, category="risk", reason="reason")
+        for target in (first_target, second_target)
+    ]
+
+    def run(case_id):  # type: ignore[no-untyped-def]
+        close_old_connections()
+        try:
+            return apply_action(
+                case_id=case_id,
+                action_type="BAN",
+                reason="review",
+                idempotency_key="global-race",
+                system_actor="test",
+            )
+        except BaseException as exc:
+            return exc
+        finally:
+            close_old_connections()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(run, [case.pk for case in cases]))
+    assert sum(isinstance(result, ModerationAction) for result in results) == 1
+    assert sum(isinstance(result, ModerationIdempotencyConflict) for result in results) == 1
+    assert ModerationAction.objects.filter(idempotency_key="global-race").count() == 1

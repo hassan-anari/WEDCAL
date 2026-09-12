@@ -902,10 +902,11 @@ def reconcile_telegram_membership(
                 return
             if clan_season.state not in {ClanSeason.State.ACTIVE, ClanSeason.State.RECOVERY}:
                 return
-            # Telegram source timestamps have one-second precision. Treat the
-            # immediately preceding partial second as the same boundary, while
-            # still rejecting genuinely pre-accept observations.
-            if req.decided_at is None or observed_at < req.decided_at - timedelta(seconds=1):
+            # Telegram source timestamps have one-second precision: only the
+            # exact acceptance source-second is boundary-equivalent.
+            if req.decided_at is None or observed_at.replace(
+                microsecond=0
+            ) < req.decided_at.replace(microsecond=0):
                 return
             if ClanMembership.objects.filter(
                 player=player, season=clan_season.season, ended_at__isnull=True

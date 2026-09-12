@@ -115,7 +115,7 @@ def record_clan_activity(membership_id: int, *, occurred_at: datetime) -> ClanMe
             membership.role == ClanRole.CAPTAIN
             and cs.state == ClanSeason.State.RECOVERY
             and cs.bot_admin_lost_at is None
-            and not cs.governance_cases.filter(status=ClanGovernanceCase.Status.OPEN).exists()
+            and cs.recovery_governance_opened_at is None
         ):
             cs.state, cs.recovery_reason, cs.recovery_started_at = ClanSeason.State.ACTIVE, "", None
             cs.save(update_fields=("state", "recovery_reason", "recovery_started_at", "updated_at"))
@@ -234,6 +234,9 @@ def open_case(
         ClanGovernanceElector.objects.bulk_create(
             [ClanGovernanceElector(case=case, player_id=v.player_id, membership=v) for v in voters]
         )
+        if case_type == ClanGovernanceCase.Type.RECOVERY_DISSOLUTION:
+            cs.recovery_governance_opened_at = now
+            cs.save(update_fields=("recovery_governance_opened_at", "updated_at"))
         _event(
             cs,
             "GOVERNANCE_OPENED",
@@ -305,6 +308,9 @@ def finalize_case(case_id: int, *, now: datetime | None = None) -> ClanGovernanc
         cast = yes + no
         quorum = cast * 10000 >= case.eligible_count * case.quorum_bps
         approved = quorum and cast > 0 and yes * 10000 >= cast * case.approval_bps
+        result_reason = (
+            "APPROVED" if approved else "NO_QUORUM" if not quorum else "APPROVAL_THRESHOLD_NOT_MET"
+        )
         case.yes_count, case.no_count, case.valid_cast_count = yes, no, cast
         case.quorum_met, case.approval_met, case.status, case.finalized_at = (
             quorum,
@@ -312,6 +318,7 @@ def finalize_case(case_id: int, *, now: datetime | None = None) -> ClanGovernanc
             ClanGovernanceCase.Status.APPROVED if approved else ClanGovernanceCase.Status.REJECTED,
             now,
         )
+        case.result_reason = result_reason
         case.save(
             update_fields=(
                 "yes_count",
@@ -321,6 +328,7 @@ def finalize_case(case_id: int, *, now: datetime | None = None) -> ClanGovernanc
                 "approval_met",
                 "status",
                 "finalized_at",
+                "result_reason",
             )
         )
         if (
@@ -438,16 +446,23 @@ def sweep_inactivity(*, now: datetime | None = None, limit: int = 100) -> int:
                     days=policy.captain_recovery_days
                 ):
                     if cs.state == ClanSeason.State.ACTIVE:
-                        cs.state, cs.recovery_reason, cs.recovery_started_at = (
+                        (
+                            cs.state,
+                            cs.recovery_reason,
+                            cs.recovery_started_at,
+                            cs.recovery_governance_opened_at,
+                        ) = (
                             ClanSeason.State.RECOVERY,
                             "CAPTAIN_INACTIVITY",
                             now,
+                            None,
                         )
                         cs.save(
                             update_fields=(
                                 "state",
                                 "recovery_reason",
                                 "recovery_started_at",
+                                "recovery_governance_opened_at",
                                 "updated_at",
                             )
                         )
@@ -509,8 +524,7 @@ def observe_bot_admin_state(
             )
         elif is_admin and cs.bot_admin_lost_at is not None:
             cs.bot_admin_lost_at = cs.bot_admin_restore_deadline = None
-            has_case = cs.governance_cases.filter(status=ClanGovernanceCase.Status.OPEN).exists()
-            if not has_case and cs.recovery_reason == "BOT_ADMIN_LOSS":
+            if cs.recovery_governance_opened_at is None and cs.recovery_reason == "BOT_ADMIN_LOSS":
                 cs.recovery_reason, cs.recovery_started_at = "", None
                 if cs.state == ClanSeason.State.RECOVERY:
                     cs.state = ClanSeason.State.ACTIVE
@@ -561,8 +575,19 @@ def sweep_bot_admin_deadlines(*, now: datetime | None = None, limit: int = 100) 
                     or cs.bot_admin_restore_deadline > now
                 ):
                     continue
-                cs.state, cs.recovery_started_at = ClanSeason.State.RECOVERY, now
-                cs.save(update_fields=("state", "recovery_started_at", "updated_at"))
+                cs.state, cs.recovery_started_at, cs.recovery_governance_opened_at = (
+                    ClanSeason.State.RECOVERY,
+                    now,
+                    None,
+                )
+                cs.save(
+                    update_fields=(
+                        "state",
+                        "recovery_started_at",
+                        "recovery_governance_opened_at",
+                        "updated_at",
+                    )
+                )
                 _event(cs, "RECOVERY_ENTERED", now, source_type="BOT_ADMIN", source_id=str(pk))
                 policy = _policy(cs)
                 if _electorate(cs).count() >= policy.governance_minimum_voters:
