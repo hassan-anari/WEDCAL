@@ -489,7 +489,11 @@ def _observe_bot_membership(event: BotMembershipChanged, telegram_update_id: int
         ClanSeason.objects.filter(
             clan__telegram_group=group,
             state__in=[ClanSeason.State.ACTIVE, ClanSeason.State.RECOVERY],
+            season__status="ACTIVE",
+            season__starts_at__lte=event.observed_at,
+            season__ends_at__gt=event.observed_at,
         )
+        .order_by("-season__starts_at", "-pk")
         .values_list("pk", flat=True)
         .first()
     )

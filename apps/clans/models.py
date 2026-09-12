@@ -71,6 +71,23 @@ class ClanSeason(models.Model):
         ]
 
 
+class ClanSeasonEvent(models.Model):
+    clan_season = models.ForeignKey(ClanSeason, on_delete=models.PROTECT, related_name="events")
+    kind = models.CharField(max_length=40)
+    occurred_at = models.DateTimeField()
+    source_type = models.CharField(max_length=32, blank=True)
+    source_id = models.CharField(max_length=64, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("clan_season", "kind", "source_type", "source_id"),
+                name="clan_unique_season_event_source",
+            )
+        ]
+
+
 class ClanMembership(models.Model):
     class Access(models.TextChoices):
         ACTIVE = "ACTIVE", "Active"
@@ -102,6 +119,7 @@ class ClanMembership(models.Model):
     config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
     last_clan_active_at = models.DateTimeField(null=True, blank=True, db_index=True)
     inactivity_warned_at = models.DateTimeField(null=True, blank=True)
+    next_inactivity_check_at = models.DateTimeField(null=True, blank=True, db_index=True)
 
     class Meta:
         constraints = [

@@ -551,6 +551,7 @@ def purge_activity_evidence(now: datetime | None = None, *, limit: int = 1000) -
     content = NetworkActivity.objects.filter(pk__in=content_ids).update(text=None)
     fingerprint_ids = list(
         NetworkActivity.objects.filter(fingerprint_expires_at__lte=now)
+        .exclude(pk__in=held)
         .exclude(exact_fingerprint="", normalized_fingerprint="")
         .order_by("fingerprint_expires_at", "pk")
         .values_list("pk", flat=True)[:limit]

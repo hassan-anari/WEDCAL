@@ -1,4 +1,4 @@
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import HttpRequest
 from ninja import Router, Schema
 from ninja.errors import HttpError
@@ -39,4 +39,6 @@ def report(request: HttpRequest, payload: ReportIn) -> ReportOut:
         raise HttpError(404, "Target not found") from exc
     except ValidationError as exc:
         raise HttpError(409, str(exc)) from exc
+    except PermissionDenied as exc:
+        raise HttpError(403, "Evidence is not valid for this report") from exc
     return ReportOut(case_id=str(case.public_id), status=case.status)

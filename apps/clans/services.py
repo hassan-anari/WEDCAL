@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from apps.clans.models import (
     Clan,
+    ClanExpectedRemoval,
     ClanInvite,
     ClanJoinRequest,
     ClanMembership,
@@ -223,6 +224,7 @@ def register_clan(
             role=ClanRole.CAPTAIN,
             started_at=timezone.now(),
             last_clan_active_at=timezone.now(),
+            next_inactivity_check_at=timezone.now() + timedelta(days=policy.captain_warning_days),
             last_telegram_update_id=observed_update_id,
             telegram_verified_at=verified_at,
             config_version=config,
@@ -806,6 +808,26 @@ def reconcile_telegram_membership(
             .filter(player=player, clan_season__clan__telegram_group=group, ended_at__isnull=True)
             .first()
         )
+        if membership is None and not present:
+            expected = (
+                ClanExpectedRemoval.objects.select_for_update()
+                .select_related("membership")
+                .filter(
+                    membership__player=player,
+                    membership__clan_season__clan__telegram_group=group,
+                    reconciled_at__isnull=True,
+                    created_at__lte=observed_at,
+                    membership__last_telegram_update_id__lt=telegram_update_id,
+                )
+                .order_by("-created_at", "-pk")
+                .first()
+            )
+            if expected is not None:
+                expected.reconciled_at = observed_at
+                expected.save(update_fields=("reconciled_at",))
+                expected.membership.last_telegram_update_id = telegram_update_id
+                expected.membership.save(update_fields=("last_telegram_update_id",))
+                return
         if membership:
             if telegram_update_id <= membership.last_telegram_update_id:
                 return
@@ -880,12 +902,17 @@ def reconcile_telegram_membership(
                 return
             if clan_season.state not in {ClanSeason.State.ACTIVE, ClanSeason.State.RECOVERY}:
                 return
-            if req.decided_at is None or observed_at < req.decided_at.replace(microsecond=0):
+            # Telegram source timestamps have one-second precision. Treat the
+            # immediately preceding partial second as the same boundary, while
+            # still rejecting genuinely pre-accept observations.
+            if req.decided_at is None or observed_at < req.decided_at - timedelta(seconds=1):
                 return
             if ClanMembership.objects.filter(
                 player=player, season=clan_season.season, ended_at__isnull=True
             ).exists():
                 return
+            policy = resolve_game_config_version(clan_season.config_version_id).clan
+            assert policy is not None
             membership = ClanMembership.objects.create(
                 player=player,
                 season=clan_season.season,
@@ -893,6 +920,8 @@ def reconcile_telegram_membership(
                 role=ClanRole.SOLDIER,
                 started_at=max(observed_at, req.decided_at),
                 last_clan_active_at=max(observed_at, req.decided_at),
+                next_inactivity_check_at=max(observed_at, req.decided_at)
+                + timedelta(days=policy.soldier_warning_days),
                 last_telegram_update_id=telegram_update_id,
                 telegram_verified_at=fresh_verified_at,
                 config_version=clan_season.config_version,
@@ -931,6 +960,14 @@ def voluntary_leave(
     if state.voluntary_leave_count >= policy.max_voluntary_leaves_per_season:
         raise ClanConflict("Season voluntary leave limit reached")
     now = timezone.now()
+    ClanExpectedRemoval.objects.get_or_create(
+        membership=membership,
+        defaults={
+            "reason": ClanMembership.EndReason.VOLUNTARY_LEAVE,
+            "source_type": "VOLUNTARY_LEAVE",
+            "source_id": str(membership.pk),
+        },
+    )
     membership.ended_at, membership.end_reason = now, ClanMembership.EndReason.VOLUNTARY_LEAVE
     membership.save(update_fields=("ended_at", "end_reason"))
     state.voluntary_leave_count += 1

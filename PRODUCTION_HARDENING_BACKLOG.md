@@ -396,9 +396,9 @@ Examples requiring explicit close handling:
 **Gate:** `PHASE-10-BLOCKER` before staff evidence access is exposed
 
 Phase 7B adds bounded evidence references/holds: active cases protect referenced NetworkActivity
-content, case close records a config-derived finite retention deadline, and normal player APIs never
-return raw evidence. Phase 10 still owns the least-privilege staff evidence viewer and read-access
-audit trail; no staff evidence endpoint is exposed in Phase 7B.
+raw content and fingerprint/risk metadata, case close records a config-snapshotted finite retention
+deadline, and normal player APIs never return raw evidence. Phase 10 still owns the least-privilege
+staff evidence viewer and read-access audit trail; no staff evidence endpoint is exposed in Phase 7B.
 
 **Required acceptance:**
 
