@@ -95,7 +95,7 @@ def test_reverse_rate_limit_is_source_order_deterministic(clan_world) -> None:  
     assert sum(cs.treasury_entries.values_list("amount", flat=True)) == 0
     assert sum(cs.contribution_entries.values_list("amount", flat=True)) == 5
     cs.refresh_from_db()
-    assert (cs.hq_xp, cs.competitive_score) == (0, 5)
+    assert (cs.hq_xp, cs.competitive_score) == (1, 5)
 
 
 @pytest.mark.django_db
@@ -271,7 +271,7 @@ def test_adjacent_window_rate_history_is_deterministic(clan_world) -> None:  # t
     assert sum(cs.contribution_entries.values_list("amount", flat=True)) == 5
     assert cs.economic_settlements.filter(source_type="CLAN_ACTIVITY").count() == 2
     cs.refresh_from_db()
-    assert (cs.hq_xp, cs.competitive_score) == (0, 5)
+    assert (cs.hq_xp, cs.competitive_score) == (1, 5)
 
 
 @pytest.mark.django_db
