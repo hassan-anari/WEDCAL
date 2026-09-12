@@ -55,6 +55,9 @@ def clan_world(phase4_config_factory, season_factory, player_factory):  # type: 
             base_capacity=capacity,
             config_version=config,
         )
+        # Keep the fixture's source clock deterministic: domain events use `now`.
+        ClanSeason.objects.filter(pk=cs.pk).update(created_at=now)
+        cs.refresh_from_db()
         ClanMembership.objects.create(
             player=captain,
             season=season,

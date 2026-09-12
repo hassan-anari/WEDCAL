@@ -82,8 +82,20 @@ def test_two_clans_accepting_one_soldier_has_one_winner(clan_world) -> None:  # 
 
 @pytest.mark.django_db(transaction=True)
 def test_last_seat_capacity_race_has_one_winner(clan_world) -> None:  # type: ignore[no-untyped-def]
-    _, _, _, resolved, player, clan = clan_world
-    cs = clan(capacity=2)
+    now, config, season, resolved, player, clan = clan_world
+    cs = clan()
+    # HQ level 1 has effective capacity 20. Fill eighteen Soldier slots in
+    # addition to the Captain so the concurrent requests contend for slot 20.
+    for _ in range(18):
+        member = player(ClanRole.SOLDIER)
+        ClanMembership.objects.create(
+            player=member,
+            season=season,
+            clan_season=cs,
+            role=ClanRole.SOLDIER,
+            started_at=now,
+            config_version=config,
+        )
     one, two = player(ClanRole.SOLDIER), player(ClanRole.SOLDIER)
     r1 = request_join(one, cs, resolved)
     r2 = request_join(two, cs, resolved)

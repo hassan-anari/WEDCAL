@@ -451,6 +451,7 @@ class ClanActivity(models.Model):
         SUSPICIOUS = "SUSPICIOUS", "Suspicious"
         REJECTED = "REJECTED", "Rejected"
         CONTROL = "CONTROL", "Control"
+        LATE = "LATE", "Late after finalization"
 
     clan_season = models.ForeignKey(ClanSeason, on_delete=models.PROTECT, related_name="activity")
     membership = models.ForeignKey(ClanMembership, on_delete=models.PROTECT, null=True)
@@ -467,6 +468,10 @@ class ClanActivity(models.Model):
     exact_fingerprint = models.CharField(max_length=64, blank=True)
     normalized_fingerprint = models.CharField(max_length=64, blank=True)
     window_processed = models.BooleanField(default=False, db_index=True)
+    membership_eligible_at_source = models.BooleanField(default=False)
+    home_integrity_at_source = models.BooleanField(default=False)
+    context_owned_at_source = models.BooleanField(default=False)
+    captain_bonus_eligible_at_source = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -563,10 +568,13 @@ class ClanAchievementUnlock(models.Model):
 
 class ClanCaptainBonusDaily(models.Model):
     clan_season = models.ForeignKey(ClanSeason, on_delete=models.PROTECT)
-    period_key = models.CharField(max_length=16)
+    period_key = models.CharField(max_length=64)
     eligible_gross = models.PositiveBigIntegerField(default=0)
     awarded_amount = models.PositiveBigIntegerField(default=0)
     processed_sources = models.JSONField(default=list)
+    config_version = models.ForeignKey(
+        "game_config.GameConfigVersion", on_delete=models.PROTECT, null=True
+    )
 
     class Meta:
         constraints = [
@@ -607,11 +615,72 @@ class ClanMissionProgress(models.Model):
     reward_settlement = models.OneToOneField(
         ClanEconomicSettlement, on_delete=models.PROTECT, null=True
     )
+    progress_remainder = models.PositiveBigIntegerField(default=0)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
                 fields=("definition", "clan_season", "membership"),
                 name="clan_unique_mission_progress",
+                nulls_distinct=False,
             )
         ]
+
+
+class ClanEconomicAccumulator(models.Model):
+    clan_season = models.ForeignKey(
+        ClanSeason, on_delete=models.PROTECT, related_name="economic_accumulators"
+    )
+    config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
+    contribution_remainder = models.PositiveBigIntegerField(default=0)
+    hq_remainder = models.PositiveBigIntegerField(default=0)
+    score_remainder = models.PositiveBigIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("clan_season", "config_version"),
+                name="clan_unique_economy_accumulator",
+            )
+        ]
+
+
+class ClanMissionSourceEvent(models.Model):
+    definition = models.ForeignKey(ClanMissionDefinition, on_delete=models.PROTECT)
+    clan_season = models.ForeignKey(ClanSeason, on_delete=models.PROTECT)
+    membership = models.ForeignKey(ClanMembership, on_delete=models.PROTECT)
+    source_id = models.CharField(max_length=128)
+    units = models.PositiveBigIntegerField()
+    occurred_at = models.DateTimeField()
+    config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("definition", "source_id"), name="clan_unique_mission_source"
+            )
+        ]
+
+
+class ClanMissionParticipant(models.Model):
+    progress = models.ForeignKey(
+        ClanMissionProgress, on_delete=models.PROTECT, related_name="participants"
+    )
+    membership = models.ForeignKey(ClanMembership, on_delete=models.PROTECT)
+    reward_settlement = models.OneToOneField(
+        ClanEconomicSettlement, on_delete=models.PROTECT, null=True
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("progress", "membership"), name="clan_unique_mission_participant"
+            )
+        ]
+
+
+class ClanIdempotencyKey(models.Model):
+    key = models.CharField(max_length=200, unique=True)
+    action = models.CharField(max_length=32)
+    semantic_hash = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)

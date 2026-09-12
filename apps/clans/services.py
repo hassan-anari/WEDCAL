@@ -516,27 +516,11 @@ def create_personal_invite(invite: ClanInvite) -> ClanInvite:
 
 
 def release_uncertain_invite(invite: ClanInvite) -> ClanInvite:
-    """Operationally abandon an unknowable credential and release a JOIN reservation."""
-    now = timezone.now()
-    with transaction.atomic():
-        invite = ClanInvite.objects.select_for_update().get(pk=invite.pk)
-        if invite.state != ClanInvite.State.UNCERTAIN:
-            return invite
-        if (
-            not invite.uncertain_since
-            or invite.uncertain_since
-            + timedelta(seconds=settings.CLAN_INVITE_UNCERTAIN_HOLD_SECONDS)
-            > now
-        ):
-            raise ClanConflict("Uncertain credential safety hold is still active")
-        invite.state = ClanInvite.State.REVOKED
-        invite.last_error_category = "uncertain_released"
-        invite.save()
-        if invite.join_request_id:
-            ClanJoinRequest.objects.filter(
-                pk=invite.join_request_id, state=ClanJoinRequest.State.ACCEPTED
-            ).update(state=ClanJoinRequest.State.CANCELLED)
-        return invite
+    """Unknown remote credentials cannot be released without positive revocation proof."""
+    invite = ClanInvite.objects.get(pk=invite.pk)
+    if invite.state == ClanInvite.State.UNCERTAIN:
+        raise ClanConflict("Uncertain credential requires safe revocation or manual review")
+    return invite
 
 
 def recover_invite_creations(*, limit: int | None = None) -> int:
@@ -606,35 +590,22 @@ def recover_invite_creations(*, limit: int | None = None) -> int:
                 invite.unknown_credential_risk = True
                 invite.last_error_category = "uncertain_terminalization"
                 invite.save()
-                if invite.purpose == ClanInvite.Purpose.JOIN and invite.join_request_id:
-                    ClanJoinRequest.objects.filter(
-                        pk=invite.join_request_id, state=ClanJoinRequest.State.ACCEPTED
-                    ).update(state=ClanJoinRequest.State.CANCELLED)
                 continue
             if invite.attempt_count >= settings.CLAN_INVITE_MAX_CREATE_ATTEMPTS:
                 invite.state = ClanInvite.State.MANUAL_REVIEW
                 invite.next_create_retry_at = None
                 invite.last_error_category = "create_attempt_limit"
                 invite.save()
-                if invite.purpose == ClanInvite.Purpose.JOIN and invite.join_request_id:
-                    ClanJoinRequest.objects.filter(
-                        pk=invite.join_request_id,
-                        state=ClanJoinRequest.State.ACCEPTED,
-                    ).update(state=ClanJoinRequest.State.CANCELLED)
                 continue
             if (
                 invite.state == ClanInvite.State.UNCERTAIN
                 and invite.purpose == ClanInvite.Purpose.JOIN
             ):
-                # Unknown JOIN credentials are not duplicated: release the reserved seat.
+                # Unknown JOIN credentials are not duplicated and retain their reservation.
                 invite.state = ClanInvite.State.MANUAL_REVIEW
-                invite.last_error_category = "uncertain_join_released"
+                invite.unknown_credential_risk = True
+                invite.last_error_category = "uncertain_join_manual_review"
                 invite.save()
-                if invite.join_request_id:
-                    ClanJoinRequest.objects.filter(
-                        pk=invite.join_request_id,
-                        state=ClanJoinRequest.State.ACCEPTED,
-                    ).update(state=ClanJoinRequest.State.CANCELLED)
                 continue
             invite.state = ClanInvite.State.PENDING
             invite.next_create_retry_at = None
@@ -685,6 +656,10 @@ def queue_invite_revoke(invite_id: int, *, terminal: str) -> None:
             invite.state = terminal
             invite.desired_terminal_state = ""
             invite.save(update_fields=("state", "desired_terminal_state", "updated_at"))
+            if invite.join_request_id and terminal == ClanInvite.State.REVOKED:
+                ClanJoinRequest.objects.filter(
+                    pk=invite.join_request_id, state=ClanJoinRequest.State.ACCEPTED
+                ).update(state=ClanJoinRequest.State.CANCELLED, decided_at=timezone.now())
             return
         invite.state = ClanInvite.State.REVOKE_PENDING
         invite.desired_terminal_state = terminal

@@ -378,6 +378,22 @@ def parse_clan(payload: dict[str, Any]) -> ClanConfig:
             available = _boolean(item["available_s1"], "item availability")
             if available and activation not in {"TIMED", "CONTEXT"}:
                 raise ValidationError("Available Clan item requires a supported activation")
+            allowed_by_activation = {
+                "TIMED": {
+                    "HQ_XP_RATE_BONUS_BPS",
+                    "CONTRIBUTION_RATE_BONUS_BPS",
+                    "CLAN_MISSION_PROGRESS_BONUS_BPS",
+                },
+                "CONTEXT": {"SEASON_CAPACITY_ADD", "HQ_XP_GRANT"},
+                None: set(),
+            }
+            if any(
+                effect.category not in allowed_by_activation.get(activation, set())
+                for effect in effects
+            ):
+                raise ValidationError("Clan item effect is incompatible with its activation mode")
+            if any(effect.category.endswith("_BPS") and effect.value > 10000 for effect in effects):
+                raise ValidationError("Clan item basis points cannot exceed 10000")
             if activation == "TIMED":
                 duration = _integer(duration, "item duration", minimum=1)
             elif duration is not None:
@@ -529,7 +545,7 @@ def parse_clan(payload: dict[str, Any]) -> ClanConfig:
             or result.captain_warning_days >= result.captain_recovery_days
             or result.governance_quorum_bps > 10000
             or result.governance_approval_bps > 10000
-            or result.treasury_split_bps > 10000
+            or result.treasury_split_bps >= 10000
             or result.captain_bonus.share_bps > 10000
             or len({x.level for x in hq_curve}) != len(hq_curve)
             or len({x.min_xp for x in hq_curve}) != len(hq_curve)
@@ -551,6 +567,10 @@ def parse_clan(payload: dict[str, Any]) -> ClanConfig:
             or bonus.get("generates_contribution") is not False
             or bonus.get("eligible_for_referral_share") is not False
             or fraud.get("suspicious_is_auto_ban") is not False
+            or result.anti_fraud.suspicious_count >= result.anti_fraud.reject_count
+            or result.activity.max_rewardable_chars < result.activity.min_message_chars
+            or not mission_bands
+            or len({x.key for x in mission_bands}) != len(mission_bands)
         ):
             raise ValidationError("Clan thresholds and basis points are invalid")
         return result

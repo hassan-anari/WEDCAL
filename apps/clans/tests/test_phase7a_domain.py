@@ -107,17 +107,20 @@ def test_activation_requires_accepted_path_and_source_time(clan_world) -> None: 
 
 @pytest.mark.django_db
 def test_access_transitions_do_not_extend_or_fabricate_events(clan_world, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    now, _, _, resolved, player, clan = clan_world
+    _, _, _, resolved, player, clan = clan_world
     monkeypatch.setattr("apps.clans.services._dispatch_revoke", lambda _pk: None)
     soldier, cs = player(ClanRole.SOLDIER), clan()
     req = request_join(soldier, cs, resolved)
     decide_request(cs.captain, req.pk, accept=True)
+    req.refresh_from_db()
+    assert req.decided_at is not None
+    observed = req.decided_at
     reconcile_telegram_membership(
         player=soldier,
         group=cs.clan.telegram_group,
         present=True,
         telegram_update_id=10,
-        observed_at=now,
+        observed_at=observed,
     )
     membership = ClanMembership.objects.get(player=soldier)
     reconcile_telegram_membership(
@@ -125,7 +128,7 @@ def test_access_transitions_do_not_extend_or_fabricate_events(clan_world, monkey
         group=cs.clan.telegram_group,
         present=True,
         telegram_update_id=11,
-        observed_at=now,
+        observed_at=observed,
     )
     assert not ClanMembershipEvent.objects.filter(
         membership=membership, kind="ACCESS_RESTORED"
@@ -135,7 +138,7 @@ def test_access_transitions_do_not_extend_or_fabricate_events(clan_world, monkey
         group=cs.clan.telegram_group,
         present=False,
         telegram_update_id=12,
-        observed_at=now,
+        observed_at=observed,
     )
     membership.refresh_from_db()
     deadline = membership.access_rejoin_deadline
@@ -144,7 +147,7 @@ def test_access_transitions_do_not_extend_or_fabricate_events(clan_world, monkey
         group=cs.clan.telegram_group,
         present=False,
         telegram_update_id=13,
-        observed_at=now + timedelta(hours=1),
+        observed_at=observed + timedelta(hours=1),
     )
     membership.refresh_from_db()
     assert membership.access_rejoin_deadline == deadline
@@ -153,7 +156,7 @@ def test_access_transitions_do_not_extend_or_fabricate_events(clan_world, monkey
         group=cs.clan.telegram_group,
         present=True,
         telegram_update_id=14,
-        observed_at=now + timedelta(hours=2),
+        observed_at=observed + timedelta(hours=2),
     )
     membership.refresh_from_db()
     assert membership.access_state == ClanMembership.Access.ACTIVE
@@ -445,7 +448,7 @@ def test_explicit_invite_failure_uses_backoff_without_poll_attempts(
 
 
 @pytest.mark.django_db
-def test_ambiguous_join_recovery_releases_capacity_reservation(
+def test_ambiguous_join_recovery_preserves_capacity_reservation(
     clan_world: Any, monkeypatch: Any, settings: Any
 ) -> None:
     from apps.clans.services import recover_invite_creations
@@ -467,7 +470,7 @@ def test_ambiguous_join_recovery_releases_capacity_reservation(
     invite.refresh_from_db()
     req.refresh_from_db()
     assert invite.state == ClanInvite.State.MANUAL_REVIEW
-    assert req.state == ClanJoinRequest.State.CANCELLED
+    assert req.state == ClanJoinRequest.State.ACCEPTED
 
 
 @pytest.mark.django_db
@@ -541,7 +544,7 @@ def test_stale_creating_lease_enters_uncertain_recovery_without_external_call(
     invite.refresh_from_db()
     req.refresh_from_db()
     assert invite.state == ClanInvite.State.MANUAL_REVIEW
-    assert req.state == ClanJoinRequest.State.CANCELLED
+    assert req.state == ClanJoinRequest.State.ACCEPTED
 
 
 @pytest.mark.django_db
@@ -702,7 +705,7 @@ def test_unknown_join_manual_review_blocks_same_clan_reapplication(
     assert recover_invite_creations() == 1
     req.refresh_from_db()
     invite.refresh_from_db()
-    assert req.state == ClanJoinRequest.State.CANCELLED
+    assert req.state == ClanJoinRequest.State.ACCEPTED
     assert invite.state == ClanInvite.State.MANUAL_REVIEW
     assert invite.unknown_credential_risk
     with pytest.raises(ClanConflict):

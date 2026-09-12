@@ -5,11 +5,12 @@ public mutation follows it so activity settlement and Treasury spending cannot
 deadlock by acquiring the shared aggregate in opposite orders.
 """
 
+import hashlib
 from datetime import datetime, timedelta
 from typing import Any
 
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import transaction
+from django.db import connection, models, transaction
 from django.utils import timezone
 
 from apps.clans.models import (
@@ -17,8 +18,10 @@ from apps.clans.models import (
     ClanActiveEffect,
     ClanCaptainBonusDaily,
     ClanContributionEntry,
+    ClanEconomicAccumulator,
     ClanEconomicSettlement,
     ClanHQXPEntry,
+    ClanIdempotencyKey,
     ClanInventory,
     ClanItemPurchase,
     ClanItemUse,
@@ -26,9 +29,16 @@ from apps.clans.models import (
     ClanSeason,
     ClanTreasuryEntry,
 )
+from apps.core.periods import resolve_daily_period
 from apps.game_config.models import GameConfigVersion
-from apps.game_config.services import ClanConfig, ClanHQRule, ResolvedGameConfig
+from apps.game_config.services import (
+    ClanConfig,
+    ClanHQRule,
+    ResolvedGameConfig,
+    resolve_game_config_version,
+)
 from apps.players.models import Player
+from apps.players.services import reward_gameplay_allowed
 from apps.profile_collection.models import PlayerAchievementUnlock
 from apps.rewards.services import IdempotencyConflict, settle_reward
 
@@ -44,6 +54,46 @@ def effective_capacity(clan_season: ClanSeason, policy: ClanConfig) -> int:
     )
 
 
+def rebuild_clan_projections(clan_season: ClanSeason) -> ClanSeason:
+    """Rebuild derived Phase 8 totals exclusively from durable source rows."""
+    with transaction.atomic():
+        cs = ClanSeason.objects.select_for_update().get(pk=clan_season.pk)
+        credits = (
+            cs.treasury_entries.filter(direction="CREDIT").aggregate(v=models.Sum("amount"))["v"]
+            or 0
+        )
+        debits = (
+            cs.treasury_entries.filter(direction="DEBIT").aggregate(v=models.Sum("amount"))["v"]
+            or 0
+        )
+        contribution = cs.contribution_entries.aggregate(v=models.Sum("amount"))["v"] or 0
+        hq_xp = cs.hq_xp_entries.aggregate(v=models.Sum("amount"))["v"] or 0
+        score = cs.economic_settlements.aggregate(v=models.Sum("clan_score_amount"))["v"] or 0
+        policy = resolve_game_config_version(cs.config_version_id).clan
+        if policy is None or debits > credits:
+            raise ValidationError("Clan durable sources cannot produce a valid projection")
+        capacity_bonus = 0
+        for use in cs.item_uses.select_related("config_version"):
+            use_policy = resolve_game_config_version(use.config_version_id).clan
+            if use_policy is None:
+                continue
+            item = use_policy.item(use.item_id)
+            capacity_bonus += sum(
+                e.value for e in item.effects if e.category == "SEASON_CAPACITY_ADD"
+            )
+        cs.treasury_balance = credits - debits
+        cs.treasury_earned_total = credits
+        cs.contribution_total = contribution
+        cs.hq_xp = hq_xp
+        cs.competitive_score = score
+        cs.capacity_bonus = capacity_bonus
+        rule = hq_rule(policy, hq_xp)
+        cs.hq_level = rule.level
+        cs.base_capacity = rule.base_capacity
+        cs.save()
+        return cs
+
+
 def active_effect_bps(
     clan_season: ClanSeason, category: str, at: datetime
 ) -> tuple[int, list[int]]:
@@ -53,6 +103,74 @@ def active_effect_bps(
         ).order_by("-value", "pk")
     )
     return (rows[0].value, [rows[0].pk]) if rows else (0, [])
+
+
+def _validate_key(value: str) -> None:
+    if not isinstance(value, str) or not value.strip() or len(value) > 200:
+        raise ValidationError("Idempotency key must contain 1 to 200 characters")
+
+
+def _lock_key(value: str) -> None:
+    key = int.from_bytes(hashlib.sha256(value.encode()).digest()[:8], "big", signed=True)
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(%s)", [key])
+
+
+def claim_idempotency_key(value: str, action: str, semantic: str) -> None:
+    _validate_key(value)
+    _lock_key(f"clan-idempotency:{value}")
+    digest = hashlib.sha256(semantic.encode()).hexdigest()
+    row = ClanIdempotencyKey.objects.filter(key=value).first()
+    if row:
+        if row.action != action or row.semantic_hash != digest:
+            raise IdempotencyConflict("Idempotency key belongs to another Clan mutation")
+        return
+    ClanIdempotencyKey.objects.create(key=value, action=action, semantic_hash=digest)
+
+
+def _apply_hq_xp_locked(
+    *,
+    cs: ClanSeason,
+    raw_amount: int,
+    source_type: str,
+    source_id: str,
+    idempotency_key: str,
+    occurred_at: datetime,
+    policy: ClanConfig,
+    config: GameConfigVersion,
+    apply_effect: bool = True,
+) -> tuple[ClanHQXPEntry | None, int]:
+    existing = ClanHQXPEntry.objects.filter(idempotency_key=idempotency_key).first()
+    if existing:
+        if (
+            existing.clan_season_id,
+            existing.source_type,
+            existing.source_id,
+            existing.config_version_id,
+        ) != (cs.pk, source_type, source_id, config.pk):
+            raise IdempotencyConflict("HQ XP idempotency key conflict")
+        return existing, 0
+    bps, effect_ids = (
+        active_effect_bps(cs, "HQ_XP_RATE_BONUS_BPS", occurred_at) if apply_effect else (0, [])
+    )
+    amount = raw_amount * (10000 + bps) // 10000
+    if amount <= 0:
+        return None, 0
+    entry = ClanHQXPEntry.objects.create(
+        clan_season=cs,
+        source_type=source_type,
+        source_id=source_id,
+        amount=amount,
+        config_version=config,
+        idempotency_key=idempotency_key,
+        occurred_at=occurred_at,
+        metadata={"raw_amount": raw_amount, "effect_ids": effect_ids},
+    )
+    cs.hq_xp += amount
+    rule = hq_rule(policy, cs.hq_xp)
+    cs.hq_level = rule.level
+    cs.base_capacity = rule.base_capacity
+    return entry, amount
 
 
 def _evaluate_achievements(
@@ -88,6 +206,7 @@ def settle_clan_reward(
     resolved_config: ResolvedGameConfig,
     metadata: dict[str, Any] | None = None,
 ) -> tuple[ClanEconomicSettlement, bool]:
+    _validate_key(idempotency_key)
     if (
         source_type not in {"CLAN_ACTIVITY", "CLAN_MISSION"}
         or type(gross_amount) is not int
@@ -98,6 +217,11 @@ def settle_clan_reward(
     if policy is None:
         raise ValidationError("Clan economy is unavailable")
     player = Player.objects.select_for_update().get(pk=membership.player_id)
+    claim_idempotency_key(
+        idempotency_key,
+        "ECONOMIC_SETTLEMENT",
+        f"{membership.pk}:{source_type}:{source_id}:{gross_amount}:{resolved_config.id}",
+    )
     cs = (
         ClanSeason.objects.select_for_update()
         .select_related("season")
@@ -115,32 +239,42 @@ def settle_clan_reward(
         ) != (member.pk, source_type, source_id, gross_amount, resolved_config.id):
             raise IdempotencyConflict("Idempotency key belongs to another Clan settlement")
         return existing, False
-    if (
-        member.started_at > occurred_at
-        or (member.ended_at and occurred_at >= member.ended_at)
-        or member.access_state != ClanMembership.Access.ACTIVE
-    ):
+    if member.started_at > occurred_at or (member.ended_at and occurred_at >= member.ended_at):
         raise ValidationError("Membership was not economically eligible at source time")
-    if cs.state == ClanSeason.State.ENDED or cs.bot_admin_lost_at is not None:
+    from apps.clans.activity import context_owned_at, home_integrity_at, membership_access_at
+
+    if (
+        not membership_access_at(member, occurred_at)
+        or not home_integrity_at(cs, occurred_at)
+        or not context_owned_at(cs, occurred_at)
+    ):
         raise ValidationError("Clan Home economy is paused")
     treasury = gross_amount * policy.treasury_split_bps // 10000
     net = gross_amount - treasury
     contribution_bps, effect_ids = active_effect_bps(cs, "CONTRIBUTION_RATE_BONUS_BPS", occurred_at)
+    config = GameConfigVersion.objects.get(pk=resolved_config.id)
+    accumulator, _ = ClanEconomicAccumulator.objects.select_for_update().get_or_create(
+        clan_season=cs, config_version=config
+    )
     contribution_numerator = (
-        gross_amount * policy.contribution.gross_numerator * (10000 + contribution_bps)
+        accumulator.contribution_remainder
+        + gross_amount * policy.contribution.gross_numerator * (10000 + contribution_bps)
     )
-    contribution = contribution_numerator // (policy.contribution.gross_denominator * 10000)
+    contribution_denominator = policy.contribution.gross_denominator * 10000
+    contribution, accumulator.contribution_remainder = divmod(
+        contribution_numerator, contribution_denominator
+    )
     hq_bps, hq_effect_ids = active_effect_bps(cs, "HQ_XP_RATE_BONUS_BPS", occurred_at)
-    hq_numerator = cs.hq_conversion_remainder + contribution * (10000 + hq_bps)
+    hq_numerator = accumulator.hq_remainder + contribution * (10000 + hq_bps)
     hq_denominator = policy.contribution.units_per_hq_xp * 10000
-    hq_amount, cs.hq_conversion_remainder = divmod(hq_numerator, hq_denominator)
+    hq_amount, accumulator.hq_remainder = divmod(hq_numerator, hq_denominator)
     score_numerator = (
-        cs.score_conversion_remainder + contribution * policy.contribution.score_numerator
+        accumulator.score_remainder + contribution * policy.contribution.score_numerator
     )
-    score, cs.score_conversion_remainder = divmod(
+    score, accumulator.score_remainder = divmod(
         score_numerator, policy.contribution.score_denominator
     )
-    config = GameConfigVersion.objects.get(pk=resolved_config.id)
+    accumulator.save()
     economic = ClanEconomicSettlement.objects.create(
         clan_season=cs,
         membership=member,
@@ -185,6 +319,9 @@ def settle_clan_reward(
         occurred_at=occurred_at,
         resolved_config=resolved_config,
         metadata={**(metadata or {}), "clan_season_id": cs.pk, "membership_id": member.pk},
+        source_season=cs.season,
+        preserve_config_version=True,
+        allow_closed_source_season=cs.season.status == "CLOSED",
     )
     economic.reward = reward
     economic.save(update_fields=("reward",))
@@ -198,23 +335,21 @@ def settle_clan_reward(
         occurred_at=occurred_at,
     )
     if hq_amount:
-        ClanHQXPEntry.objects.create(
-            clan_season=cs,
+        _apply_hq_xp_locked(
+            cs=cs,
+            raw_amount=hq_amount,
             source_type="CONTRIBUTION",
             source_id=str(economic.pk),
-            amount=hq_amount,
-            config_version=config,
             idempotency_key=f"{idempotency_key}:hq",
             occurred_at=occurred_at,
-            metadata={"effect_ids": hq_effect_ids},
+            policy=policy,
+            config=config,
+            apply_effect=False,
         )
     cs.treasury_balance += treasury
     cs.treasury_earned_total += treasury
     cs.contribution_total += contribution
-    cs.hq_xp += hq_amount
     cs.competitive_score += score
-    cs.hq_level = hq_rule(policy, cs.hq_xp).level
-    cs.base_capacity = hq_rule(policy, cs.hq_xp).base_capacity
     cs.save()
     member.contribution_total += contribution
     member.save(update_fields=("contribution_total",))
@@ -234,45 +369,48 @@ def settle_clan_reward(
         source_type == "CLAN_ACTIVITY"
         and member.player_id != cs.captain_id
         and policy.captain_bonus.enabled
+        and (metadata or {}).get("captain_bonus_eligible_at_source", True)
     ):
-        accumulator, _ = ClanCaptainBonusDaily.objects.select_for_update().get_or_create(
-            clan_season=cs, period_key=occurred_at.date().isoformat()
+        period = resolve_daily_period(
+            occurred_at,
+            resolved_config.daily.reset_timezone,
+            resolved_config.daily.reset_hour,
+            resolved_config.daily.reset_minute,
+        )
+        bonus_accumulator, _ = ClanCaptainBonusDaily.objects.select_for_update().get_or_create(
+            clan_season=cs, period_key=period.key, config_version=config
         )
         source_key = f"{source_type}:{source_id}"
-        if source_key not in accumulator.processed_sources:
+        if source_key not in bonus_accumulator.processed_sources:
             old_due = min(
-                accumulator.eligible_gross * policy.captain_bonus.share_bps // 10000,
+                bonus_accumulator.eligible_gross * policy.captain_bonus.share_bps // 10000,
                 policy.captain_bonus.daily_cap,
             )
-            accumulator.eligible_gross += gross_amount
+            bonus_accumulator.eligible_gross += gross_amount
             new_due = min(
-                accumulator.eligible_gross * policy.captain_bonus.share_bps // 10000,
+                bonus_accumulator.eligible_gross * policy.captain_bonus.share_bps // 10000,
                 policy.captain_bonus.daily_cap,
             )
             delta = new_due - old_due
-            accumulator.processed_sources = [*accumulator.processed_sources, source_key]
-            if delta:
-                captain = Player.objects.select_for_update().get(pk=cs.captain_id)
-                try:
-                    settle_reward(
-                        player=captain,
-                        source_type="CAPTAIN_BONUS",
-                        source_id=f"{cs.pk}:{accumulator.period_key}:{new_due}",
-                        context="CLAN_HOME",
-                        gross_amount=delta,
-                        player_amount=delta,
-                        clan_treasury_amount=0,
-                        idempotency_key=f"captain-bonus:{cs.pk}:{accumulator.period_key}:{new_due}",
-                        occurred_at=occurred_at,
-                        resolved_config=resolved_config,
-                        metadata={"eligible_gross_total": accumulator.eligible_gross},
-                        create_settlement_outbox=False,
-                    )
-                    accumulator.awarded_amount += delta
-                except Exception:
-                    # Moderation-blocked Captains are deliberately not awarded retroactively.
-                    pass
-            accumulator.save()
+            bonus_accumulator.processed_sources = [*bonus_accumulator.processed_sources, source_key]
+            captain = Player.objects.select_for_update().get(pk=cs.captain_id)
+            if delta and reward_gameplay_allowed(captain):
+                settle_reward(
+                    player=captain,
+                    source_type="CAPTAIN_BONUS",
+                    source_id=f"{cs.pk}:{bonus_accumulator.period_key}:{new_due}",
+                    context="CLAN_HOME",
+                    gross_amount=delta,
+                    player_amount=delta,
+                    clan_treasury_amount=0,
+                    idempotency_key=f"captain-bonus:{cs.pk}:{bonus_accumulator.period_key}:{new_due}",
+                    occurred_at=occurred_at,
+                    resolved_config=resolved_config,
+                    metadata={"eligible_gross_total": bonus_accumulator.eligible_gross},
+                    create_settlement_outbox=False,
+                )
+                bonus_accumulator.awarded_amount += delta
+            bonus_accumulator.save()
     return economic, True
 
 
@@ -281,6 +419,13 @@ def _captain(cs: ClanSeason, actor: Player) -> None:
         raise PermissionDenied("Captain role required")
     if cs.state != ClanSeason.State.ACTIVE or cs.season.status != "ACTIVE":
         raise ValidationError("Clan economic mutations are unavailable")
+    from apps.clans.governance import clan_home_integrity_available
+    from apps.seasons.services import is_reward_earning_time
+
+    if not clan_home_integrity_available(cs) or not is_reward_earning_time(
+        cs.season, timezone.now()
+    ):
+        raise ValidationError("Clan Home integrity or economic window is unavailable")
 
 
 @transaction.atomic
@@ -293,6 +438,11 @@ def purchase_item(
     resolved_config: ResolvedGameConfig,
 ) -> tuple[ClanItemPurchase, bool]:
     Player.objects.select_for_update().get(pk=actor.pk)
+    claim_idempotency_key(
+        idempotency_key,
+        "ITEM_PURCHASE",
+        f"{clan_season.pk}:{actor.pk}:{item_id}:{resolved_config.id}",
+    )
     cs = ClanSeason.objects.select_for_update().select_related("season").get(pk=clan_season.pk)
     _captain(cs, actor)
     policy = resolved_config.clan
@@ -353,6 +503,11 @@ def activate_item(
 ) -> tuple[ClanItemUse, bool]:
     now = at or timezone.now()
     Player.objects.select_for_update().get(pk=actor.pk)
+    claim_idempotency_key(
+        idempotency_key,
+        "ITEM_USE",
+        f"{clan_season.pk}:{actor.pk}:{item_id}:{resolved_config.id}",
+    )
     cs = ClanSeason.objects.select_for_update().select_related("season").get(pk=clan_season.pk)
     _captain(cs, actor)
     policy = resolved_config.clan
@@ -407,18 +562,16 @@ def activate_item(
             if effect.category == "SEASON_CAPACITY_ADD":
                 cs.capacity_bonus += effect.value
             elif effect.category == "HQ_XP_GRANT":
-                cs.hq_xp += effect.value
-                ClanHQXPEntry.objects.create(
-                    clan_season=cs,
+                _apply_hq_xp_locked(
+                    cs=cs,
+                    raw_amount=effect.value,
                     source_type="ITEM",
                     source_id=str(use.pk),
-                    amount=effect.value,
-                    config_version=config,
                     idempotency_key=f"{idempotency_key}:hq",
                     occurred_at=now,
+                    policy=policy,
+                    config=config,
                 )
-        cs.hq_level = hq_rule(policy, cs.hq_xp).level
-        cs.base_capacity = hq_rule(policy, cs.hq_xp).base_capacity
         result = {"effective_capacity": effective_capacity(cs, policy), "hq_xp": cs.hq_xp}
         cs.save()
     inventory.quantity -= 1

@@ -5,7 +5,7 @@
 **Initial scope reviewed:** Phases 0–5 + Season 1 Economy Contract Sync + Base Tap  
 **Verified against Phase 6 PR:** `33e14c0b5178d1b79e2c3b5668ff257b012d23f1` (correction base)
 **Phase 7A review base:** `132bcc187512bf38cf34e0e123f79c3b01493e6e`
-**Phase 8 review base:** current `ai/p08-clan-progression-economy` HEAD (2026-09-12)
+**Phase 8 review base:** PR #12 consolidated correctness HEAD (2026-09-12)
 **Initial review date:** 2026-09-10  
 **Last reviewed:** 2026-09-12 (Phase 8 Clan economy review)
 **Owner:** repository/product owner  
@@ -196,6 +196,11 @@ Captain cancellation both enter the durable revoke state machine; `UNCERTAIN`, u
 credential is issued while unresolved risk exists. This entry remains OPEN until the required
 PostgreSQL cancellation-vs-activation and final-slot race suite is green on the PR HEAD.
 
+Correctness-pass evidence now covers local-before-create cancellation, Captain/applicant paths,
+unsafe-state reservation retention, global effective-capacity final-slot serialization, and
+existing invite create/revoke races. The remaining cancellation-versus-Telegram-observation
+matrix keeps PH-047 open rather than overstating resolution.
+
 ## PH-048 — Clan `banner-raised` shared milestone predicate
 
 **Origin:** Phase 8 Trophy Hall
@@ -213,8 +218,10 @@ product must define the event before this achievement can be enabled.
 **Gate:** `LAUNCH-BLOCKER`
 
 Treasury, Contribution, HQ XP, and competitive-score sources are durable, while aggregate fields
-serve reads. Before launch, add an operator-safe bounded reconciliation command and drift metric;
-never repair drift by deleting ledger rows or recomputing historical entries with a newer config.
+serve reads. Phase 8 now includes and tests deterministic source-ledger projection rebuilding,
+including Treasury earned/current separation. Before launch, add an operator-safe bounded command
+and drift metric around that proven service; never repair drift by deleting ledger rows or
+recomputing historical entries with a newer config.
 
 # 5. Detailed findings from completed phases
 

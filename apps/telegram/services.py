@@ -428,9 +428,9 @@ def _observe_message(event: TelegramMessageObserved, telegram_update_id: int) ->
         from apps.clans.models import ClanSeason
         from apps.network.models import CreatorGroupRegistration
 
-        clans = ClanSeason.objects.filter(
+        clan_candidates = ClanSeason.objects.filter(
             clan__telegram_group=group,
-            state__in=[ClanSeason.State.ACTIVE, ClanSeason.State.RECOVERY],
+            created_at__lte=event.observed_at,
             season__starts_at__lte=event.observed_at,
             season__ends_at__gt=event.observed_at,
         )
@@ -438,10 +438,19 @@ def _observe_message(event: TelegramMessageObserved, telegram_update_id: int) ->
             group=group, state=CreatorGroupRegistration.State.ACTIVE
         )
         # Impossible dual-live ownership fails closed rather than double-crediting.
-        if clans.exists() and creators.exists():
+        from apps.clans.activity import context_owned_at
+
+        clan_season = next(
+            (
+                candidate
+                for candidate in clan_candidates.select_related("clan__telegram_group")
+                if context_owned_at(candidate, event.observed_at)
+            ),
+            None,
+        )
+        if clan_season is not None and creators.exists():
             logger.error("telegram_dual_live_activity_context", telegram_group_id=group.pk)
             return
-        clan_season = clans.select_related("clan__telegram_group").first()
         if clan_season is not None:
             from apps.clans.activity import record_clan_activity
 

@@ -41,16 +41,7 @@ class NoClanEntitlements:
         return False
 
     def contribution_units(self, player: Player) -> int:
-        from django.db.models import Sum
-
-        from apps.clans.models import ClanContributionEntry
-
-        return (
-            ClanContributionEntry.objects.filter(membership__player=player).aggregate(
-                total=Sum("amount")
-            )["total"]
-            or 0
-        )
+        return 0
 
 
 class ClanEntitlements:
@@ -72,7 +63,16 @@ class ClanEntitlements:
         return ClanMembership.objects.filter(player=player).exists()
 
     def contribution_units(self, player: Player) -> int:
-        return 0
+        from django.db.models import Sum
+
+        from apps.clans.models import ClanContributionEntry
+
+        return (
+            ClanContributionEntry.objects.filter(membership__player=player).aggregate(
+                total=Sum("amount")
+            )["total"]
+            or 0
+        )
 
 
 @dataclass(frozen=True, slots=True)

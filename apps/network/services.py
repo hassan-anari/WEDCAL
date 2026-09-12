@@ -1,7 +1,6 @@
 import hashlib
 import secrets
-import unicodedata
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 import structlog
 from django.conf import settings
@@ -9,6 +8,8 @@ from django.db import IntegrityError, connection, transaction
 from django.db.models import Sum
 from django.utils import timezone
 
+from apps.core.activity import fingerprints as fingerprints
+from apps.core.activity import window_start_for as window_start_for
 from apps.core.periods import resolve_daily_period
 from apps.game_config.models import GameConfigVersion
 from apps.game_config.services import (
@@ -61,6 +62,14 @@ def consume_registration_token(
         return None
     digest = hashlib.sha256(raw.encode()).hexdigest()
     with transaction.atomic():
+        group = TelegramGroup.objects.select_for_update().get(pk=group.pk)
+        from apps.clans.models import ClanSeason
+
+        if ClanSeason.objects.filter(
+            clan__telegram_group=group,
+            state__in=[ClanSeason.State.ACTIVE, ClanSeason.State.RECOVERY],
+        ).exists():
+            return None
         intent = (
             CreatorRegistrationIntent.objects.select_for_update()
             .filter(
@@ -149,6 +158,7 @@ def verify_registration(registration_id: int) -> str:
         )
     with transaction.atomic():
         locked = CreatorGroupRegistration.objects.select_for_update().get(pk=registration_id)
+        TelegramGroup.objects.select_for_update().get(pk=locked.group_id)
         if locked.state in {
             CreatorGroupRegistration.State.SUSPENDED,
             CreatorGroupRegistration.State.INACTIVE,
@@ -156,6 +166,16 @@ def verify_registration(registration_id: int) -> str:
             return locked.state
         Player.objects.select_for_update().get(pk=locked.creator_id)
         config = resolve_effective_game_config(timezone.now())
+        from apps.clans.models import ClanSeason
+
+        if (
+            state == CreatorGroupRegistration.State.ACTIVE
+            and ClanSeason.objects.filter(
+                clan__telegram_group_id=locked.group_id,
+                state__in=[ClanSeason.State.ACTIVE, ClanSeason.State.RECOVERY],
+            ).exists()
+        ):
+            state = CreatorGroupRegistration.State.ADMIN_REQUIRED
         if (
             state == CreatorGroupRegistration.State.ACTIVE
             and CreatorGroupRegistration.objects.filter(creator=locked.creator, state=state)
@@ -177,14 +197,6 @@ def verify_registration(registration_id: int) -> str:
             locked.creator_verified_at = timezone.now()
         locked.save()
     return state
-
-
-def fingerprints(text: str) -> tuple[str, str]:
-    exact = unicodedata.normalize("NFC", text)
-    normalized = " ".join(exact.casefold().split())
-    return hashlib.sha256(exact.encode()).hexdigest(), hashlib.sha256(
-        normalized.encode()
-    ).hexdigest()
 
 
 def _window_lock_key(
@@ -473,11 +485,6 @@ def _settle_window_locked(
             allowance.save(update_fields=("points",))
         window_rows.update(window_processed=True)
     return settlement
-
-
-def window_start_for(observed_at: datetime, window_seconds: int) -> datetime:
-    epoch = int(observed_at.timestamp())
-    return datetime.fromtimestamp(epoch - epoch % window_seconds, tz=UTC)
 
 
 def settle_completed_windows(*, limit: int = 200, now: datetime | None = None) -> int:
