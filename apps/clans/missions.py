@@ -173,6 +173,10 @@ def record_mission_progress(
             )
         )
         first_settlement = first_settlement or settlement
+    # Participant settlement updates the same projection through a separately
+    # loaded locked instance. Refresh before layering the direct mission HQ XP
+    # so this completion never writes stale Treasury/Contribution projections.
+    cs.refresh_from_db()
     _apply_hq_xp_locked(
         cs=cs,
         raw_amount=band.direct_hq_xp,
@@ -183,7 +187,7 @@ def record_mission_progress(
         policy=policy,
         config=config_model,
     )
-    cs.save()
+    cs.save(update_fields=("hq_xp", "hq_level", "base_capacity"))
     progress.completed_at = occurred_at
     progress.reward_settlement = first_settlement
     progress.save(

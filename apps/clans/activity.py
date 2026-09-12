@@ -7,7 +7,13 @@ from apps.clans.models import (
     ClanMembership,
     ClanSeason,
 )
-from apps.core.activity import fingerprints, lock_activity_window, qualify_text, window_start_for
+from apps.core.activity import (
+    fingerprints,
+    lock_activity_qualification,
+    lock_activity_window,
+    qualify_text,
+    window_start_for,
+)
 from apps.game_config.models import GameConfigVersion
 from apps.game_config.services import resolve_effective_game_config
 from apps.players.models import Player
@@ -132,6 +138,9 @@ def record_clan_activity(
     )
     try:
         with transaction.atomic():
+            # Qualification horizons cross aggregation and config boundaries.
+            # Always take this broader lock before the narrower window lock.
+            lock_activity_qualification(clan_season.pk, sender.pk)
             finalized = False
             if membership:
                 lock_activity_window(membership.pk, config.id, start)
@@ -141,6 +150,16 @@ def record_clan_activity(
                     window_start=start,
                     finalized_at__isnull=False,
                 ).exists()
+                # A later finalized settlement is also a durable qualification
+                # cutoff: an older arrival must not rewrite its frozen history.
+                finalized = (
+                    finalized
+                    or clan_season.clanactivitywindow_set.filter(
+                        membership=membership,
+                        window_start__gt=start,
+                        finalized_at__isnull=False,
+                    ).exists()
+                )
             if finalized:
                 classification = ClanActivity.Classification.LATE
             rewardable = 0 if finalized else result.rewardable_chars

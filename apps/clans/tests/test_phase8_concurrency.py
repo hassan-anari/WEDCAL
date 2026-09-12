@@ -594,3 +594,69 @@ def test_remote_revoke_races_presence_observation_without_releasing_unsafely(
         assert invite.unknown_credential_risk
     state = applicant.clan_states.get(season=cs.season)
     assert state.voluntary_leave_count == 0 and state.leave_cooldown_until is None
+
+
+@pytest.mark.django_db(transaction=True)
+def test_mission_completion_races_clan_activity_settlement_without_deadlock(clan_world) -> None:  # type: ignore[no-untyped-def]
+    from datetime import timedelta
+
+    from apps.clans.economy import rebuild_clan_projections
+    from apps.clans.missions import record_mission_progress
+    from apps.clans.models import ClanMissionDefinition
+
+    now, config, _, resolved, _, clan = clan_world
+    cs = clan()
+    member = cs.memberships.get()
+    activated(member)
+    definition = ClanMissionDefinition.objects.create(
+        key="mission-activity-race",
+        version=1,
+        kind="INDIVIDUAL",
+        requirement="TEST",
+        target_units=1,
+        reward_band="SMALL",
+        starts_at=now - timedelta(hours=1),
+        ends_at=now + timedelta(hours=1),
+        enabled=True,
+        config_version=config,
+    )
+    results = parallel(
+        [
+            lambda: record_mission_progress(
+                definition=definition,
+                membership=member,
+                source_id="mission-activity-domain-event",
+                units=1,
+                occurred_at=now,
+                resolved_config=resolved,
+            ),
+            lambda: settle_clan_reward(
+                membership=member,
+                source_type="CLAN_ACTIVITY",
+                source_id="mission-activity-clan-event",
+                gross_amount=100,
+                idempotency_key="mission-activity-clan-event",
+                occurred_at=now,
+                resolved_config=resolved,
+            ),
+        ]
+    )
+    assert all(not isinstance(result, Exception) for result in results)
+    assert cs.economic_settlements.count() == 2
+    cs.refresh_from_db()
+    before = (
+        cs.treasury_balance,
+        cs.treasury_earned_total,
+        cs.contribution_total,
+        cs.hq_xp,
+        cs.competitive_score,
+    )
+    rebuild_clan_projections(cs)
+    cs.refresh_from_db()
+    assert before == (
+        cs.treasury_balance,
+        cs.treasury_earned_total,
+        cs.contribution_total,
+        cs.hq_xp,
+        cs.competitive_score,
+    )

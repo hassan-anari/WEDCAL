@@ -7,7 +7,12 @@ from django.utils import timezone
 
 from apps.clans.economy import settle_clan_reward
 from apps.clans.models import ClanActivity, ClanActivityWindow
-from apps.core.activity import lock_activity_window, qualify_text, window_start_for
+from apps.core.activity import (
+    lock_activity_qualification,
+    lock_activity_window,
+    qualify_text,
+    window_start_for,
+)
 from apps.game_config.services import ClanConfig, resolve_game_config_version
 from apps.players.services import reward_gameplay_allowed_at
 from apps.seasons.services import is_reward_earning_time
@@ -18,26 +23,30 @@ logger = logging.getLogger(__name__)
 def _requalify(source: models.QuerySet[ClanActivity], policy: ClanConfig) -> None:
     """Persist canonical classifications in total source order before settlement."""
     rows = list(
-        source.select_related("membership", "sender", "season").order_by(
-            "observed_at", "telegram_update_id", "telegram_message_id", "pk"
-        )
+        source.exclude(classification=ClanActivity.Classification.LATE)
+        .select_related("membership", "sender", "season")
+        .order_by("observed_at", "telegram_update_id", "telegram_message_id", "pk")
     )
     for row in rows:
-        prior = ClanActivity.objects.filter(
-            clan_season_id=row.clan_season_id, sender_id=row.sender_id
-        ).filter(
-            models.Q(observed_at__lt=row.observed_at)
-            | models.Q(observed_at=row.observed_at, telegram_update_id__lt=row.telegram_update_id)
-            | models.Q(
-                observed_at=row.observed_at,
-                telegram_update_id=row.telegram_update_id,
-                telegram_message_id__lt=row.telegram_message_id,
-            )
-            | models.Q(
-                observed_at=row.observed_at,
-                telegram_update_id=row.telegram_update_id,
-                telegram_message_id=row.telegram_message_id,
-                pk__lt=row.pk,
+        prior = (
+            ClanActivity.objects.filter(clan_season_id=row.clan_season_id, sender_id=row.sender_id)
+            .exclude(classification=ClanActivity.Classification.LATE)
+            .filter(
+                models.Q(observed_at__lt=row.observed_at)
+                | models.Q(
+                    observed_at=row.observed_at, telegram_update_id__lt=row.telegram_update_id
+                )
+                | models.Q(
+                    observed_at=row.observed_at,
+                    telegram_update_id=row.telegram_update_id,
+                    telegram_message_id__lt=row.telegram_message_id,
+                )
+                | models.Q(
+                    observed_at=row.observed_at,
+                    telegram_update_id=row.telegram_update_id,
+                    telegram_message_id=row.telegram_message_id,
+                    pk__lt=row.pk,
+                )
             )
         )
         rate = prior.filter(observed_at__gt=row.observed_at - timedelta(seconds=60)).count()
@@ -106,6 +115,8 @@ def _finalize(activity: ClanActivity, now: datetime) -> bool:
     if end + timedelta(seconds=qualification_horizon) > now:
         return False
     with transaction.atomic():
+        assert activity.sender_id is not None
+        lock_activity_qualification(activity.clan_season_id, activity.sender_id)
         lock_activity_window(activity.membership_id, activity.config_version_id, start)
         window, _ = ClanActivityWindow.objects.get_or_create(
             membership_id=activity.membership_id,

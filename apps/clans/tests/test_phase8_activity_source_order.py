@@ -6,7 +6,7 @@ import pytest
 from django.db import close_old_connections
 
 from apps.clans.activity import record_clan_activity
-from apps.clans.models import ClanActivity, ClanMembershipEvent
+from apps.clans.models import ClanActivity, ClanActivityWindow, ClanMembershipEvent
 from apps.clans.windowing import finalize_due_windows
 
 
@@ -178,3 +178,218 @@ def test_concurrent_ingestion_requalifies_in_total_source_order(clan_world) -> N
         .order_by("observed_at")
         .values_list("classification", flat=True)
     ) == ["VALID", "SUSPICIOUS", "SUSPICIOUS", "REJECTED"]
+
+
+def adjacent_sources(
+    clan_world: Any, messages: list[tuple[int, str]], order: list[int]
+) -> tuple[Any, list[str]]:
+    now, _, _, _, _, clan = clan_world
+    cs = clan()
+    member = cs.memberships.get()
+    activate(member, now)
+    policy_seconds = 900
+    boundary = now.replace(microsecond=0) + timedelta(seconds=policy_seconds)
+    boundary = boundary - timedelta(seconds=int(boundary.timestamp()) % policy_seconds)
+    for index in order:
+        offset, text = messages[index]
+        row = record_clan_activity(
+            clan_season=cs,
+            sender=member.player,
+            message_id=5000 + index,
+            update_id=6000 + index,
+            text=text,
+            observed_at=boundary + timedelta(seconds=offset),
+        )
+        assert row is not None
+    assert finalize_due_windows(now=boundary + timedelta(hours=1)) == 2
+    return cs, list(
+        ClanActivity.objects.filter(clan_season=cs)
+        .order_by("observed_at")
+        .values_list("classification", flat=True)
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("order", [[0, 1, 2, 3], [3, 2, 1, 0], [2, 0, 3, 1]])
+def test_adjacent_window_exact_duplicates_are_deterministic(clan_world, order) -> None:  # type: ignore[no-untyped-def]
+    messages = [(-20, "w" * 150), (-10, "w" * 150), (10, "w" * 150), (20, "w" * 150)]
+    cs, classifications = adjacent_sources(clan_world, messages, order)
+    assert classifications == ["VALID", "SUSPICIOUS", "SUSPICIOUS", "REJECTED"]
+    assert sum(cs.clanactivitywindow_set.values_list("gross_amount", flat=True)) == 3
+    assert sum(cs.treasury_entries.values_list("amount", flat=True)) == 0
+    assert sum(cs.contribution_entries.values_list("amount", flat=True)) == 3
+    cs.refresh_from_db()
+    assert (cs.hq_xp, cs.competitive_score) == (0, 3)
+
+
+@pytest.mark.django_db
+def test_adjacent_window_rate_history_is_deterministic(clan_world) -> None:  # type: ignore[no-untyped-def]
+    messages = [(-25 + index * 10, chr(65 + index) * 150) for index in range(6)]
+    cs, classifications = adjacent_sources(clan_world, messages, list(reversed(range(6))))
+    assert classifications == ["VALID"] * 5 + ["REJECTED"]
+    assert sum(cs.clanactivitywindow_set.values_list("gross_amount", flat=True)) == 5
+
+
+@pytest.mark.django_db
+def test_adjacent_window_near_duplicate_history_is_deterministic(clan_world) -> None:  # type: ignore[no-untyped-def]
+    variants = [
+        "Cross Window Near Duplicate Text",
+        " cross   window near duplicate text ",
+        "CROSS WINDOW NEAR DUPLICATE TEXT",
+        "Cross  Window Near Duplicate Text",
+    ]
+    messages = [(-20, variants[0]), (-10, variants[1]), (10, variants[2]), (20, variants[3])]
+    _, classifications = adjacent_sources(clan_world, messages, [3, 1, 2, 0])
+    assert classifications == ["VALID", "SUSPICIOUS", "SUSPICIOUS", "REJECTED"]
+
+
+@pytest.mark.django_db
+def test_late_prior_window_event_never_changes_next_window(clan_world) -> None:  # type: ignore[no-untyped-def]
+    now, _, _, _, _, clan = clan_world
+    cs = clan()
+    member = cs.memberships.get()
+    activate(member, now)
+    boundary = now.replace(microsecond=0) + timedelta(minutes=15)
+    boundary -= timedelta(seconds=int(boundary.timestamp()) % 900)
+    for index, offset in enumerate((-20, -10)):
+        assert record_clan_activity(
+            clan_season=cs,
+            sender=member.player,
+            message_id=7000 + index,
+            update_id=7000 + index,
+            text="late-boundary" * 15,
+            observed_at=boundary + timedelta(seconds=offset),
+        )
+    assert finalize_due_windows(now=boundary + timedelta(minutes=30)) == 1
+    late = record_clan_activity(
+        clan_season=cs,
+        sender=member.player,
+        message_id=7002,
+        update_id=7002,
+        text="late-boundary" * 15,
+        observed_at=boundary - timedelta(seconds=5),
+    )
+    assert late is not None and late.classification == "LATE"
+    next_row = record_clan_activity(
+        clan_season=cs,
+        sender=member.player,
+        message_id=7003,
+        update_id=7003,
+        text="late-boundary" * 15,
+        observed_at=boundary + timedelta(seconds=5),
+    )
+    assert next_row is not None
+    assert finalize_due_windows(now=boundary + timedelta(hours=1)) == 2
+    next_row.refresh_from_db()
+    assert next_row.classification == "SUSPICIOUS"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_previous_window_late_ingestion_racing_next_finalizer_is_deterministic(clan_world) -> None:  # type: ignore[no-untyped-def]
+    now, config, _, _, _, clan = clan_world
+    cs = clan()
+    member = cs.memberships.get()
+    boundary = now.replace(microsecond=0) - timedelta(hours=1)
+    boundary -= timedelta(seconds=int(boundary.timestamp()) % 900)
+    member.started_at = boundary - timedelta(hours=1)
+    member.save(update_fields=("started_at",))
+    activate(member, member.started_at)
+    # Two committed prior events make the next event suspicious but eligible.
+    for index, offset in enumerate((-20, -10)):
+        record_clan_activity(
+            clan_season=cs,
+            sender=member.player,
+            message_id=8000 + index,
+            update_id=8000 + index,
+            text="race-boundary" * 15,
+            observed_at=boundary + timedelta(seconds=offset),
+        )
+    next_row = ClanActivity.objects.create(
+        clan_season=cs,
+        membership=member,
+        sender=member.player,
+        group=cs.clan.telegram_group,
+        season=cs.season,
+        config_version=config,
+        telegram_message_id=8003,
+        telegram_update_id=8003,
+        observed_at=boundary + timedelta(seconds=5),
+        character_count=195,
+        rewardable_chars=195,
+        classification="VALID",
+        exact_fingerprint="irrelevant",
+        normalized_fingerprint="irrelevant",
+        membership_eligible_at_source=True,
+        home_integrity_at_source=True,
+        context_owned_at_source=True,
+        captain_bonus_eligible_at_source=True,
+    )
+    ClanActivityWindow.objects.create(
+        clan_season=cs,
+        membership=member,
+        season=cs.season,
+        config_version=config,
+        window_start=boundary - timedelta(minutes=15),
+        window_end=boundary,
+        finalized_at=now - timedelta(minutes=1),
+    )
+
+    def delayed() -> Any:
+        close_old_connections()
+        try:
+            return record_clan_activity(
+                clan_season=cs,
+                sender=member.player,
+                message_id=8002,
+                update_id=8002,
+                text="race-boundary" * 15,
+                observed_at=boundary - timedelta(seconds=5),
+            )
+        finally:
+            close_old_connections()
+
+    def finalize() -> int:
+        close_old_connections()
+        try:
+            return finalize_due_windows(now=now)
+        finally:
+            close_old_connections()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        delayed_future = pool.submit(delayed)
+        finalize_future = pool.submit(finalize)
+        delayed_row: Any = delayed_future.result()
+        finalize_future.result()
+    assert (
+        delayed_row is not None
+        and delayed_row.classification == "LATE"
+        and delayed_row.rewardable_chars == 0
+    )
+    next_row.refresh_from_db()
+    assert next_row.classification == "VALID"
+
+
+@pytest.mark.django_db
+def test_antifraud_history_crosses_config_cutover(clan_world, phase4_config_factory) -> None:  # type: ignore[no-untyped-def]
+    now, _, _, _, _, clan = clan_world
+    cutover = now + timedelta(minutes=2)
+    phase4_config_factory(effective_at=cutover, version="activity-cutover")
+    cs = clan()
+    member = cs.memberships.get()
+    activate(member, now)
+    for index, at in enumerate((cutover - timedelta(seconds=1), cutover + timedelta(seconds=1))):
+        row = record_clan_activity(
+            clan_season=cs,
+            sender=member.player,
+            message_id=9000 + index,
+            update_id=9000 + index,
+            text="config-crossing" * 15,
+            observed_at=at,
+        )
+        assert row is not None
+    assert finalize_due_windows(now=now + timedelta(hours=1)) == 2
+    assert list(
+        ClanActivity.objects.filter(clan_season=cs)
+        .order_by("observed_at")
+        .values_list("classification", flat=True)
+    ) == ["VALID", "SUSPICIOUS"]

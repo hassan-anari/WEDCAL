@@ -31,6 +31,14 @@ def lock_activity_window(membership_id: int, config_id: int, start: datetime) ->
         cursor.execute("SELECT pg_advisory_xact_lock(%s)", [key])
 
 
+def lock_activity_qualification(clan_season_id: int, sender_id: int) -> None:
+    """Serialize every horizon-dependent qualification for one Clan sender."""
+    digest = hashlib.sha256(f"clan-qualification:{clan_season_id}:{sender_id}".encode()).digest()
+    key = int.from_bytes(digest[:8], "big", signed=True)
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(%s)", [key])
+
+
 @dataclass(frozen=True, slots=True)
 class Qualification:
     accepted: bool
