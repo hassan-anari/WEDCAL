@@ -8,6 +8,8 @@ from django.db import close_old_connections
 from apps.clans.activity import record_clan_activity
 from apps.clans.models import ClanActivity, ClanActivityWindow, ClanMembershipEvent
 from apps.clans.windowing import finalize_due_windows
+from apps.core.activity import window_start_for
+from apps.game_config.services import resolve_effective_game_config
 
 
 def activate(member: Any, at: datetime) -> None:
@@ -19,10 +21,18 @@ def activate(member: Any, at: datetime) -> None:
     )
 
 
+def next_window_anchor(now: datetime, window_seconds: int) -> datetime:
+    """Return a stable point five minutes inside the next complete window."""
+    return window_start_for(now, window_seconds) + timedelta(seconds=window_seconds + 300)
+
+
 def ingest_set(
     clan_world: Any, messages: list[tuple[int, str]], order: list[int]
 ) -> tuple[Any, Any, list[str]]:
-    now, _, _, _, _, clan = clan_world
+    now, config, _, resolved, _, clan = clan_world
+    assert resolved.clan is not None
+    seconds = resolved.clan.activity.window_seconds
+    anchor = next_window_anchor(now, seconds)
     cs = clan()
     member = cs.memberships.get()
     activate(member, now)
@@ -35,11 +45,16 @@ def ingest_set(
             message_id=1000 + index,
             update_id=2000 + index,
             text=text,
-            observed_at=now + timedelta(seconds=offset),
+            observed_at=anchor + timedelta(seconds=offset),
         )
         assert row is not None
         source.append(row)
-    assert finalize_due_windows(now=now + timedelta(hours=1)) == 1
+    source_times = [anchor + timedelta(seconds=offset) for offset, _ in messages]
+    assert {window_start_for(at, seconds) for at in source_times} == {
+        window_start_for(anchor, seconds)
+    }
+    assert {resolve_effective_game_config(at).id for at in source_times} == {config.pk}
+    assert finalize_due_windows(now=anchor + timedelta(hours=1)) == 1
     cs.refresh_from_db()
     window = cs.clanactivitywindow_set.get()
     return (
@@ -73,9 +88,14 @@ def test_exact_duplicates_are_source_order_deterministic(clan_world, order) -> N
 @pytest.mark.django_db
 def test_reverse_rate_limit_is_source_order_deterministic(clan_world) -> None:  # type: ignore[no-untyped-def]
     messages = [(10 + index * 5, chr(65 + index) * 150) for index in range(6)]
-    _, window, classifications = ingest_set(clan_world, messages, list(reversed(range(6))))
+    cs, window, classifications = ingest_set(clan_world, messages, list(reversed(range(6))))
     assert classifications == ["VALID"] * 5 + ["REJECTED"]
     assert window.gross_amount == 5
+    assert cs.economic_settlements.count() == 1
+    assert sum(cs.treasury_entries.values_list("amount", flat=True)) == 0
+    assert sum(cs.contribution_entries.values_list("amount", flat=True)) == 5
+    cs.refresh_from_db()
+    assert (cs.hq_xp, cs.competitive_score) == (0, 5)
 
 
 @pytest.mark.django_db
@@ -87,13 +107,20 @@ def test_reverse_near_duplicates_are_source_order_deterministic(clan_world) -> N
         "Alpha  Beta Alpha Beta Alpha Beta",
     ]
     messages = [(10 + index * 10, value) for index, value in enumerate(variants)]
-    _, _, classifications = ingest_set(clan_world, messages, [3, 2, 1, 0])
+    cs, window, classifications = ingest_set(clan_world, messages, [3, 2, 1, 0])
     assert classifications[-1] == "REJECTED"
+    assert window.gross_amount == 0
+    assert cs.economic_settlements.count() == 0
+    assert cs.treasury_entries.count() == cs.contribution_entries.count() == 0
+    cs.refresh_from_db()
+    assert (cs.hq_xp, cs.competitive_score) == (0, 0)
 
 
 @pytest.mark.django_db
 def test_retry_same_telegram_message_is_one_source(clan_world) -> None:  # type: ignore[no-untyped-def]
-    now, _, _, _, _, clan = clan_world
+    now, _, _, resolved, _, clan = clan_world
+    assert resolved.clan is not None
+    anchor = next_window_anchor(now, resolved.clan.activity.window_seconds)
     cs = clan()
     member = cs.memberships.get()
     activate(member, now)
@@ -103,7 +130,7 @@ def test_retry_same_telegram_message_is_one_source(clan_world) -> None:  # type:
         message_id=77,
         update_id=88,
         text="r" * 150,
-        observed_at=now + timedelta(seconds=10),
+        observed_at=anchor,
     )
     first = record_clan_activity(**kwargs)
     replay = record_clan_activity(**kwargs)
@@ -121,11 +148,13 @@ def test_delayed_pre_finalization_source_reclassifies_later_event(clan_world) ->
 
 @pytest.mark.django_db
 def test_finalized_window_is_immutable_and_delayed_source_is_late(clan_world) -> None:  # type: ignore[no-untyped-def]
-    now, _, _, _, _, clan = clan_world
+    now, _, _, resolved, _, clan = clan_world
+    assert resolved.clan is not None
+    anchor = next_window_anchor(now, resolved.clan.activity.window_seconds)
     cs = clan()
     member = cs.memberships.get()
     activate(member, now)
-    observed = now + timedelta(seconds=10)
+    observed = anchor
     first = record_clan_activity(
         clan_season=cs,
         sender=member.player,
@@ -134,7 +163,7 @@ def test_finalized_window_is_immutable_and_delayed_source_is_late(clan_world) ->
         text="z" * 150,
         observed_at=observed,
     )
-    assert first is not None and finalize_due_windows(now=now + timedelta(hours=1)) == 1
+    assert first is not None and finalize_due_windows(now=anchor + timedelta(hours=1)) == 1
     before = cs.economic_settlements.get().gross_amount
     late = record_clan_activity(
         clan_season=cs,
@@ -150,7 +179,9 @@ def test_finalized_window_is_immutable_and_delayed_source_is_late(clan_world) ->
 
 @pytest.mark.django_db(transaction=True)
 def test_concurrent_ingestion_requalifies_in_total_source_order(clan_world) -> None:  # type: ignore[no-untyped-def]
-    now, _, _, _, _, clan = clan_world
+    now, _, _, resolved, _, clan = clan_world
+    assert resolved.clan is not None
+    anchor = next_window_anchor(now, resolved.clan.activity.window_seconds)
     cs = clan()
     member = cs.memberships.get()
     activate(member, now)
@@ -164,7 +195,7 @@ def test_concurrent_ingestion_requalifies_in_total_source_order(clan_world) -> N
                 message_id=3000 + index,
                 update_id=4000 + index,
                 text="c" * 150,
-                observed_at=now + timedelta(seconds=10 + index * 10),
+                observed_at=anchor + timedelta(seconds=index * 10),
             )
         finally:
             close_old_connections()
@@ -172,7 +203,7 @@ def test_concurrent_ingestion_requalifies_in_total_source_order(clan_world) -> N
     with ThreadPoolExecutor(max_workers=4) as pool:
         rows = list(pool.map(ingest, reversed(range(4))))
     assert all(row is not None for row in rows)
-    assert finalize_due_windows(now=now + timedelta(hours=1)) == 1
+    assert finalize_due_windows(now=anchor + timedelta(hours=1)) == 1
     assert list(
         ClanActivity.objects.filter(clan_season=cs)
         .order_by("observed_at")
@@ -183,13 +214,19 @@ def test_concurrent_ingestion_requalifies_in_total_source_order(clan_world) -> N
 def adjacent_sources(
     clan_world: Any, messages: list[tuple[int, str]], order: list[int]
 ) -> tuple[Any, list[str]]:
-    now, _, _, _, _, clan = clan_world
+    now, config, _, resolved, _, clan = clan_world
+    assert resolved.clan is not None
     cs = clan()
     member = cs.memberships.get()
     activate(member, now)
-    policy_seconds = 900
-    boundary = now.replace(microsecond=0) + timedelta(seconds=policy_seconds)
-    boundary = boundary - timedelta(seconds=int(boundary.timestamp()) % policy_seconds)
+    policy_seconds = resolved.clan.activity.window_seconds
+    boundary = window_start_for(now, policy_seconds) + timedelta(seconds=policy_seconds * 2)
+    source_times = [boundary + timedelta(seconds=offset) for offset, _ in messages]
+    assert {window_start_for(at, policy_seconds) for at in source_times} == {
+        boundary - timedelta(seconds=policy_seconds),
+        boundary,
+    }
+    assert {resolve_effective_game_config(at).id for at in source_times} == {config.pk}
     for index in order:
         offset, text = messages[index]
         row = record_clan_activity(
@@ -202,6 +239,7 @@ def adjacent_sources(
         )
         assert row is not None
     assert finalize_due_windows(now=boundary + timedelta(hours=1)) == 2
+    assert cs.clanactivitywindow_set.count() == 2
     return cs, list(
         ClanActivity.objects.filter(clan_season=cs)
         .order_by("observed_at")
@@ -218,6 +256,7 @@ def test_adjacent_window_exact_duplicates_are_deterministic(clan_world, order) -
     assert sum(cs.clanactivitywindow_set.values_list("gross_amount", flat=True)) == 3
     assert sum(cs.treasury_entries.values_list("amount", flat=True)) == 0
     assert sum(cs.contribution_entries.values_list("amount", flat=True)) == 3
+    assert cs.economic_settlements.filter(source_type="CLAN_ACTIVITY").count() == 2
     cs.refresh_from_db()
     assert (cs.hq_xp, cs.competitive_score) == (0, 3)
 
@@ -228,6 +267,11 @@ def test_adjacent_window_rate_history_is_deterministic(clan_world) -> None:  # t
     cs, classifications = adjacent_sources(clan_world, messages, list(reversed(range(6))))
     assert classifications == ["VALID"] * 5 + ["REJECTED"]
     assert sum(cs.clanactivitywindow_set.values_list("gross_amount", flat=True)) == 5
+    assert sum(cs.treasury_entries.values_list("amount", flat=True)) == 0
+    assert sum(cs.contribution_entries.values_list("amount", flat=True)) == 5
+    assert cs.economic_settlements.filter(source_type="CLAN_ACTIVITY").count() == 2
+    cs.refresh_from_db()
+    assert (cs.hq_xp, cs.competitive_score) == (0, 5)
 
 
 @pytest.mark.django_db
@@ -239,8 +283,13 @@ def test_adjacent_window_near_duplicate_history_is_deterministic(clan_world) -> 
         "Cross  Window Near Duplicate Text",
     ]
     messages = [(-20, variants[0]), (-10, variants[1]), (10, variants[2]), (20, variants[3])]
-    _, classifications = adjacent_sources(clan_world, messages, [3, 1, 2, 0])
+    cs, classifications = adjacent_sources(clan_world, messages, [3, 1, 2, 0])
     assert classifications == ["VALID", "SUSPICIOUS", "SUSPICIOUS", "REJECTED"]
+    assert sum(cs.clanactivitywindow_set.values_list("gross_amount", flat=True)) == 0
+    assert cs.economic_settlements.count() == 0
+    assert cs.treasury_entries.count() == cs.contribution_entries.count() == 0
+    cs.refresh_from_db()
+    assert (cs.hq_xp, cs.competitive_score) == (0, 0)
 
 
 @pytest.mark.django_db
@@ -371,13 +420,20 @@ def test_previous_window_late_ingestion_racing_next_finalizer_is_deterministic(c
 
 @pytest.mark.django_db
 def test_antifraud_history_crosses_config_cutover(clan_world, phase4_config_factory) -> None:  # type: ignore[no-untyped-def]
-    now, _, _, _, _, clan = clan_world
-    cutover = now + timedelta(minutes=2)
+    now, config_a, _, resolved, _, clan = clan_world
+    assert resolved.clan is not None
+    seconds = resolved.clan.activity.window_seconds
+    period_start = window_start_for(now, seconds) + timedelta(seconds=seconds)
+    cutover = period_start + timedelta(minutes=7)
     phase4_config_factory(effective_at=cutover, version="activity-cutover")
     cs = clan()
     member = cs.memberships.get()
     activate(member, now)
-    for index, at in enumerate((cutover - timedelta(seconds=1), cutover + timedelta(seconds=1))):
+    source_times = (cutover - timedelta(seconds=1), cutover + timedelta(seconds=1))
+    assert {window_start_for(at, seconds) for at in source_times} == {period_start}
+    assert resolve_effective_game_config(source_times[0]).id == config_a.pk
+    assert resolve_effective_game_config(source_times[1]).id != config_a.pk
+    for index, at in enumerate(source_times):
         row = record_clan_activity(
             clan_season=cs,
             sender=member.player,
@@ -387,7 +443,10 @@ def test_antifraud_history_crosses_config_cutover(clan_world, phase4_config_fact
             observed_at=at,
         )
         assert row is not None
-    assert finalize_due_windows(now=now + timedelta(hours=1)) == 2
+    assert finalize_due_windows(now=period_start + timedelta(hours=1)) == 2
+    # Config provenance is part of the settlement identity; an intentional
+    # in-period cutover therefore creates one durable window per config.
+    assert cs.clanactivitywindow_set.count() == 2
     assert list(
         ClanActivity.objects.filter(clan_season=cs)
         .order_by("observed_at")
