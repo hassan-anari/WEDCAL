@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     "apps.base_tap",
     "apps.profile_collection",
     "apps.clans",
+    "apps.moderation",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -151,6 +152,18 @@ BASE_TAP_SETTLEMENT_RETRY_SECONDS = int(os.getenv("BASE_TAP_SETTLEMENT_RETRY_SEC
 
 CELERY_BEAT_SCHEDULE.update(
     {
+        "sweep-clan-inactivity": {
+            "task": "apps.clans.tasks.sweep_clan_inactivity",
+            "schedule": 3600,
+        },
+        "sweep-clan-bot-admin": {
+            "task": "apps.clans.tasks.sweep_clan_bot_admin_deadlines",
+            "schedule": 300,
+        },
+        "finalize-clan-governance": {
+            "task": "apps.clans.tasks.finalize_clan_governance",
+            "schedule": 60,
+        },
         "recover-reward-outbox": {
             "task": "apps.rewards.tasks.recover_reward_outbox",
             "schedule": 60,

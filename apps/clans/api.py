@@ -8,7 +8,9 @@ from django.utils import timezone
 from ninja import Router, Schema
 from ninja.errors import HttpError
 
+from apps.clans.governance import cast_vote, open_case, request_dissolution
 from apps.clans.models import (
+    ClanGovernanceCase,
     ClanInvite,
     ClanJoinRequest,
     ClanMembership,
@@ -107,10 +109,69 @@ class StateOut(Schema):
     voluntary_leave_count: int
 
 
+class RemovalCaseIn(Schema):
+    target_membership_id: int
+    reason: str
+
+
+class VoteIn(Schema):
+    choice: str
+
+
+class GovernanceOut(Schema):
+    id: int
+    case_type: str
+    status: str
+    voting_deadline: datetime
+    eligible_count: int
+    reason: str
+    target_membership_id: int | None
+    target_first_name: str | None
+    target_username: str | None
+    is_eligible_voter: bool
+    own_vote: str | None
+    yes_count: int | None
+    no_count: int | None
+    valid_cast_count: int | None
+    result: str | None
+
+
+class RecoveryOut(Schema):
+    state: str
+    reason: str
+    started_at: datetime | None
+    bot_admin_restore_deadline: datetime | None
+    home_integrity_available: bool
+
+
 def player(request: HttpRequest) -> Player:
     value = getattr(request, "auth", None)
     assert isinstance(value, Player)
     return value
+
+
+def governance_out(row: ClanGovernanceCase, viewer: Player) -> GovernanceOut:
+    target_membership = row.target_membership if row.target_membership_id else None
+    target = target_membership.player if target_membership is not None else None
+    own_vote = row.votes.filter(voter=viewer).values_list("choice", flat=True).first()
+    finalized = row.finalized_at is not None
+    return GovernanceOut(
+        id=row.pk,
+        case_type=row.case_type,
+        status=row.status,
+        voting_deadline=row.voting_deadline,
+        eligible_count=row.eligible_count,
+        reason=row.reason,
+        target_membership_id=row.target_membership_id,
+        target_first_name=target.first_name if target else None,
+        target_username=target.username if target else None,
+        is_eligible_voter=row.electors.filter(player=viewer).exists(),
+        own_vote=own_vote,
+        yes_count=row.yes_count if finalized else None,
+        no_count=row.no_count if finalized else None,
+        valid_cast_count=row.valid_cast_count if finalized else None,
+        result=row.result_reason if finalized else None,
+    )
 
 
 def context() -> tuple[Season, ResolvedGameConfig]:
@@ -345,6 +406,91 @@ def leave(request: HttpRequest) -> tuple[int, None]:
     except (ValidationError, PermissionDenied) as exc:
         raise fail(exc) from exc
     return 204, None
+
+
+@router.get("/governance", response=list[GovernanceOut])
+def governance(request: HttpRequest) -> list[GovernanceOut]:
+    season, _ = context()
+    membership = ClanMembership.objects.filter(
+        player=player(request), season=season, ended_at__isnull=True
+    ).first()
+    if membership is None:
+        return []
+    viewer = player(request)
+    rows = (
+        ClanGovernanceCase.objects.filter(clan_season=membership.clan_season)
+        .select_related("target_membership__player")
+        .order_by("-opened_at")[:100]
+    )
+    return [governance_out(row, viewer) for row in rows]
+
+
+@router.post("/removal-cases", response=GovernanceOut)
+def removal_case(request: HttpRequest, payload: RemovalCaseIn) -> GovernanceOut:
+    season, _ = context()
+    try:
+        cs = ClanSeason.objects.get(
+            captain=player(request), season=season, state=ClanSeason.State.ACTIVE
+        )
+        target = ClanMembership.objects.get(pk=payload.target_membership_id)
+        row = open_case(
+            initiator=player(request),
+            clan_season=cs,
+            case_type=ClanGovernanceCase.Type.SOLDIER_REMOVAL,
+            reason=payload.reason,
+            target=target,
+        )
+        return governance_out(row, player(request))
+    except (
+        ValidationError,
+        PermissionDenied,
+        ClanSeason.DoesNotExist,
+        ClanMembership.DoesNotExist,
+    ) as exc:
+        raise fail(exc) from exc
+
+
+@router.post("/governance/{case_id}/vote", response=GovernanceOut)
+def vote(request: HttpRequest, case_id: int, payload: VoteIn) -> GovernanceOut:
+    try:
+        ballot = cast_vote(case_id=case_id, voter=player(request), choice=payload.choice)
+        row = ballot.case
+        return governance_out(row, player(request))
+    except (ValidationError, PermissionDenied, ClanGovernanceCase.DoesNotExist) as exc:
+        raise fail(exc) from exc
+
+
+@router.post("/dissolution", response={204: None, 200: GovernanceOut})
+def dissolution(request: HttpRequest):  # type: ignore[no-untyped-def]
+    season, _ = context()
+    try:
+        cs = ClanSeason.objects.get(
+            captain=player(request), season=season, state=ClanSeason.State.ACTIVE
+        )
+        row = request_dissolution(player(request), cs)
+        if row is None:
+            return 204, None
+        return 200, governance_out(row, player(request))
+    except (ValidationError, PermissionDenied, ClanSeason.DoesNotExist) as exc:
+        raise fail(exc) from exc
+
+
+@router.get("/recovery", response=RecoveryOut)
+def recovery(request: HttpRequest) -> RecoveryOut:
+    from apps.clans.governance import clan_home_integrity_available
+
+    season, _ = context()
+    membership = get_object_or_404(
+        ClanMembership, player=player(request), season=season, ended_at__isnull=True
+    )
+    cs = membership.clan_season
+    return RecoveryOut(
+        state=cs.state,
+        reason=cs.recovery_reason,
+        started_at=cs.recovery_started_at,
+        bot_admin_restore_deadline=cs.bot_admin_restore_deadline,
+        home_integrity_available=clan_home_integrity_available(cs),
+    )
 
 
 # Ninja resolves routes in registration order. Keep dynamic identifiers last so

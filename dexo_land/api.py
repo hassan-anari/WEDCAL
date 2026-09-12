@@ -4,6 +4,7 @@ from apps.base_tap.api import router as base_tap_router
 from apps.clans.api import router as clans_router
 from apps.daily.api import router as daily_router
 from apps.missions.api import router as missions_router
+from apps.moderation.api import router as moderation_router
 from apps.network.api import router as network_router
 from apps.profile_collection.api import router as profile_router
 from apps.referrals.api import router as referrals_router
@@ -24,3 +25,4 @@ api.add_router("/network", network_router)
 api.add_router("/base", base_tap_router)
 api.add_router("/profile", profile_router)
 api.add_router("/clans", clans_router)
+api.add_router("/moderation", moderation_router)

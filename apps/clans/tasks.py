@@ -32,3 +32,39 @@ def recover_invite_revocations() -> int:
 @shared_task  # type: ignore[untyped-decorator]
 def recover_invite_creation() -> int:
     return recover_invite_creations()
+
+
+@shared_task  # type: ignore[untyped-decorator]
+def sweep_clan_inactivity(limit: int = 100) -> int:
+    from apps.clans.governance import sweep_inactivity
+
+    return sweep_inactivity(limit=limit)
+
+
+@shared_task  # type: ignore[untyped-decorator]
+def sweep_clan_bot_admin_deadlines(limit: int = 100) -> int:
+    from apps.clans.governance import sweep_bot_admin_deadlines
+
+    return sweep_bot_admin_deadlines(limit=limit)
+
+
+@shared_task  # type: ignore[untyped-decorator]
+def finalize_clan_governance(limit: int = 100) -> int:
+    from apps.clans.governance import finalize_case
+    from apps.clans.models import ClanGovernanceCase
+
+    ids = list(
+        ClanGovernanceCase.objects.filter(
+            status=ClanGovernanceCase.Status.OPEN, voting_deadline__lte=timezone.now()
+        )
+        .order_by("voting_deadline", "pk")
+        .values_list("pk", flat=True)[:limit]
+    )
+    completed = 0
+    for case_id in ids:
+        try:
+            finalize_case(case_id)
+        except Exception:
+            continue
+        completed += 1
+    return completed

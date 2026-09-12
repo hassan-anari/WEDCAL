@@ -10,6 +10,14 @@ from apps.players.models import Player
 logger = structlog.get_logger(__name__)
 
 
+def reward_gameplay_allowed(player: Player) -> bool:
+    """Canonical gate for creating new economic value; FLAGGED remains playable."""
+    return player.moderation_state not in {
+        Player.ModerationState.SUSPENDED,
+        Player.ModerationState.BANNED,
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class TelegramProfile:
     telegram_user_id: int

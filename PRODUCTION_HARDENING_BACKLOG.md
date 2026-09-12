@@ -391,19 +391,22 @@ Examples requiring explicit close handling:
 
 ## PH-009 — Moderation evidence access and retention audit
 
-**Origin:** Phase 5 evidence primitives; canonical moderation scope continues in Phase 7/10  
-**State:** `OPEN`  
-**Gate:** `PHASE-BLOCKER` when moderation case/admin access is implemented
+**Origin:** Phase 5 evidence primitives; Phase 7B retention holds; staff tooling continues in Phase 10
+**State:** `PARTIALLY RESOLVED`
+**Gate:** `PHASE-10-BLOCKER` before staff evidence access is exposed
 
-The source contract permits retained message evidence for abuse/fraud investigation and requires permission-controlled/auditable access. Current NetworkActivity retention exists, but full moderation-case retention override and access audit are future work.
+Phase 7B adds bounded evidence references/holds: active cases protect referenced NetworkActivity
+raw content and fingerprint/risk metadata, case close records a config-snapshotted finite retention
+deadline, and normal player APIs never return raw evidence. Phase 10 still owns the least-privilege
+staff evidence viewer and read-access audit trail; no staff evidence endpoint is exposed in Phase 7B.
 
 **Required acceptance:**
 
-- Evidence attached to an active moderation case is not purged before the required case/audit retention ends.
-- Raw content is not exposed in normal player APIs.
+- [x] Evidence attached to an active moderation case is not purged by normal bounded cleanup.
+- [x] Raw content is not exposed in normal player APIs.
 - Admin/support read access is least-privilege and audited.
-- Purge resumes after retention hold expires.
-- Document legal/operational retention setting rather than retaining raw content indefinitely.
+- [x] Purge resumes after the finite, config-derived retention hold expires.
+- [x] Retention is versioned policy rather than indefinite raw-content storage.
 
 ---
 

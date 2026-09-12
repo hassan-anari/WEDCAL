@@ -467,3 +467,23 @@ def test_old_season_credit_is_not_moved_to_new_season(
         == attempt.reward_amount
     )
     assert not RewardLedger.objects.exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("state", ["SUSPENDED", "BANNED"])
+def test_blocked_player_cannot_create_typing_credit(
+    phase4_config_factory, player_factory, season_factory, state
+) -> None:
+    config = phase4_config_factory()
+    season_factory(config)
+    player = player_factory()
+    phrase()
+    attempt, _ = start_attempt(player, f"blocked-{state}", BASE)
+    player.moderation_state = state
+    player.save(update_fields=("moderation_state",))
+    submitted, _ = submit_attempt(
+        player, attempt.public_id, attempt.phrase.text, BASE + timedelta(seconds=5)
+    )
+    assert submitted.status == TypingAttempt.Status.REJECTED
+    assert submitted.reward_amount == 0
+    assert not TypingWalletTransaction.objects.filter(attempt=submitted).exists()
