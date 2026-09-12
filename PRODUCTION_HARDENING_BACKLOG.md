@@ -5,7 +5,7 @@
 **Initial scope reviewed:** Phases 0–5 + Season 1 Economy Contract Sync + Base Tap  
 **Verified against Phase 6 PR:** `33e14c0b5178d1b79e2c3b5668ff257b012d23f1` (correction base)
 **Phase 7A review base:** `132bcc187512bf38cf34e0e123f79c3b01493e6e`
-**Phase 8 review base:** PR #12 consolidated correctness HEAD (2026-09-12)
+**Phase 8 review base:** PR #12 final correctness pass (2026-09-12)
 **Initial review date:** 2026-09-10  
 **Last reviewed:** 2026-09-12 (Phase 8 Clan economy review)
 **Owner:** repository/product owner  
@@ -142,7 +142,7 @@ Until functional MVP is complete:
 | PH-036 | Large-table migration safety policy | WATCH | LAUNCH-BLOCKER | Becomes mandatory once tables carry production-scale data | High |
 | PH-045 | Unresolved Clan lifecycle product decisions | OPEN | PHASE-BLOCKER | Phase 7B dissolution/recovery design | Medium/High |
 | PH-046 | Multi-Season Clan identity/state isolation | OPEN | SEASON-2-BLOCKER | Before a persistent Clan enters Season 2 | High |
-| PH-047 | Accepted JOIN reservation and credential liveness | OPEN | PHASE-BLOCKER / LAUNCH-BLOCKER | Before Phase 8 capacity economy or public launch | High |
+| PH-047 | Accepted JOIN reservation and credential liveness | RESOLVED | CLOSED | Phase 8 correctness pass | High |
 | PH-037 | Main-branch protection / ruleset enforcement | OPEN | LAUNCH-BLOCKER | Before multiple operators/agents or production release flow | Medium/High process |
 | PH-038 | Contract-gate robustness beyond prose substring checks | OPEN | POLISH / GOVERNANCE | Before production governance freeze | Medium |
 | PH-039 | Dependency/container vulnerability review | OPEN | LAUNCH-BLOCKER | Phase 11 | Medium/High |
@@ -186,20 +186,19 @@ integration risk only; Phase 7A intentionally does not implement Season 2 behavi
 ## PH-047 — Accepted JOIN reservation and credential liveness
 
 **Origin:** Phase 7A final lifecycle review
-**State:** `OPEN`
-**Gate:** `PHASE-BLOCKER` before Phase 8 capacity economy; `LAUNCH-BLOCKER`
+**State:** `RESOLVED`
+**Gate:** `CLOSED` by the Phase 8 correctness pass
 
 **Phase 8 policy implemented:** an accepted path reserves capacity without a TTL. Applicant and
 Captain cancellation both enter the durable revoke state machine; `UNCERTAIN`, unknown-risk,
 `REVOKE_FAILED`, and `MANUAL_REVIEW` continue reserving capacity. The request changes to
 `CANCELLED` only after a safe terminal revoke, with no leave counter/cooldown. No replacement JOIN
-credential is issued while unresolved risk exists. This entry remains OPEN until the required
-PostgreSQL cancellation-vs-activation and final-slot race suite is green on the PR HEAD.
-
-Correctness-pass evidence now covers local-before-create cancellation, Captain/applicant paths,
-unsafe-state reservation retention, global effective-capacity final-slot serialization, and
-existing invite create/revoke races. The remaining cancellation-versus-Telegram-observation
-matrix keeps PH-047 open rather than overstating resolution.
+credential is issued while unresolved risk exists. The PostgreSQL suite now covers local-before-create cancellation, Captain/applicant paths,
+unsafe-state reservation retention, global effective-capacity final-slot serialization,
+create/revoke races, and concurrent Captain/applicant cancellation versus Telegram presence
+observation. These races prove that activation and cancellation serialize, unsafe credentials
+continue to reserve, safe terminalization releases exactly once, and neither path applies a
+voluntary-leave count or cooldown. PH-047 is therefore resolved for the approved no-TTL policy.
 
 ## PH-048 — Clan `banner-raised` shared milestone predicate
 

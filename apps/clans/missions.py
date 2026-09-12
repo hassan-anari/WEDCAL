@@ -3,7 +3,7 @@ from datetime import datetime
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
-from apps.clans.activity import home_integrity_at, membership_access_at
+from apps.clans.activity import context_owned_at, home_integrity_at, membership_access_at
 from apps.clans.economy import (
     _apply_hq_xp_locked,
     active_effect_bps,
@@ -20,7 +20,7 @@ from apps.clans.models import (
 )
 from apps.game_config.models import GameConfigVersion
 from apps.game_config.services import ResolvedGameConfig, resolve_game_config_version
-from apps.players.services import reward_gameplay_allowed
+from apps.players.services import reward_gameplay_allowed_at
 from apps.rewards.services import IdempotencyConflict
 from apps.seasons.services import is_reward_earning_time
 
@@ -39,7 +39,7 @@ def record_mission_progress(
     if not source_id.strip() or len(source_id) > 128 or type(units) is not int or units <= 0:
         raise ValidationError("Invalid mission source event")
     claim_idempotency_key(
-        source_id,
+        f"mission:{definition.pk}:{source_id}",
         "MISSION_PROGRESS",
         f"{definition.pk}:{membership.pk}:{units}:{occurred_at.isoformat()}",
     )
@@ -52,12 +52,13 @@ def record_mission_progress(
     policy = config.clan
     if policy is None:
         raise ValidationError("Clan mission economy unavailable")
+    identity = ClanMembership.objects.values("clan_season_id", "player_id").get(pk=membership.pk)
+    cs = ClanSeason.objects.select_for_update().get(pk=identity["clan_season_id"])
     member = (
         ClanMembership.objects.select_for_update()
         .select_related("player", "clan_season__season")
         .get(pk=membership.pk)
     )
-    cs = ClanSeason.objects.select_for_update().get(pk=member.clan_season_id)
     if (
         not definition.enabled
         or not definition.starts_at <= occurred_at < definition.ends_at
@@ -66,7 +67,7 @@ def record_mission_progress(
         or not membership_access_at(member, occurred_at)
         or not home_integrity_at(cs, occurred_at)
         or not is_reward_earning_time(member.clan_season.season, occurred_at)
-        or not reward_gameplay_allowed(member.player)
+        or not reward_gameplay_allowed_at(member.player, occurred_at)
     ):
         raise ValidationError("Mission progress is not eligible at source time")
     existing = ClanMissionSourceEvent.objects.filter(
@@ -116,9 +117,41 @@ def record_mission_progress(
     participants = list(
         progress.participants.select_related("membership__player").order_by("membership_id")
     )
+    from apps.players.models import Player
+
+    list(
+        Player.objects.select_for_update()
+        .filter(pk__in={item.membership.player_id for item in participants} | {cs.captain_id})
+        .order_by("pk")
+    )
     first_settlement = None
     for mission_participant in participants:
         participant_membership = mission_participant.membership
+        eligible_at_completion = bool(
+            participant_membership.started_at <= occurred_at
+            and (
+                participant_membership.ended_at is None
+                or occurred_at < participant_membership.ended_at
+            )
+            and membership_access_at(participant_membership, occurred_at)
+            and home_integrity_at(cs, occurred_at)
+            and context_owned_at(cs, occurred_at)
+            and reward_gameplay_allowed_at(participant_membership.player, occurred_at)
+        )
+        mission_participant.eligibility_evaluated_at = occurred_at
+        mission_participant.reward_eligible = eligible_at_completion
+        mission_participant.ineligibility_reason = (
+            "" if eligible_at_completion else "INELIGIBLE_AT_COMPLETION"
+        )
+        if not eligible_at_completion:
+            mission_participant.save(
+                update_fields=(
+                    "eligibility_evaluated_at",
+                    "reward_eligible",
+                    "ineligibility_reason",
+                )
+            )
+            continue
         settlement, _ = settle_clan_reward(
             membership=participant_membership,
             source_type="CLAN_MISSION",
@@ -128,9 +161,17 @@ def record_mission_progress(
             occurred_at=occurred_at,
             resolved_config=config,
             metadata={"definition_id": definition.pk, "progress_effect_ids": effect_ids},
+            source_facts_verified=True,
         )
         mission_participant.reward_settlement = settlement
-        mission_participant.save(update_fields=("reward_settlement",))
+        mission_participant.save(
+            update_fields=(
+                "reward_settlement",
+                "eligibility_evaluated_at",
+                "reward_eligible",
+                "ineligibility_reason",
+            )
+        )
         first_settlement = first_settlement or settlement
     _apply_hq_xp_locked(
         cs=cs,

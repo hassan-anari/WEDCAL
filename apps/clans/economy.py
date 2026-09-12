@@ -1,8 +1,8 @@
 """Phase 8 Clan economy services.
 
-Lock order is Player -> ClanSeason -> Membership -> projections/inventory.  Every
-public mutation follows it so activity settlement and Treasury spending cannot
-deadlock by acquiring the shared aggregate in opposite orders.
+Clan mutations lock the semantic idempotency key, then ClanSeason, Players in
+ascending primary-key order, Memberships, and child projections/inventory.
+Telegram ownership transitions lock TelegramGroup before program-specific rows.
 """
 
 import hashlib
@@ -16,7 +16,9 @@ from django.utils import timezone
 from apps.clans.models import (
     ClanAchievementUnlock,
     ClanActiveEffect,
+    ClanCaptainBonusConfigAccumulator,
     ClanCaptainBonusDaily,
+    ClanCaptainBonusSource,
     ClanContributionEntry,
     ClanEconomicAccumulator,
     ClanEconomicSettlement,
@@ -38,7 +40,6 @@ from apps.game_config.services import (
     resolve_game_config_version,
 )
 from apps.players.models import Player
-from apps.players.services import reward_gameplay_allowed
 from apps.profile_collection.models import PlayerAchievementUnlock
 from apps.rewards.services import IdempotencyConflict, settle_reward
 
@@ -205,6 +206,7 @@ def settle_clan_reward(
     occurred_at: datetime,
     resolved_config: ResolvedGameConfig,
     metadata: dict[str, Any] | None = None,
+    source_facts_verified: bool = False,
 ) -> tuple[ClanEconomicSettlement, bool]:
     _validate_key(idempotency_key)
     if (
@@ -216,7 +218,6 @@ def settle_clan_reward(
     policy = resolved_config.clan
     if policy is None:
         raise ValidationError("Clan economy is unavailable")
-    player = Player.objects.select_for_update().get(pk=membership.player_id)
     claim_idempotency_key(
         idempotency_key,
         "ECONOMIC_SETTLEMENT",
@@ -227,6 +228,13 @@ def settle_clan_reward(
         .select_related("season")
         .get(pk=membership.clan_season_id)
     )
+    locked_players = {
+        row.pk: row
+        for row in Player.objects.select_for_update()
+        .filter(pk__in={membership.player_id, cs.captain_id})
+        .order_by("pk")
+    }
+    player = locked_players[membership.player_id]
     member = ClanMembership.objects.select_for_update().get(pk=membership.pk)
     existing = ClanEconomicSettlement.objects.filter(idempotency_key=idempotency_key).first()
     if existing:
@@ -239,11 +247,13 @@ def settle_clan_reward(
         ) != (member.pk, source_type, source_id, gross_amount, resolved_config.id):
             raise IdempotencyConflict("Idempotency key belongs to another Clan settlement")
         return existing, False
-    if member.started_at > occurred_at or (member.ended_at and occurred_at >= member.ended_at):
+    if not source_facts_verified and (
+        member.started_at > occurred_at or (member.ended_at and occurred_at >= member.ended_at)
+    ):
         raise ValidationError("Membership was not economically eligible at source time")
     from apps.clans.activity import context_owned_at, home_integrity_at, membership_access_at
 
-    if (
+    if not source_facts_verified and (
         not membership_access_at(member, occurred_at)
         or not home_integrity_at(cs, occurred_at)
         or not context_owned_at(cs, occurred_at)
@@ -322,6 +332,7 @@ def settle_clan_reward(
         source_season=cs.season,
         preserve_config_version=True,
         allow_closed_source_season=cs.season.status == "CLOSED",
+        source_eligibility_verified=source_facts_verified,
     )
     economic.reward = reward
     economic.save(update_fields=("reward",))
@@ -369,7 +380,6 @@ def settle_clan_reward(
         source_type == "CLAN_ACTIVITY"
         and member.player_id != cs.captain_id
         and policy.captain_bonus.enabled
-        and (metadata or {}).get("captain_bonus_eligible_at_source", True)
     ):
         period = resolve_daily_period(
             occurred_at,
@@ -377,40 +387,62 @@ def settle_clan_reward(
             resolved_config.daily.reset_hour,
             resolved_config.daily.reset_minute,
         )
-        bonus_accumulator, _ = ClanCaptainBonusDaily.objects.select_for_update().get_or_create(
-            clan_season=cs, period_key=period.key, config_version=config
+        daily, _ = ClanCaptainBonusDaily.objects.select_for_update().get_or_create(
+            clan_season=cs,
+            period_key=period.key,
+            defaults={"config_version": config},
         )
         source_key = f"{source_type}:{source_id}"
-        if source_key not in bonus_accumulator.processed_sources:
-            old_due = min(
-                bonus_accumulator.eligible_gross * policy.captain_bonus.share_bps // 10000,
-                policy.captain_bonus.daily_cap,
+        eligible_gross = int((metadata or {}).get("captain_bonus_gross_amount", gross_amount))
+        source_eligible = bool((metadata or {}).get("captain_bonus_eligible_at_source", True))
+        source = ClanCaptainBonusSource.objects.filter(daily=daily, source_key=source_key).first()
+        if source is None:
+            config_accumulator, _ = (
+                ClanCaptainBonusConfigAccumulator.objects.select_for_update().get_or_create(
+                    daily=daily, config_version=config
+                )
             )
-            bonus_accumulator.eligible_gross += gross_amount
-            new_due = min(
-                bonus_accumulator.eligible_gross * policy.captain_bonus.share_bps // 10000,
-                policy.captain_bonus.daily_cap,
+            numerator = config_accumulator.calculation_remainder
+            if source_eligible:
+                numerator += eligible_gross * policy.captain_bonus.share_bps
+            calculated_delta, config_accumulator.calculation_remainder = divmod(numerator, 10000)
+            available = max(policy.captain_bonus.daily_cap - daily.awarded_amount, 0)
+            delta = min(calculated_delta, available)
+            source = ClanCaptainBonusSource.objects.create(
+                daily=daily,
+                source_key=source_key,
+                config_version=config,
+                eligible_gross=eligible_gross if source_eligible else 0,
+                awarded_amount=delta,
+                occurred_at=occurred_at,
             )
-            delta = new_due - old_due
-            bonus_accumulator.processed_sources = [*bonus_accumulator.processed_sources, source_key]
-            captain = Player.objects.select_for_update().get(pk=cs.captain_id)
-            if delta and reward_gameplay_allowed(captain):
+            config_accumulator.eligible_gross += source.eligible_gross
+            config_accumulator.calculated_amount += calculated_delta
+            config_accumulator.save()
+            if delta:
+                captain = locked_players[cs.captain_id]
                 settle_reward(
                     player=captain,
                     source_type="CAPTAIN_BONUS",
-                    source_id=f"{cs.pk}:{bonus_accumulator.period_key}:{new_due}",
+                    source_id=f"{cs.pk}:{daily.period_key}:{source.pk}",
                     context="CLAN_HOME",
                     gross_amount=delta,
                     player_amount=delta,
                     clan_treasury_amount=0,
-                    idempotency_key=f"captain-bonus:{cs.pk}:{bonus_accumulator.period_key}:{new_due}",
+                    idempotency_key=f"captain-bonus-source:{source.pk}",
                     occurred_at=occurred_at,
                     resolved_config=resolved_config,
-                    metadata={"eligible_gross_total": bonus_accumulator.eligible_gross},
+                    metadata={
+                        "eligible_gross": source.eligible_gross,
+                        "source_config_version_id": config.pk,
+                    },
                     create_settlement_outbox=False,
+                    source_eligibility_verified=True,
                 )
-                bonus_accumulator.awarded_amount += delta
-            bonus_accumulator.save()
+                daily.awarded_amount += delta
+            daily.eligible_gross += source.eligible_gross
+            daily.processed_sources = [*daily.processed_sources, source_key]
+            daily.save()
     return economic, True
 
 
@@ -437,13 +469,13 @@ def purchase_item(
     idempotency_key: str,
     resolved_config: ResolvedGameConfig,
 ) -> tuple[ClanItemPurchase, bool]:
-    Player.objects.select_for_update().get(pk=actor.pk)
     claim_idempotency_key(
         idempotency_key,
         "ITEM_PURCHASE",
         f"{clan_season.pk}:{actor.pk}:{item_id}:{resolved_config.id}",
     )
     cs = ClanSeason.objects.select_for_update().select_related("season").get(pk=clan_season.pk)
+    actor = Player.objects.select_for_update().get(pk=actor.pk)
     _captain(cs, actor)
     policy = resolved_config.clan
     if policy is None:
@@ -502,13 +534,13 @@ def activate_item(
     at: datetime | None = None,
 ) -> tuple[ClanItemUse, bool]:
     now = at or timezone.now()
-    Player.objects.select_for_update().get(pk=actor.pk)
     claim_idempotency_key(
         idempotency_key,
         "ITEM_USE",
         f"{clan_season.pk}:{actor.pk}:{item_id}:{resolved_config.id}",
     )
     cs = ClanSeason.objects.select_for_update().select_related("season").get(pk=clan_season.pk)
+    actor = Player.objects.select_for_update().get(pk=actor.pk)
     _captain(cs, actor)
     policy = resolved_config.clan
     if policy is None:

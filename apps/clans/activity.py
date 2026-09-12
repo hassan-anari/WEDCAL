@@ -11,6 +11,7 @@ from apps.core.activity import fingerprints, qualify_text, window_start_for
 from apps.game_config.models import GameConfigVersion
 from apps.game_config.services import resolve_effective_game_config
 from apps.players.models import Player
+from apps.players.services import reward_gameplay_allowed_at
 from apps.seasons.services import is_reward_earning_time, resolve_historical_season
 
 
@@ -106,13 +107,10 @@ def record_clan_activity(
         and integrity
         and owned
         and is_reward_earning_time(season, observed_at)
-        and sender.moderation_state
-        not in {Player.ModerationState.SUSPENDED, Player.ModerationState.BANNED}
+        and reward_gameplay_allowed_at(sender, observed_at)
     )
-    captain_bonus_eligible = Player.objects.filter(
-        pk=clan_season.captain_id,
-        moderation_state__in=[Player.ModerationState.ACTIVE, Player.ModerationState.FLAGGED],
-    ).exists()
+    captain = Player.objects.get(pk=clan_season.captain_id)
+    captain_bonus_eligible = reward_gameplay_allowed_at(captain, observed_at)
     result = qualify_text(
         text=body,
         eligible=eligible,

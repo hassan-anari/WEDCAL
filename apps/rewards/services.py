@@ -71,6 +71,7 @@ def settle_player_reward(
     create_settlement_outbox: bool = True,
     allow_closed_source_season: bool = False,
     projection_at: datetime | None = None,
+    source_eligibility_verified: bool = False,
 ) -> tuple[RewardLedger, bool]:
     return settle_reward(
         player=player,
@@ -90,6 +91,7 @@ def settle_player_reward(
         create_settlement_outbox=create_settlement_outbox,
         allow_closed_source_season=allow_closed_source_season,
         projection_at=projection_at,
+        source_eligibility_verified=source_eligibility_verified,
     )
 
 
@@ -112,6 +114,7 @@ def settle_reward(
     create_settlement_outbox: bool = True,
     allow_closed_source_season: bool = False,
     projection_at: datetime | None = None,
+    source_eligibility_verified: bool = False,
 ) -> tuple[RewardLedger, bool]:
     """Canonical reward primitive; callers own related domain mutations in this transaction."""
     amount = player_amount
@@ -153,7 +156,7 @@ def settle_reward(
                 raise IdempotencyConflict("Idempotency key belongs to a different settlement")
             logger.info("reward_duplicate", player_id=player.pk, reward_id=existing.pk)
             return existing, False
-        if not reward_gameplay_allowed(locked_player):
+        if not source_eligibility_verified and not reward_gameplay_allowed(locked_player):
             raise InvalidReward("Player moderation state blocks reward generation")
         projection_config = (
             resolve_effective_game_config(projection_at or timezone.now())

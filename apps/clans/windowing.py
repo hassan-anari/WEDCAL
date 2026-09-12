@@ -29,8 +29,11 @@ def _finalize(activity: ClanActivity, now: datetime) -> bool:
         return True
     start = window_start_for(activity.observed_at, policy.activity.window_seconds)
     end = start + timedelta(seconds=policy.activity.window_seconds)
-    # Wait one full exact-duplicate horizon after source-window close for delayed ingestion.
-    if end + timedelta(seconds=policy.anti_fraud.exact_duplicate_window_seconds) > now:
+    qualification_horizon = max(
+        policy.anti_fraud.exact_duplicate_window_seconds,
+        policy.anti_fraud.near_duplicate_window_seconds,
+    )
+    if end + timedelta(seconds=qualification_horizon) > now:
         return False
     with transaction.atomic():
         _lock_window(activity.membership_id, activity.config_version_id, start)
@@ -39,7 +42,7 @@ def _finalize(activity: ClanActivity, now: datetime) -> bool:
             season_id=activity.season_id,
             config_version_id=activity.config_version_id,
             window_start=start,
-            defaults={"clan_season_id": activity.clan_season_id},
+            defaults={"clan_season_id": activity.clan_season_id, "window_end": end},
         )
         if window.finalized_at:
             ClanActivity.objects.filter(
@@ -64,30 +67,46 @@ def _finalize(activity: ClanActivity, now: datetime) -> bool:
             ).aggregate(total=Sum("rewardable_chars"))["total"]
             or 0
         )
-        captain_bonus_source_eligible = not source.filter(
-            captain_bonus_eligible_at_source=False, rewardable_chars__gt=0
-        ).exists()
+        captain_eligible_chars = (
+            source.filter(
+                classification__in=[
+                    ClanActivity.Classification.VALID,
+                    ClanActivity.Classification.SUSPICIOUS,
+                ],
+                captain_bonus_eligible_at_source=True,
+            ).aggregate(total=Sum("rewardable_chars"))["total"]
+            or 0
+        )
+        captain_bonus_gross = min(
+            captain_eligible_chars // policy.activity.chars_per_gross_point,
+            policy.activity.max_gross_points_per_window,
+        )
         gross = min(
             chars // policy.activity.chars_per_gross_point,
             policy.activity.max_gross_points_per_window,
         )
         window.eligible_chars = chars
         window.gross_amount = gross
+        window.window_end = end
         window.finalized_at = now
         if gross:
             assert activity.membership is not None
+            economic_at = source.filter(rewardable_chars__gt=0).latest("observed_at").observed_at
             settlement, _ = settle_clan_reward(
                 membership=activity.membership,
                 source_type="CLAN_ACTIVITY",
                 source_id=f"window:{window.pk}",
                 gross_amount=gross,
                 idempotency_key=f"clan-window:{window.pk}",
-                occurred_at=start,
+                occurred_at=economic_at,
                 resolved_config=config,
                 metadata={
                     "window_start": start.isoformat(),
-                    "captain_bonus_eligible_at_source": captain_bonus_source_eligible,
+                    "captain_bonus_eligible_at_source": captain_bonus_gross > 0,
+                    "captain_bonus_gross_amount": captain_bonus_gross,
+                    "window_end": end.isoformat(),
                 },
+                source_facts_verified=True,
             )
             window.settlement = settlement
         window.save()

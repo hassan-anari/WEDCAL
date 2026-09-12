@@ -21,6 +21,7 @@ from apps.network.models import (
     CreatorDailyAllowance,
     CreatorGroupRegistration,
     CreatorRegistrationIntent,
+    CreatorRegistrationStateEvent,
     CreatorWindowSettlement,
     NetworkActivity,
 )
@@ -55,9 +56,10 @@ def create_registration_intent(creator: Player) -> tuple[CreatorRegistrationInte
 
 
 def consume_registration_token(
-    raw: str, sender: Player, group: TelegramGroup
+    raw: str, sender: Player, group: TelegramGroup, *, observed_at: datetime | None = None
 ) -> CreatorGroupRegistration | None:
-    config = resolve_effective_game_config(timezone.now())
+    observed_at = observed_at or timezone.now()
+    config = resolve_effective_game_config(observed_at)
     if not config.network.enabled:
         return None
     digest = hashlib.sha256(raw.encode()).hexdigest()
@@ -87,6 +89,12 @@ def consume_registration_token(
         )
         if registration.creator_id != sender.pk:
             return None
+        CreatorRegistrationStateEvent.objects.get_or_create(
+            registration=registration,
+            occurred_at=observed_at,
+            source="TOKEN_CONSUMED",
+            defaults={"state": registration.state, "reward_eligible": False},
+        )
         intent.consumed_at = timezone.now()
         intent.save(update_fields=("consumed_at",))
         group.is_monitored = True
@@ -157,8 +165,11 @@ def verify_registration(registration_id: int) -> str:
             else CreatorGroupRegistration.State.ADMIN_REQUIRED
         )
     with transaction.atomic():
+        group_id = CreatorGroupRegistration.objects.values_list("group_id", flat=True).get(
+            pk=registration_id
+        )
+        TelegramGroup.objects.select_for_update().get(pk=group_id)
         locked = CreatorGroupRegistration.objects.select_for_update().get(pk=registration_id)
-        TelegramGroup.objects.select_for_update().get(pk=locked.group_id)
         if locked.state in {
             CreatorGroupRegistration.State.SUSPENDED,
             CreatorGroupRegistration.State.INACTIVE,
@@ -196,7 +207,47 @@ def verify_registration(registration_id: int) -> str:
             locked.bot_verified_at = timezone.now()
             locked.creator_verified_at = timezone.now()
         locked.save()
+        CreatorRegistrationStateEvent.objects.create(
+            registration=locked,
+            state=locked.state,
+            reward_eligible=locked.state == CreatorGroupRegistration.State.ACTIVE,
+            occurred_at=timezone.now(),
+            source="VERIFICATION",
+        )
     return state
+
+
+def registration_reward_eligible_at(registration: CreatorGroupRegistration, at: datetime) -> bool:
+    event = (
+        registration.state_events.filter(occurred_at__lte=at)
+        .order_by("-occurred_at", "-pk")
+        .first()
+    )
+    if event is not None:
+        return event.reward_eligible
+    # Backward-compatible provenance for rows created before state-event history.
+    return bool(registration.reward_eligible_since and registration.reward_eligible_since <= at)
+
+
+def deactivate_registration_at(registration_id: int, *, at: datetime, source: str) -> None:
+    with transaction.atomic():
+        group_id = CreatorGroupRegistration.objects.values_list("group_id", flat=True).get(
+            pk=registration_id
+        )
+        TelegramGroup.objects.select_for_update().get(pk=group_id)
+        registration = CreatorGroupRegistration.objects.select_for_update().get(pk=registration_id)
+        if registration.state != CreatorGroupRegistration.State.ACTIVE:
+            return
+        registration.state = CreatorGroupRegistration.State.ADMIN_REQUIRED
+        registration.reward_eligible_since = None
+        registration.save(update_fields=("state", "reward_eligible_since", "updated_at"))
+        CreatorRegistrationStateEvent.objects.create(
+            registration=registration,
+            state=registration.state,
+            reward_eligible=False,
+            occurred_at=at,
+            source=source,
+        )
 
 
 def _window_lock_key(
@@ -270,9 +321,7 @@ def _record_activity_locked(
         config.network.enabled
         and season is not None
         and is_reward_earning_time(season, observed_at)
-        and registration.state == CreatorGroupRegistration.State.ACTIVE
-        and registration.reward_eligible_since
-        and observed_at >= registration.reward_eligible_since
+        and registration_reward_eligible_at(registration, observed_at)
     )
     finalized = CreatorWindowSettlement.objects.filter(
         registration=registration,

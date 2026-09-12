@@ -491,6 +491,7 @@ class ClanActivityWindow(models.Model):
     season = models.ForeignKey("seasons.Season", on_delete=models.PROTECT)
     config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
     window_start = models.DateTimeField()
+    window_end = models.DateTimeField(null=True)
     eligible_chars = models.PositiveBigIntegerField(default=0)
     gross_amount = models.PositiveBigIntegerField(default=0)
     settlement = models.OneToOneField(ClanEconomicSettlement, on_delete=models.PROTECT, null=True)
@@ -584,6 +585,41 @@ class ClanCaptainBonusDaily(models.Model):
         ]
 
 
+class ClanCaptainBonusSource(models.Model):
+    daily = models.ForeignKey(
+        ClanCaptainBonusDaily, on_delete=models.PROTECT, related_name="sources"
+    )
+    source_key = models.CharField(max_length=160)
+    config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
+    eligible_gross = models.PositiveBigIntegerField()
+    awarded_amount = models.PositiveBigIntegerField(default=0)
+    occurred_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("daily", "source_key"), name="clan_unique_captain_bonus_source"
+            )
+        ]
+
+
+class ClanCaptainBonusConfigAccumulator(models.Model):
+    daily = models.ForeignKey(
+        ClanCaptainBonusDaily, on_delete=models.PROTECT, related_name="config_accumulators"
+    )
+    config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
+    eligible_gross = models.PositiveBigIntegerField(default=0)
+    calculation_remainder = models.PositiveIntegerField(default=0)
+    calculated_amount = models.PositiveBigIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("daily", "config_version"), name="clan_unique_captain_bonus_config"
+            )
+        ]
+
+
 class ClanMissionDefinition(models.Model):
     class Kind(models.TextChoices):
         INDIVIDUAL = "INDIVIDUAL", "Individual"
@@ -670,6 +706,9 @@ class ClanMissionParticipant(models.Model):
     reward_settlement = models.OneToOneField(
         ClanEconomicSettlement, on_delete=models.PROTECT, null=True
     )
+    eligibility_evaluated_at = models.DateTimeField(null=True)
+    reward_eligible = models.BooleanField(null=True)
+    ineligibility_reason = models.CharField(max_length=40, blank=True)
 
     class Meta:
         constraints = [

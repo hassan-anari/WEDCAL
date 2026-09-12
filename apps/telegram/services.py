@@ -423,7 +423,9 @@ def _observe_message(event: TelegramMessageObserved, telegram_update_id: int) ->
         if is_creator_control:
             from apps.network.services import consume_registration_token
 
-            consume_registration_token(command[1], resolution.player, group)
+            consume_registration_token(
+                command[1], resolution.player, group, observed_at=event.observed_at
+            )
             return
         from apps.clans.models import ClanSeason
         from apps.network.models import CreatorGroupRegistration
@@ -434,8 +436,11 @@ def _observe_message(event: TelegramMessageObserved, telegram_update_id: int) ->
             season__starts_at__lte=event.observed_at,
             season__ends_at__gt=event.observed_at,
         )
-        creators = CreatorGroupRegistration.objects.filter(
-            group=group, state=CreatorGroupRegistration.State.ACTIVE
+        creator = CreatorGroupRegistration.objects.filter(group=group).first()
+        from apps.network.services import registration_reward_eligible_at
+
+        creator_owned = bool(
+            creator and registration_reward_eligible_at(creator, event.observed_at)
         )
         # Impossible dual-live ownership fails closed rather than double-crediting.
         from apps.clans.activity import context_owned_at
@@ -448,7 +453,7 @@ def _observe_message(event: TelegramMessageObserved, telegram_update_id: int) ->
             ),
             None,
         )
-        if clan_season is not None and creators.exists():
+        if clan_season is not None and creator_owned:
             logger.error("telegram_dual_live_activity_context", telegram_group_id=group.pk)
             return
         if clan_season is not None:
@@ -463,7 +468,7 @@ def _observe_message(event: TelegramMessageObserved, telegram_update_id: int) ->
                 observed_at=event.observed_at,
             )
             return
-        registration = creators.first()
+        registration = creator if creator_owned else None
         if registration is None:
             return
         from apps.network.services import record_activity
@@ -543,13 +548,17 @@ def _observe_bot_membership(event: BotMembershipChanged, telegram_update_id: int
         )
     if not group.bot_is_admin:
         from apps.network.models import CreatorGroupRegistration
+        from apps.network.services import deactivate_registration_at
 
-        CreatorGroupRegistration.objects.filter(
-            group=group, state=CreatorGroupRegistration.State.ACTIVE
-        ).update(
-            state=CreatorGroupRegistration.State.ADMIN_REQUIRED,
-            reward_eligible_since=None,
+        registration_id = (
+            CreatorGroupRegistration.objects.filter(group=group)
+            .values_list("pk", flat=True)
+            .first()
         )
+        if registration_id is not None:
+            deactivate_registration_at(
+                registration_id, at=event.observed_at, source="BOT_ADMIN_LOST"
+            )
 
 
 def _observe_user_membership(event: UserMembershipChanged, telegram_update_id: int) -> None:
@@ -617,11 +626,8 @@ def _observe_user_membership(event: UserMembershipChanged, telegram_update_id: i
         "administrator",
         "creator",
     }:
-        from apps.network.models import CreatorGroupRegistration
+        from apps.network.services import deactivate_registration_at
 
-        CreatorGroupRegistration.objects.filter(
-            pk=registration.pk, state=CreatorGroupRegistration.State.ACTIVE
-        ).update(
-            state=CreatorGroupRegistration.State.ADMIN_REQUIRED,
-            reward_eligible_since=None,
+        deactivate_registration_at(
+            registration.pk, at=event.observed_at, source="CREATOR_ADMIN_LOST"
         )

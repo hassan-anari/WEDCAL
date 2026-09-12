@@ -180,8 +180,8 @@ def register_clan(
         raise ClanConflict("Invalid Clan identity")
     config = GameConfigVersion.objects.get(pk=resolved.id)
     with transaction.atomic():
-        Player.objects.select_for_update().get(pk=player.pk)
         group = TelegramGroup.objects.select_for_update().get(pk=group.pk)
+        Player.objects.select_for_update().get(pk=player.pk)
         from apps.network.models import CreatorGroupRegistration
 
         if (
