@@ -425,9 +425,37 @@ def _observe_message(event: TelegramMessageObserved, telegram_update_id: int) ->
 
             consume_registration_token(command[1], resolution.player, group)
             return
-        try:
-            registration = group.creator_registration
-        except ObjectDoesNotExist:
+        from apps.clans.models import ClanSeason
+        from apps.network.models import CreatorGroupRegistration
+
+        clans = ClanSeason.objects.filter(
+            clan__telegram_group=group,
+            state__in=[ClanSeason.State.ACTIVE, ClanSeason.State.RECOVERY],
+            season__starts_at__lte=event.observed_at,
+            season__ends_at__gt=event.observed_at,
+        )
+        creators = CreatorGroupRegistration.objects.filter(
+            group=group, state=CreatorGroupRegistration.State.ACTIVE
+        )
+        # Impossible dual-live ownership fails closed rather than double-crediting.
+        if clans.exists() and creators.exists():
+            logger.error("telegram_dual_live_activity_context", telegram_group_id=group.pk)
+            return
+        clan_season = clans.select_related("clan__telegram_group").first()
+        if clan_season is not None:
+            from apps.clans.activity import record_clan_activity
+
+            record_clan_activity(
+                clan_season=clan_season,
+                sender=resolution.player,
+                message_id=event.message_id,
+                update_id=telegram_update_id,
+                text=event.text,
+                observed_at=event.observed_at,
+            )
+            return
+        registration = creators.first()
+        if registration is None:
             return
         from apps.network.services import record_activity
 

@@ -216,6 +216,91 @@ class ClanConfig:
     governance_approval_bps: int
     governance_minimum_voters: int
     bot_admin_restore_grace_hours: int
+    hq_curve: tuple["ClanHQRule", ...]
+    max_capacity_including_items: int
+    activity: "ClanActivityConfig"
+    anti_fraud: "ActivityFraudConfig"
+    treasury_split_bps: int
+    contribution: "ClanContributionConfig"
+    captain_bonus: "CaptainBonusConfig"
+    mission_bands: tuple["ClanMissionBand", ...]
+    inventory_stacking_rule: str
+    inventory_items: tuple["ClanItemConfig", ...]
+    united_front_threshold: int
+    treasury_keeper_threshold: int
+
+    def item(self, item_id: str) -> "ClanItemConfig":
+        try:
+            return next(item for item in self.inventory_items if item.item_id == item_id)
+        except StopIteration as exc:
+            raise ValidationError("Clan item is absent from effective config") from exc
+
+
+@dataclass(frozen=True, slots=True)
+class ClanHQRule:
+    level: int
+    min_xp: int
+    base_capacity: int
+
+
+@dataclass(frozen=True, slots=True)
+class ClanActivityConfig:
+    context: str
+    min_message_chars: int
+    max_rewardable_chars: int
+    max_messages_per_minute: int
+    chars_per_gross_point: int
+    window_seconds: int
+    max_gross_points_per_window: int
+
+
+@dataclass(frozen=True, slots=True)
+class ActivityFraudConfig:
+    exact_duplicate_window_seconds: int
+    near_duplicate_window_seconds: int
+    suspicious_count: int
+    reject_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class ClanContributionConfig:
+    gross_numerator: int
+    gross_denominator: int
+    units_per_hq_xp: int
+    score_numerator: int
+    score_denominator: int
+
+
+@dataclass(frozen=True, slots=True)
+class CaptainBonusConfig:
+    enabled: bool
+    share_bps: int
+    daily_cap: int
+
+
+@dataclass(frozen=True, slots=True)
+class ClanMissionBand:
+    key: str
+    participant_gross_points: int
+    direct_hq_xp: int
+
+
+@dataclass(frozen=True, slots=True)
+class ClanItemEffect:
+    category: str
+    value: int
+
+
+@dataclass(frozen=True, slots=True)
+class ClanItemConfig:
+    item_id: str
+    name: str
+    available_s1: bool
+    price: int
+    activation: str | None
+    duration_minutes: int | None
+    effects: tuple[ClanItemEffect, ...]
+    max_uses_per_season: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,7 +323,7 @@ class ResolvedGameConfig:
 
 
 def parse_clan(payload: dict[str, Any]) -> ClanConfig:
-    """Parse Clan lifecycle policy without activating the Phase 8 economy."""
+    """Parse the complete, integer-only Phase 8 Clan policy."""
     try:
         raw = _config_object(payload["clan"], "clan")
         unlock = _config_object(raw["unlock"], "clan.unlock")
@@ -248,11 +333,77 @@ def parse_clan(payload: dict[str, Any]) -> ClanConfig:
         recovery = _config_object(raw["telegram_recovery"], "clan.telegram_recovery")
         inactivity = _config_object(raw["inactivity"], "clan.inactivity")
         governance = _config_object(raw["governance"], "clan.governance")
+        activity_raw = _config_object(raw["activity"], "clan.activity")
+        fraud = _config_object(payload["anti_fraud"]["clan"], "anti_fraud.clan")
+        treasury = _config_object(raw["treasury"], "clan.treasury")
+        contribution = _config_object(raw["contribution"], "clan.contribution")
+        bonus = _config_object(raw["captain_bonus"], "clan.captain_bonus")
+        mission_bands_raw = _config_object(raw["missions"]["reward_bands"], "clan missions")
+        inventory = _config_object(raw["inventory"], "clan.inventory")
+        achievements = _config_object(raw["achievements"], "clan.achievements")
         if not isinstance(curve, list) or not curve:
             raise TypeError
         base = _config_object(curve[0], "clan.capacity.hq_curve[0]")
         if _integer(base["hq_level"], "clan initial hq_level", minimum=1) != 1:
             raise ValidationError("Clan base capacity must come from HQ level 1")
+        hq_curve = tuple(
+            ClanHQRule(
+                _integer(x["hq_level"], "hq level", minimum=1),
+                _integer(x["min_cumulative_hq_xp"], "hq threshold"),
+                _integer(x["base_capacity"], "hq capacity", minimum=1),
+            )
+            for x in curve
+        )
+        supported_effects = {
+            "HQ_XP_RATE_BONUS_BPS",
+            "CONTRIBUTION_RATE_BONUS_BPS",
+            "CLAN_MISSION_PROGRESS_BONUS_BPS",
+            "SEASON_CAPACITY_ADD",
+            "HQ_XP_GRANT",
+        }
+        items = []
+        for item_raw in inventory["items"]:
+            item = _config_object(item_raw, "clan item")
+            effects = tuple(
+                ClanItemEffect(
+                    str(effect["type"]), _integer(effect["value"], "item effect", minimum=1)
+                )
+                for effect in item.get("effects", [])
+            )
+            if any(effect.category not in supported_effects for effect in effects):
+                raise ValidationError("Unsupported Clan item effect")
+            activation = item.get("activation")
+            duration = item.get("duration_minutes")
+            max_uses = item.get("max_uses_per_season")
+            available = _boolean(item["available_s1"], "item availability")
+            if available and activation not in {"TIMED", "CONTEXT"}:
+                raise ValidationError("Available Clan item requires a supported activation")
+            if activation == "TIMED":
+                duration = _integer(duration, "item duration", minimum=1)
+            elif duration is not None:
+                raise ValidationError("Only timed items may define duration")
+            if max_uses is not None:
+                max_uses = _integer(max_uses, "item max uses", minimum=1)
+            items.append(
+                ClanItemConfig(
+                    str(item["id"]),
+                    str(item["name"]),
+                    available,
+                    _integer(item["price_treasury"], "item price", minimum=1),
+                    activation,
+                    duration,
+                    effects,
+                    max_uses,
+                )
+            )
+        mission_bands = tuple(
+            ClanMissionBand(
+                str(key),
+                _integer(value["participant_gross_points"], "mission gross", minimum=1),
+                _integer(value["direct_hq_xp"], "mission hq xp"),
+            )
+            for key, value in mission_bands_raw.items()
+        )
         result = ClanConfig(
             enabled=_boolean(raw["enabled"], "clan.enabled"),
             min_level=_integer(unlock["min_level"], "clan.unlock.min_level", minimum=1),
@@ -297,12 +448,109 @@ def parse_clan(payload: dict[str, Any]) -> ClanConfig:
             bot_admin_restore_grace_hours=_integer(
                 recovery["bot_admin_restore_grace_hours"], "bot admin restore grace", minimum=1
             ),
+            hq_curve=hq_curve,
+            max_capacity_including_items=_integer(
+                capacity["max_capacity_including_items"], "capacity hard max", minimum=1
+            ),
+            activity=ClanActivityConfig(
+                "CLAN_HOME",
+                _integer(activity_raw["min_message_chars"], "clan min chars", minimum=1),
+                _integer(
+                    activity_raw["max_rewardable_chars_per_message"], "clan max chars", minimum=1
+                ),
+                _integer(activity_raw["max_messages_per_minute"], "clan rate", minimum=1),
+                _integer(
+                    activity_raw["qualified_chars_per_gross_point"],
+                    "clan chars per point",
+                    minimum=1,
+                ),
+                _integer(activity_raw["settlement_window_seconds"], "clan window", minimum=1),
+                _integer(
+                    activity_raw["max_gross_points_per_player_per_window"],
+                    "clan window cap",
+                    minimum=1,
+                ),
+            ),
+            anti_fraud=ActivityFraudConfig(
+                _integer(
+                    fraud["exact_duplicate_window_seconds"], "clan duplicate window", minimum=1
+                ),
+                _integer(
+                    fraud["near_duplicate_window_seconds"], "clan near duplicate window", minimum=1
+                ),
+                _integer(
+                    fraud["same_fingerprint_suspicious_count"], "clan suspicious count", minimum=1
+                ),
+                _integer(fraud["same_fingerprint_reject_count"], "clan reject count", minimum=1),
+            ),
+            treasury_split_bps=_integer(treasury["split_bps"], "treasury split"),
+            contribution=ClanContributionConfig(
+                _integer(
+                    contribution["gross_points_to_contribution_numerator"],
+                    "contribution numerator",
+                    minimum=1,
+                ),
+                _integer(
+                    contribution["gross_points_to_contribution_denominator"],
+                    "contribution denominator",
+                    minimum=1,
+                ),
+                _integer(contribution["contribution_units_per_hq_xp"], "hq conversion", minimum=1),
+                _integer(
+                    contribution["contribution_units_to_clan_score_numerator"],
+                    "score numerator",
+                    minimum=1,
+                ),
+                _integer(
+                    contribution["contribution_units_to_clan_score_denominator"],
+                    "score denominator",
+                    minimum=1,
+                ),
+            ),
+            captain_bonus=CaptainBonusConfig(
+                _boolean(bonus["enabled"], "captain bonus enabled"),
+                _integer(bonus["share_bps"], "captain share"),
+                _integer(bonus["max_points_per_day"], "captain cap"),
+            ),
+            mission_bands=mission_bands,
+            inventory_stacking_rule=str(inventory["stacking_rule"]),
+            inventory_items=tuple(items),
+            united_front_threshold=_integer(
+                achievements["united-front"]["min_season_contribution"], "united front", minimum=1
+            ),
+            treasury_keeper_threshold=_integer(
+                achievements["treasury-keeper"]["min_lifetime_treasury_earned_in_season"],
+                "treasury keeper",
+                minimum=1,
+            ),
         )
         if (
             result.soldier_warning_days >= result.soldier_removal_days
             or result.captain_warning_days >= result.captain_recovery_days
             or result.governance_quorum_bps > 10000
             or result.governance_approval_bps > 10000
+            or result.treasury_split_bps > 10000
+            or result.captain_bonus.share_bps > 10000
+            or len({x.level for x in hq_curve}) != len(hq_curve)
+            or len({x.min_xp for x in hq_curve}) != len(hq_curve)
+            or any(
+                b.level <= a.level or b.min_xp <= a.min_xp or b.base_capacity < a.base_capacity
+                for a, b in zip(hq_curve, hq_curve[1:], strict=False)
+            )
+            or hq_curve[0].min_xp != 0
+            or result.max_capacity_including_items < max(x.base_capacity for x in hq_curve)
+            or len({x.item_id for x in items}) != len(items)
+            or result.inventory_stacking_rule != "HIGHEST_BONUS_PER_EFFECT_CATEGORY"
+            or activity_raw.get("context") != "CLAN_HOME"
+            or activity_raw.get("daily_conversation_cap_enabled") is not False
+            or treasury.get("rounding") != "FLOOR_ON_AGGREGATED_SETTLEMENT"
+            or treasury.get("player_amount_is_gross_minus_treasury") is not True
+            or treasury.get("spending_mints_player_points") is not False
+            or contribution.get("calculated_before_treasury_split") is not True
+            or bonus.get("base") != "OTHER_MEMBERS_ELIGIBLE_GROSS"
+            or bonus.get("generates_contribution") is not False
+            or bonus.get("eligible_for_referral_share") is not False
+            or fraud.get("suspicious_is_auto_ban") is not False
         ):
             raise ValidationError("Clan thresholds and basis points are invalid")
         return result

@@ -182,6 +182,14 @@ def register_clan(
     with transaction.atomic():
         Player.objects.select_for_update().get(pk=player.pk)
         group = TelegramGroup.objects.select_for_update().get(pk=group.pk)
+        from apps.network.models import CreatorGroupRegistration
+
+        if (
+            CreatorGroupRegistration.objects.filter(group=group)
+            .exclude(state=CreatorGroupRegistration.State.INACTIVE)
+            .exists()
+        ):
+            raise ClanConflict("Telegram group already has a live economic context")
         existing = ClanSeason.objects.filter(
             captain=player,
             season=season,
@@ -217,6 +225,9 @@ def register_clan(
             base_capacity=policy.base_capacity,
             config_version=config,
         )
+        if not group.is_monitored:
+            group.is_monitored = True
+            group.save(update_fields=("is_monitored", "updated_at"))
         membership = ClanMembership.objects.create(
             player=player,
             season=season,
@@ -331,7 +342,9 @@ def decide_request(captain: Player, request_id: int, *, accept: bool) -> ClanJoi
             reserved = clan_season.join_requests.filter(
                 state=ClanJoinRequest.State.ACCEPTED
             ).count()
-            if occupied + reserved >= clan_season.base_capacity:
+            from apps.clans.economy import effective_capacity
+
+            if occupied + reserved >= effective_capacity(clan_season, policy):
                 raise ClanConflict("Clan capacity is full")
             req.state = ClanJoinRequest.State.ACCEPTED
             ClanJoinRequest.objects.filter(
@@ -351,7 +364,25 @@ def cancel_request(player: Player, request_id: int) -> ClanJoinRequest:
             req.state = ClanJoinRequest.State.CANCELLED
             req.save(update_fields=("state",))
         elif req.state == ClanJoinRequest.State.ACCEPTED:
-            raise ClanConflict("Accepted path must be resolved before cancellation")
+            invite = ClanInvite.objects.select_for_update().get(join_request=req)
+            queue_invite_revoke(invite.pk, terminal=ClanInvite.State.REVOKED)
+        return req
+
+
+def captain_cancel_accepted_request(player: Player, request_id: int) -> ClanJoinRequest:
+    with transaction.atomic():
+        Player.objects.select_for_update().get(pk=player.pk)
+        req = (
+            ClanJoinRequest.objects.select_for_update()
+            .select_related("clan_season")
+            .get(pk=request_id)
+        )
+        if req.clan_season.captain_id != player.pk:
+            raise PermissionDenied("Captain role required")
+        if req.state != ClanJoinRequest.State.ACCEPTED:
+            raise ClanConflict("Only an accepted path can be revoked")
+        invite = ClanInvite.objects.select_for_update().get(join_request=req)
+        queue_invite_revoke(invite.pk, terminal=ClanInvite.State.REVOKED)
         return req
 
 
@@ -706,6 +737,10 @@ def revoke_invite_remote(invite_id: int) -> ClanInvite:
             invite.next_revoke_retry_at = None
             invite.invite_link = ""
             invite.unknown_credential_risk = False
+            if invite.join_request_id and invite.state == ClanInvite.State.REVOKED:
+                ClanJoinRequest.objects.filter(
+                    pk=invite.join_request_id, state=ClanJoinRequest.State.ACCEPTED
+                ).update(state=ClanJoinRequest.State.CANCELLED, decided_at=now)
         else:
             invite.state = ClanInvite.State.REVOKE_FAILED
             invite.unknown_credential_risk = True

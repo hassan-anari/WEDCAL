@@ -36,7 +36,9 @@ def _matches(
     source_type: str,
     source_id: str,
     context: str,
-    amount: int,
+    gross_amount: int,
+    player_amount: int,
+    clan_treasury_amount: int,
     config_id: int,
 ) -> bool:
     return (
@@ -45,8 +47,9 @@ def _matches(
         and entry.source_type == source_type
         and entry.source_id == source_id
         and entry.context == context
-        and entry.gross_amount == amount
-        and entry.player_amount == amount
+        and entry.gross_amount == gross_amount
+        and entry.player_amount == player_amount
+        and entry.clan_treasury_amount == clan_treasury_amount
         and entry.config_version_id == config_id
     )
 
@@ -69,8 +72,55 @@ def settle_player_reward(
     allow_closed_source_season: bool = False,
     projection_at: datetime | None = None,
 ) -> tuple[RewardLedger, bool]:
+    return settle_reward(
+        player=player,
+        source_type=source_type,
+        source_id=source_id,
+        context=context,
+        gross_amount=amount,
+        player_amount=amount,
+        clan_treasury_amount=0,
+        idempotency_key=idempotency_key,
+        occurred_at=occurred_at,
+        resolved_config=resolved_config,
+        metadata=metadata,
+        after_ledger_hook=after_ledger_hook,
+        source_season=source_season,
+        preserve_config_version=preserve_config_version,
+        create_settlement_outbox=create_settlement_outbox,
+        allow_closed_source_season=allow_closed_source_season,
+        projection_at=projection_at,
+    )
+
+
+def settle_reward(
+    *,
+    player: Player,
+    source_type: str,
+    source_id: str,
+    context: str,
+    gross_amount: int,
+    player_amount: int,
+    clan_treasury_amount: int,
+    idempotency_key: str,
+    occurred_at: datetime,
+    resolved_config: ResolvedGameConfig,
+    metadata: dict[str, Any] | None = None,
+    after_ledger_hook: Callable[[], None] | None = None,
+    source_season: Season | None = None,
+    preserve_config_version: bool = False,
+    create_settlement_outbox: bool = True,
+    allow_closed_source_season: bool = False,
+    projection_at: datetime | None = None,
+) -> tuple[RewardLedger, bool]:
+    """Canonical reward primitive; callers own related domain mutations in this transaction."""
+    amount = player_amount
     if type(amount) is not int or amount <= 0:
         raise InvalidReward("Player reward amount must be a positive integer")
+    if any(type(x) is not int or x < 0 for x in (gross_amount, clan_treasury_amount)):
+        raise InvalidReward("Reward split amounts must be nonnegative integers")
+    if gross_amount != player_amount + clan_treasury_amount:
+        raise InvalidReward("Reward split must reconcile to gross amount")
     with transaction.atomic():
         locked_player = Player.objects.select_for_update().get(pk=player.pk)
         season = source_season or resolve_current_season(at=occurred_at)
@@ -92,7 +142,9 @@ def settle_player_reward(
                 source_type=source_type,
                 source_id=source_id,
                 context=context,
-                amount=amount,
+                gross_amount=gross_amount,
+                player_amount=player_amount,
+                clan_treasury_amount=clan_treasury_amount,
                 config_id=resolved_config.id,
             ):
                 logger.warning(
@@ -118,9 +170,9 @@ def settle_player_reward(
                     source_type=source_type,
                     source_id=source_id,
                     context=context,
-                    gross_amount=amount,
-                    player_amount=amount,
-                    clan_treasury_amount=0,
+                    gross_amount=gross_amount,
+                    player_amount=player_amount,
+                    clan_treasury_amount=clan_treasury_amount,
                     referral_amount=0,
                     config_version=config_model,
                     idempotency_key=idempotency_key,
@@ -143,7 +195,9 @@ def settle_player_reward(
                 source_type=source_type,
                 source_id=source_id,
                 context=context,
-                amount=amount,
+                gross_amount=gross_amount,
+                player_amount=player_amount,
+                clan_treasury_amount=clan_treasury_amount,
                 config_id=resolved_config.id,
             ):
                 logger.warning(
