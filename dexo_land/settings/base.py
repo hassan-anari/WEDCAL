@@ -160,6 +160,10 @@ CELERY_BEAT_SCHEDULE.update(
             "task": "apps.clans.tasks.sweep_clan_bot_admin_deadlines",
             "schedule": 300,
         },
+        "finalize-clan-activity-windows": {
+            "task": "apps.clans.tasks.finalize_clan_activity_windows",
+            "schedule": 60,
+        },
         "finalize-clan-governance": {
             "task": "apps.clans.tasks.finalize_clan_governance",
             "schedule": 60,

@@ -43,6 +43,24 @@ class CreatorGroupRegistration(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
 
+class CreatorRegistrationStateEvent(models.Model):
+    registration = models.ForeignKey(
+        CreatorGroupRegistration, on_delete=models.PROTECT, related_name="state_events"
+    )
+    state = models.CharField(max_length=20, choices=CreatorGroupRegistration.State.choices)
+    reward_eligible = models.BooleanField(default=False)
+    occurred_at = models.DateTimeField(db_index=True)
+    source = models.CharField(max_length=32)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("registration", "occurred_at", "source"),
+                name="network_unique_registration_state_event",
+            )
+        ]
+
+
 class NetworkActivity(models.Model):
     class Classification(models.TextChoices):
         VALID = "VALID", "Valid"

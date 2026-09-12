@@ -19,6 +19,7 @@ from apps.clans.models import (
 )
 from apps.clans.services import (
     cancel_request,
+    captain_cancel_accepted_request,
     choose_role,
     decide_request,
     eligible_groups,
@@ -28,8 +29,13 @@ from apps.clans.services import (
     request_join,
     voluntary_leave,
 )
-from apps.game_config.services import ResolvedGameConfig, resolve_effective_game_config
+from apps.game_config.services import (
+    ResolvedGameConfig,
+    resolve_effective_game_config,
+    resolve_game_config_version,
+)
 from apps.players.models import Player
+from apps.rewards.services import IdempotencyConflict
 from apps.seasons.models import Season
 from apps.seasons.services import NoActiveSeason, SeasonNotEligible, resolve_current_season
 from apps.telegram.mini_app_auth import mini_app_auth
@@ -144,6 +150,79 @@ class RecoveryOut(Schema):
     home_integrity_available: bool
 
 
+class ClanHomeOut(Schema):
+    clan_id: int
+    state: str
+    hq_level: int
+    hq_xp: int
+    current_threshold: int
+    next_threshold: int | None
+    progress_to_next: int
+    max_level: bool
+    used_capacity: int
+    accepted_reservations: int
+    effective_capacity: int
+    treasury_balance: int
+    treasury_earned_total: int
+    own_contribution: int
+    total_contribution: int
+    competitive_score: int
+
+
+class ContributionOut(Schema):
+    first_name: str
+    username: str
+    role: str
+    contribution: int
+
+
+class TreasuryEntryOut(Schema):
+    direction: str
+    amount: int
+    source_type: str
+    occurred_at: datetime
+
+
+class TreasuryOut(Schema):
+    balance: int
+    earned_total: int
+    history: list[TreasuryEntryOut]
+
+
+class ShopItemOut(Schema):
+    item_id: str
+    name: str
+    price: int
+    activation: str
+    available: bool
+
+
+class IdempotencyIn(Schema):
+    idempotency_key: str
+
+
+class InventoryOut(Schema):
+    item_id: str
+    quantity: int
+
+
+class MutationOut(Schema):
+    id: int
+    replayed: bool
+
+
+class ClanMissionOut(Schema):
+    key: str
+    version: int
+    kind: str
+    target_units: int
+    reward_band: str
+    starts_at: datetime
+    ends_at: datetime
+    progress_units: int
+    completed: bool
+
+
 def player(request: HttpRequest) -> Player:
     value = getattr(request, "auth", None)
     assert isinstance(value, Player)
@@ -189,17 +268,21 @@ def fail(exc: Exception) -> HttpError:
     return HttpError(403 if isinstance(exc, PermissionDenied) else 409, str(exc))
 
 
-def clan_out(row: ClanSeason) -> ClanOut:
+def clan_out(row: ClanSeason, policy=None) -> ClanOut:  # type: ignore[no-untyped-def]
     member_count = getattr(row, "current_member_count", None)
     if member_count is None:
         member_count = row.memberships.filter(ended_at__isnull=True).count()
+    from apps.clans.economy import effective_capacity
+
+    policy = policy or resolve_game_config_version(row.config_version_id).clan
+    assert policy is not None
     return ClanOut(
         id=row.clan_id,
         name=row.clan.name,
         tag=row.clan.tag,
         motto=row.clan.motto,
         member_count=member_count,
-        capacity=row.base_capacity,
+        capacity=effective_capacity(row, policy),
         accepting_members=row.accepting_members,
     )
 
@@ -220,6 +303,175 @@ def state(request: HttpRequest) -> StateOut:
         cooldown_until=row.leave_cooldown_until if row else None,
         voluntary_leave_count=row.voluntary_leave_count if row else 0,
     )
+
+
+def current_membership(request: HttpRequest) -> ClanMembership:
+    season, _ = context()
+    return get_object_or_404(
+        ClanMembership.objects.select_related("clan_season__season"),
+        player=player(request),
+        season=season,
+        ended_at__isnull=True,
+    )
+
+
+@router.get("/home", response=ClanHomeOut)
+def home(request: HttpRequest) -> ClanHomeOut:
+    membership = current_membership(request)
+    cs = membership.clan_season
+    config = resolve_game_config_version(cs.config_version_id)
+    assert config.clan is not None
+    from apps.clans.economy import effective_capacity, hq_rule
+
+    rule = hq_rule(config.clan, cs.hq_xp)
+    later = [x for x in config.clan.hq_curve if x.level > rule.level]
+    return ClanHomeOut(
+        clan_id=cs.clan_id,
+        state=cs.state,
+        hq_level=rule.level,
+        hq_xp=cs.hq_xp,
+        current_threshold=rule.min_xp,
+        next_threshold=later[0].min_xp if later else None,
+        progress_to_next=cs.hq_xp - rule.min_xp,
+        max_level=not later,
+        used_capacity=cs.memberships.filter(ended_at__isnull=True).count(),
+        accepted_reservations=cs.join_requests.filter(state=ClanJoinRequest.State.ACCEPTED).count(),
+        effective_capacity=effective_capacity(cs, config.clan),
+        treasury_balance=cs.treasury_balance,
+        treasury_earned_total=cs.treasury_earned_total,
+        own_contribution=membership.contribution_total,
+        total_contribution=cs.contribution_total,
+        competitive_score=cs.competitive_score,
+    )
+
+
+@router.get("/contributions", response=list[ContributionOut])
+def contributions(request: HttpRequest) -> list[ContributionOut]:
+    cs = current_membership(request).clan_season
+    return [
+        ContributionOut(
+            first_name=x.player.first_name,
+            username=x.player.username,
+            role=x.role,
+            contribution=x.contribution_total,
+        )
+        for x in cs.memberships.select_related("player").order_by("-contribution_total")[:100]
+    ]
+
+
+@router.get("/treasury", response=TreasuryOut)
+def treasury(request: HttpRequest) -> TreasuryOut:
+    cs = current_membership(request).clan_season
+    history = [
+        TreasuryEntryOut(
+            direction=x.direction,
+            amount=x.amount,
+            source_type=x.source_type,
+            occurred_at=x.occurred_at,
+        )
+        for x in cs.treasury_entries.order_by("-occurred_at")[:50]
+    ]
+    return TreasuryOut(
+        balance=cs.treasury_balance, earned_total=cs.treasury_earned_total, history=history
+    )
+
+
+@router.get("/shop", response=list[ShopItemOut])
+def shop(request: HttpRequest) -> list[ShopItemOut]:
+    current_membership(request)
+    _, config = context()
+    assert config.clan is not None
+    return [
+        ShopItemOut(
+            item_id=x.item_id,
+            name=x.name,
+            price=x.price,
+            activation=x.activation or "UNAVAILABLE",
+            available=x.available_s1,
+        )
+        for x in config.clan.inventory_items
+        if x.available_s1
+    ]
+
+
+@router.post("/shop/{item_id}/purchase", response=MutationOut)
+def purchase(request: HttpRequest, item_id: str, payload: IdempotencyIn) -> MutationOut:
+    membership = current_membership(request)
+    _, config = context()
+    try:
+        from apps.clans.economy import purchase_item
+
+        row, created = purchase_item(
+            clan_season=membership.clan_season,
+            actor=player(request),
+            item_id=item_id,
+            idempotency_key=payload.idempotency_key,
+            resolved_config=config,
+        )
+        return MutationOut(id=row.pk, replayed=not created)
+    except (ValidationError, PermissionDenied, IdempotencyConflict) as exc:
+        raise fail(exc) from exc
+
+
+@router.get("/inventory", response=list[InventoryOut])
+def inventory(request: HttpRequest) -> list[InventoryOut]:
+    return [
+        InventoryOut(item_id=x.item_id, quantity=x.quantity)
+        for x in current_membership(request).clan_season.inventory.order_by("item_id")
+    ]
+
+
+@router.post("/inventory/{item_id}/activate", response=MutationOut)
+def activate(request: HttpRequest, item_id: str, payload: IdempotencyIn) -> MutationOut:
+    membership = current_membership(request)
+    _, config = context()
+    try:
+        from apps.clans.economy import activate_item
+
+        row, created = activate_item(
+            clan_season=membership.clan_season,
+            actor=player(request),
+            item_id=item_id,
+            idempotency_key=payload.idempotency_key,
+            resolved_config=config,
+        )
+        return MutationOut(id=row.pk, replayed=not created)
+    except (ValidationError, PermissionDenied, IdempotencyConflict) as exc:
+        raise fail(exc) from exc
+
+
+@router.get("/missions", response=list[ClanMissionOut])
+def clan_missions(request: HttpRequest) -> list[ClanMissionOut]:
+    membership = current_membership(request)
+    from apps.clans.models import ClanMissionDefinition, ClanMissionProgress
+
+    now = timezone.now()
+    definitions = ClanMissionDefinition.objects.filter(
+        enabled=True,
+        starts_at__lte=now,
+        ends_at__gt=now,
+        config_version_id=membership.clan_season.config_version_id,
+    ).order_by("ends_at")[:100]
+    progress = {
+        x.definition_id: x
+        for x in ClanMissionProgress.objects.filter(clan_season=membership.clan_season).filter(
+            models.Q(membership=membership) | models.Q(membership__isnull=True)
+        )
+    }
+    return [
+        ClanMissionOut(
+            key=row.key,
+            version=row.version,
+            kind=row.kind,
+            target_units=row.target_units,
+            reward_band=row.reward_band,
+            starts_at=row.starts_at,
+            ends_at=row.ends_at,
+            progress_units=progress[row.pk].units if row.pk in progress else 0,
+            completed=bool(row.pk in progress and progress[row.pk].completed_at),
+        )
+        for row in definitions
+    ]
 
 
 @router.post("/role", response=RoleOut)
@@ -282,7 +534,12 @@ def discover(request: HttpRequest, q: str = "", limit: int = 20, offset: int = 0
     )
     if q:
         rows = rows.filter(models.Q(clan__name__icontains=q) | models.Q(clan__tag__icontains=q))
-    return [clan_out(x) for x in rows[offset : offset + limit]]
+    page = list(rows[offset : offset + limit])
+    policies = {
+        config_id: resolve_game_config_version(config_id).clan
+        for config_id in {row.config_version_id for row in page}
+    }
+    return [clan_out(row, policies[row.config_version_id]) for row in page]
 
 
 @router.post("/join-requests/{request_id}/decision", response=RequestOut)
@@ -302,6 +559,17 @@ def decision(request: HttpRequest, request_id: int, payload: DecisionIn) -> Requ
 def cancel(request: HttpRequest, request_id: int) -> RequestOut:
     try:
         row = cancel_request(player(request), request_id)
+        return RequestOut(id=row.pk, state=row.state)
+    except (ValidationError, PermissionDenied) as exc:
+        raise fail(exc) from exc
+    except ClanJoinRequest.DoesNotExist as exc:
+        raise HttpError(404, "Join request not found") from exc
+
+
+@router.post("/join-requests/{request_id}/revoke", response=RequestOut)
+def revoke_accepted(request: HttpRequest, request_id: int) -> RequestOut:
+    try:
+        row = captain_cancel_accepted_request(player(request), request_id)
         return RequestOut(id=row.pk, state=row.state)
     except (ValidationError, PermissionDenied) as exc:
         raise fail(exc) from exc

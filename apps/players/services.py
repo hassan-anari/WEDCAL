@@ -18,6 +18,35 @@ def reward_gameplay_allowed(player: Player) -> bool:
     }
 
 
+def reward_gameplay_allowed_at(player: Player, at: datetime) -> bool:
+    """Resolve reward eligibility from the durable moderation transition audit."""
+    from apps.moderation.models import ModerationAction
+
+    action = (
+        ModerationAction.objects.filter(target=player, created_at__lte=at)
+        .order_by("-created_at", "-pk")
+        .values_list("resulting_state", flat=True)
+        .first()
+    )
+    if action is not None:
+        state = action.get("moderation_state", Player.ModerationState.ACTIVE)
+    else:
+        later = (
+            ModerationAction.objects.filter(target=player, created_at__gt=at)
+            .order_by("created_at", "pk")
+            .values_list("previous_state", flat=True)
+            .first()
+        )
+        # Without an audited transition, the current row is authoritative. If a
+        # later transition exists, its recorded previous state is the historical fact.
+        state = (
+            later.get("moderation_state", Player.ModerationState.ACTIVE)
+            if later is not None
+            else player.moderation_state
+        )
+    return state not in {Player.ModerationState.SUSPENDED, Player.ModerationState.BANNED}
+
+
 @dataclass(frozen=True, slots=True)
 class TelegramProfile:
     telegram_user_id: int

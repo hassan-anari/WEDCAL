@@ -8,6 +8,14 @@ from apps.clans.services import recover_invite_creations, revoke_invite_remote
 
 
 @shared_task  # type: ignore[untyped-decorator]
+def finalize_clan_activity_windows(limit: int = 100) -> int:
+    """Bounded retry-safe orchestration; source rows remain durable on failures."""
+    from apps.clans.windowing import finalize_due_windows
+
+    return finalize_due_windows(limit=min(max(limit, 1), 500))
+
+
+@shared_task  # type: ignore[untyped-decorator]
 def revoke_clan_invite(invite_id: int) -> None:
     revoke_invite_remote(invite_id)
 

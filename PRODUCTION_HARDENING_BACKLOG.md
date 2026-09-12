@@ -5,8 +5,9 @@
 **Initial scope reviewed:** Phases 0–5 + Season 1 Economy Contract Sync + Base Tap  
 **Verified against Phase 6 PR:** `33e14c0b5178d1b79e2c3b5668ff257b012d23f1` (correction base)
 **Phase 7A review base:** `132bcc187512bf38cf34e0e123f79c3b01493e6e`
+**Phase 8 review base:** PR #12 final correctness pass (2026-09-12)
 **Initial review date:** 2026-09-10  
-**Last reviewed:** 2026-09-11 (Phase 7A final lifecycle review)
+**Last reviewed:** 2026-09-12 (Phase 8 Clan economy review)
 **Owner:** repository/product owner  
 
 ---
@@ -141,7 +142,7 @@ Until functional MVP is complete:
 | PH-036 | Large-table migration safety policy | WATCH | LAUNCH-BLOCKER | Becomes mandatory once tables carry production-scale data | High |
 | PH-045 | Unresolved Clan lifecycle product decisions | OPEN | PHASE-BLOCKER | Phase 7B dissolution/recovery design | Medium/High |
 | PH-046 | Multi-Season Clan identity/state isolation | OPEN | SEASON-2-BLOCKER | Before a persistent Clan enters Season 2 | High |
-| PH-047 | Accepted JOIN reservation and credential liveness | OPEN | PHASE-BLOCKER / LAUNCH-BLOCKER | Before Phase 8 capacity economy or public launch | High |
+| PH-047 | Accepted JOIN reservation and credential liveness | RESOLVED | CLOSED | Phase 8 correctness pass | High |
 | PH-037 | Main-branch protection / ruleset enforcement | OPEN | LAUNCH-BLOCKER | Before multiple operators/agents or production release flow | Medium/High process |
 | PH-038 | Contract-gate robustness beyond prose substring checks | OPEN | POLISH / GOVERNANCE | Before production governance freeze | Medium |
 | PH-039 | Dependency/container vulnerability review | OPEN | LAUNCH-BLOCKER | Phase 11 | Medium/High |
@@ -161,6 +162,12 @@ Until functional MVP is complete:
 
 The contract does not yet decide Creator Group/Clan Home coexistence, repeated same-Season recreation after dissolution, or detailed Telegram authority-loss recovery triggers. Phase 7A does not invent these answers; Phase 7B requires owner-approved decisions and transition tests.
 
+**Phase 8 context-ownership sub-decision (resolved):** a live `ACTIVE`/`RECOVERY`
+ClanSeason exclusively owns its Telegram group as `CLAN_HOME`; registration rejects every
+non-`INACTIVE` Creator registration and impossible dual-live data fails closed in message
+routing. Ending a Clan does not reactivate historical Creator state. Other independent
+PH-045 lifecycle questions remain open.
+
 Phase 10 operational tooling must also provide an audited resolution action for Phase 7A
 `MANUAL_REVIEW` invite rows carrying `unknown_credential_risk`; until resolved, the same
 applicant cannot start another JOIN credential lifecycle for that ClanSeason/Home Base.
@@ -179,14 +186,42 @@ integration risk only; Phase 7A intentionally does not implement Season 2 behavi
 ## PH-047 — Accepted JOIN reservation and credential liveness
 
 **Origin:** Phase 7A final lifecycle review
-**State:** `OPEN`
-**Gate:** `PHASE-BLOCKER` before Phase 8 capacity economy; `LAUNCH-BLOCKER`
+**State:** `RESOLVED`
+**Gate:** `CLOSED` by the Phase 8 correctness pass
 
-The product contract must decide how a known ACTIVE invite is released when an accepted Soldier
-never joins, whether the Soldier or Captain may cancel an accepted-but-not-activated path,
-whether versioned Season config defines an invite TTL, and how regeneration works when Telegram
-invalidates or revokes a known invite without a backend observation. Phase 7A does not invent an
-expiry duration; Phase 10 must expose audited manual resolution where automatic proof is absent.
+**Phase 8 policy implemented:** an accepted path reserves capacity without a TTL. Applicant and
+Captain cancellation both enter the durable revoke state machine; `UNCERTAIN`, unknown-risk,
+`REVOKE_FAILED`, and `MANUAL_REVIEW` continue reserving capacity. The request changes to
+`CANCELLED` only after a safe terminal revoke, with no leave counter/cooldown. No replacement JOIN
+credential is issued while unresolved risk exists. The PostgreSQL suite now covers local-before-create cancellation, Captain/applicant paths,
+unsafe-state reservation retention, global effective-capacity final-slot serialization,
+create/revoke races, and concurrent Captain/applicant cancellation versus Telegram presence
+observation. The final Phase 8 matrix also races positively confirmed and failed/unknown remote
+revocation against presence activation. These races prove that activation and cancellation serialize, unsafe credentials
+continue to reserve, safe terminalization releases exactly once, and neither path applies a
+voluntary-leave count or cooldown. PH-047 is therefore resolved for the approved no-TTL policy.
+
+## PH-048 — Clan `banner-raised` shared milestone predicate
+
+**Origin:** Phase 8 Trophy Hall
+**State:** `OPEN`
+**Gate:** `PRODUCT-DECISION` before enabling `banner-raised`
+
+The approved config names `CLAN_CREATED_AND_FIRST_SHARED_MILESTONE` but supplies no concrete,
+server-owned milestone predicate. Phase 8 keeps evaluation fail-closed and awards no points;
+product must define the event before this achievement can be enabled.
+
+## PH-049 — Phase 8 economy projection reconciliation operations
+
+**Origin:** Phase 8 Clan economy
+**State:** `WATCH`
+**Gate:** `LAUNCH-BLOCKER`
+
+Treasury, Contribution, HQ XP, and competitive-score sources are durable, while aggregate fields
+serve reads. Phase 8 now includes and tests deterministic source-ledger projection rebuilding,
+including Treasury earned/current separation. Before launch, add an operator-safe bounded command
+and drift metric around that proven service; never repair drift by deleting ledger rows or
+recomputing historical entries with a newer config.
 
 # 5. Detailed findings from completed phases
 

@@ -60,6 +60,15 @@ class ClanSeason(models.Model):
     bot_admin_lost_at = models.DateTimeField(null=True, blank=True, db_index=True)
     bot_admin_restore_deadline = models.DateTimeField(null=True, blank=True, db_index=True)
     recovery_governance_opened_at = models.DateTimeField(null=True, blank=True)
+    hq_xp = models.PositiveBigIntegerField(default=0)
+    hq_level = models.PositiveSmallIntegerField(default=1)
+    capacity_bonus = models.PositiveSmallIntegerField(default=0)
+    treasury_balance = models.PositiveBigIntegerField(default=0)
+    treasury_earned_total = models.PositiveBigIntegerField(default=0)
+    contribution_total = models.PositiveBigIntegerField(default=0)
+    competitive_score = models.PositiveBigIntegerField(default=0)
+    hq_conversion_remainder = models.PositiveBigIntegerField(default=0)
+    score_conversion_remainder = models.PositiveBigIntegerField(default=0)
 
     class Meta:
         constraints = [
@@ -121,6 +130,7 @@ class ClanMembership(models.Model):
     last_clan_active_at = models.DateTimeField(null=True, blank=True, db_index=True)
     inactivity_warned_at = models.DateTimeField(null=True, blank=True)
     next_inactivity_check_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    contribution_total = models.PositiveBigIntegerField(default=0)
 
     class Meta:
         constraints = [
@@ -354,3 +364,362 @@ class ClanInvite(models.Model):
                 name="clan_invite_exactly_one_target",
             )
         ]
+
+
+class ClanEconomicSettlement(models.Model):
+    clan_season = models.ForeignKey(
+        ClanSeason, on_delete=models.PROTECT, related_name="economic_settlements"
+    )
+    membership = models.ForeignKey(
+        ClanMembership, on_delete=models.PROTECT, related_name="economic_settlements"
+    )
+    source_type = models.CharField(max_length=32)
+    source_id = models.CharField(max_length=128)
+    gross_amount = models.PositiveBigIntegerField()
+    player_amount = models.PositiveBigIntegerField()
+    treasury_amount = models.PositiveBigIntegerField()
+    contribution_amount = models.PositiveBigIntegerField()
+    hq_xp_amount = models.PositiveBigIntegerField(default=0)
+    clan_score_amount = models.PositiveBigIntegerField(default=0)
+    config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
+    reward = models.OneToOneField("rewards.RewardLedger", on_delete=models.PROTECT, null=True)
+    idempotency_key = models.CharField(max_length=255, unique=True)
+    occurred_at = models.DateTimeField()
+    metadata = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class ClanTreasuryEntry(models.Model):
+    class Direction(models.TextChoices):
+        CREDIT = "CREDIT", "Credit"
+        DEBIT = "DEBIT", "Debit"
+
+    clan_season = models.ForeignKey(
+        ClanSeason, on_delete=models.PROTECT, related_name="treasury_entries"
+    )
+    direction = models.CharField(max_length=6, choices=Direction.choices)
+    amount = models.PositiveBigIntegerField()
+    source_type = models.CharField(max_length=32)
+    source_id = models.CharField(max_length=128)
+    config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
+    idempotency_key = models.CharField(max_length=255, unique=True)
+    occurred_at = models.DateTimeField()
+    metadata = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(condition=Q(amount__gt=0), name="clan_treasury_positive")
+        ]
+        indexes = [
+            models.Index(fields=("clan_season", "-occurred_at"), name="clan_treasury_history")
+        ]
+
+
+class ClanContributionEntry(models.Model):
+    clan_season = models.ForeignKey(
+        ClanSeason, on_delete=models.PROTECT, related_name="contribution_entries"
+    )
+    membership = models.ForeignKey(
+        ClanMembership, on_delete=models.PROTECT, related_name="contribution_entries"
+    )
+    settlement = models.OneToOneField(
+        ClanEconomicSettlement, on_delete=models.PROTECT, related_name="contribution_entry"
+    )
+    amount = models.PositiveBigIntegerField()
+    gross_basis = models.PositiveBigIntegerField()
+    config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
+    occurred_at = models.DateTimeField()
+
+
+class ClanHQXPEntry(models.Model):
+    clan_season = models.ForeignKey(
+        ClanSeason, on_delete=models.PROTECT, related_name="hq_xp_entries"
+    )
+    source_type = models.CharField(max_length=32)
+    source_id = models.CharField(max_length=128)
+    amount = models.PositiveBigIntegerField()
+    config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
+    idempotency_key = models.CharField(max_length=255, unique=True)
+    occurred_at = models.DateTimeField()
+    metadata = models.JSONField(default=dict)
+
+
+class ClanActivity(models.Model):
+    class Classification(models.TextChoices):
+        VALID = "VALID", "Valid"
+        SUSPICIOUS = "SUSPICIOUS", "Suspicious"
+        REJECTED = "REJECTED", "Rejected"
+        CONTROL = "CONTROL", "Control"
+        LATE = "LATE", "Late after finalization"
+
+    clan_season = models.ForeignKey(ClanSeason, on_delete=models.PROTECT, related_name="activity")
+    membership = models.ForeignKey(ClanMembership, on_delete=models.PROTECT, null=True)
+    sender = models.ForeignKey("players.Player", on_delete=models.PROTECT, null=True)
+    group = models.ForeignKey("telegram.TelegramGroup", on_delete=models.PROTECT)
+    season = models.ForeignKey("seasons.Season", on_delete=models.PROTECT)
+    config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
+    telegram_message_id = models.BigIntegerField()
+    telegram_update_id = models.BigIntegerField()
+    observed_at = models.DateTimeField(db_index=True)
+    character_count = models.PositiveIntegerField(default=0)
+    rewardable_chars = models.PositiveIntegerField(default=0)
+    classification = models.CharField(max_length=16, choices=Classification.choices)
+    exact_fingerprint = models.CharField(max_length=64, blank=True)
+    normalized_fingerprint = models.CharField(max_length=64, blank=True)
+    window_processed = models.BooleanField(default=False, db_index=True)
+    membership_eligible_at_source = models.BooleanField(default=False)
+    home_integrity_at_source = models.BooleanField(default=False)
+    context_owned_at_source = models.BooleanField(default=False)
+    captain_bonus_eligible_at_source = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("group", "telegram_message_id"), name="clan_unique_group_message"
+            )
+        ]
+        indexes = [
+            models.Index(fields=("membership", "observed_at"), name="clan_activity_member_time")
+        ]
+
+
+class ClanActivityWindow(models.Model):
+    clan_season = models.ForeignKey(ClanSeason, on_delete=models.PROTECT)
+    membership = models.ForeignKey(ClanMembership, on_delete=models.PROTECT)
+    season = models.ForeignKey("seasons.Season", on_delete=models.PROTECT)
+    config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
+    window_start = models.DateTimeField()
+    window_end = models.DateTimeField(null=True)
+    eligible_chars = models.PositiveBigIntegerField(default=0)
+    gross_amount = models.PositiveBigIntegerField(default=0)
+    settlement = models.OneToOneField(ClanEconomicSettlement, on_delete=models.PROTECT, null=True)
+    finalized_at = models.DateTimeField(null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("membership", "season", "config_version", "window_start"),
+                name="clan_unique_activity_window",
+            )
+        ]
+
+
+class ClanInventory(models.Model):
+    clan_season = models.ForeignKey(ClanSeason, on_delete=models.PROTECT, related_name="inventory")
+    item_id = models.CharField(max_length=64)
+    quantity = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("clan_season", "item_id"), name="clan_unique_inventory_item"
+            )
+        ]
+
+
+class ClanItemPurchase(models.Model):
+    clan_season = models.ForeignKey(ClanSeason, on_delete=models.PROTECT)
+    purchaser = models.ForeignKey("players.Player", on_delete=models.PROTECT)
+    item_id = models.CharField(max_length=64)
+    price = models.PositiveBigIntegerField()
+    config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
+    treasury_entry = models.OneToOneField(ClanTreasuryEntry, on_delete=models.PROTECT)
+    idempotency_key = models.CharField(max_length=255, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class ClanItemUse(models.Model):
+    clan_season = models.ForeignKey(ClanSeason, on_delete=models.PROTECT, related_name="item_uses")
+    actor = models.ForeignKey("players.Player", on_delete=models.PROTECT)
+    item_id = models.CharField(max_length=64)
+    config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
+    idempotency_key = models.CharField(max_length=255, unique=True)
+    result = models.JSONField(default=dict)
+    used_at = models.DateTimeField()
+
+
+class ClanActiveEffect(models.Model):
+    clan_season = models.ForeignKey(
+        ClanSeason, on_delete=models.PROTECT, related_name="active_effects"
+    )
+    item_use = models.ForeignKey(ClanItemUse, on_delete=models.PROTECT, related_name="effects")
+    category = models.CharField(max_length=64)
+    value = models.PositiveIntegerField()
+    starts_at = models.DateTimeField()
+    expires_at = models.DateTimeField(db_index=True)
+
+
+class ClanAchievementUnlock(models.Model):
+    clan_season = models.ForeignKey(
+        ClanSeason, on_delete=models.PROTECT, related_name="achievement_unlocks"
+    )
+    key = models.CharField(max_length=64)
+    config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
+    unlocked_at = models.DateTimeField()
+    metadata = models.JSONField(default=dict)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("clan_season", "key"), name="clan_unique_achievement")
+        ]
+
+
+class ClanCaptainBonusDaily(models.Model):
+    clan_season = models.ForeignKey(ClanSeason, on_delete=models.PROTECT)
+    period_key = models.CharField(max_length=64)
+    eligible_gross = models.PositiveBigIntegerField(default=0)
+    awarded_amount = models.PositiveBigIntegerField(default=0)
+    processed_sources = models.JSONField(default=list)
+    config_version = models.ForeignKey(
+        "game_config.GameConfigVersion", on_delete=models.PROTECT, null=True
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("clan_season", "period_key"), name="clan_captain_bonus_day"
+            )
+        ]
+
+
+class ClanCaptainBonusSource(models.Model):
+    daily = models.ForeignKey(
+        ClanCaptainBonusDaily, on_delete=models.PROTECT, related_name="sources"
+    )
+    source_key = models.CharField(max_length=160)
+    config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
+    eligible_gross = models.PositiveBigIntegerField()
+    awarded_amount = models.PositiveBigIntegerField(default=0)
+    occurred_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("daily", "source_key"), name="clan_unique_captain_bonus_source"
+            )
+        ]
+
+
+class ClanCaptainBonusConfigAccumulator(models.Model):
+    daily = models.ForeignKey(
+        ClanCaptainBonusDaily, on_delete=models.PROTECT, related_name="config_accumulators"
+    )
+    config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
+    eligible_gross = models.PositiveBigIntegerField(default=0)
+    calculation_remainder = models.PositiveIntegerField(default=0)
+    calculated_amount = models.PositiveBigIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("daily", "config_version"), name="clan_unique_captain_bonus_config"
+            )
+        ]
+
+
+class ClanMissionDefinition(models.Model):
+    class Kind(models.TextChoices):
+        INDIVIDUAL = "INDIVIDUAL", "Individual"
+        GROUP = "GROUP", "Group"
+
+    key = models.CharField(max_length=64)
+    version = models.PositiveIntegerField()
+    kind = models.CharField(max_length=12, choices=Kind.choices)
+    requirement = models.CharField(max_length=64)
+    target_units = models.PositiveBigIntegerField()
+    reward_band = models.CharField(max_length=16)
+    starts_at = models.DateTimeField()
+    ends_at = models.DateTimeField()
+    enabled = models.BooleanField(default=False)
+    config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("key", "version"), name="clan_unique_mission_version")
+        ]
+
+
+class ClanMissionProgress(models.Model):
+    definition = models.ForeignKey(ClanMissionDefinition, on_delete=models.PROTECT)
+    clan_season = models.ForeignKey(ClanSeason, on_delete=models.PROTECT)
+    membership = models.ForeignKey(ClanMembership, on_delete=models.PROTECT, null=True)
+    units = models.PositiveBigIntegerField(default=0)
+    completed_at = models.DateTimeField(null=True)
+    reward_settlement = models.OneToOneField(
+        ClanEconomicSettlement, on_delete=models.PROTECT, null=True
+    )
+    progress_remainder = models.PositiveBigIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("definition", "clan_season", "membership"),
+                name="clan_unique_mission_progress",
+                nulls_distinct=False,
+            )
+        ]
+
+
+class ClanEconomicAccumulator(models.Model):
+    clan_season = models.ForeignKey(
+        ClanSeason, on_delete=models.PROTECT, related_name="economic_accumulators"
+    )
+    config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
+    contribution_remainder = models.PositiveBigIntegerField(default=0)
+    hq_remainder = models.PositiveBigIntegerField(default=0)
+    score_remainder = models.PositiveBigIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("clan_season", "config_version"),
+                name="clan_unique_economy_accumulator",
+            )
+        ]
+
+
+class ClanMissionSourceEvent(models.Model):
+    definition = models.ForeignKey(ClanMissionDefinition, on_delete=models.PROTECT)
+    clan_season = models.ForeignKey(ClanSeason, on_delete=models.PROTECT)
+    membership = models.ForeignKey(ClanMembership, on_delete=models.PROTECT)
+    source_id = models.CharField(max_length=128)
+    units = models.PositiveBigIntegerField()
+    occurred_at = models.DateTimeField()
+    config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("definition", "source_id"), name="clan_unique_mission_source"
+            )
+        ]
+
+
+class ClanMissionParticipant(models.Model):
+    progress = models.ForeignKey(
+        ClanMissionProgress, on_delete=models.PROTECT, related_name="participants"
+    )
+    membership = models.ForeignKey(ClanMembership, on_delete=models.PROTECT)
+    reward_settlement = models.OneToOneField(
+        ClanEconomicSettlement, on_delete=models.PROTECT, null=True
+    )
+    eligibility_evaluated_at = models.DateTimeField(null=True)
+    reward_eligible = models.BooleanField(null=True)
+    ineligibility_reason = models.CharField(max_length=40, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("progress", "membership"), name="clan_unique_mission_participant"
+            )
+        ]
+
+
+class ClanIdempotencyKey(models.Model):
+    key = models.CharField(max_length=200, unique=True)
+    action = models.CharField(max_length=32)
+    semantic_hash = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)

@@ -1,7 +1,6 @@
 import hashlib
 import secrets
-import unicodedata
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 import structlog
 from django.conf import settings
@@ -9,6 +8,8 @@ from django.db import IntegrityError, connection, transaction
 from django.db.models import Sum
 from django.utils import timezone
 
+from apps.core.activity import fingerprints as fingerprints
+from apps.core.activity import window_start_for as window_start_for
 from apps.core.periods import resolve_daily_period
 from apps.game_config.models import GameConfigVersion
 from apps.game_config.services import (
@@ -20,6 +21,7 @@ from apps.network.models import (
     CreatorDailyAllowance,
     CreatorGroupRegistration,
     CreatorRegistrationIntent,
+    CreatorRegistrationStateEvent,
     CreatorWindowSettlement,
     NetworkActivity,
 )
@@ -54,13 +56,22 @@ def create_registration_intent(creator: Player) -> tuple[CreatorRegistrationInte
 
 
 def consume_registration_token(
-    raw: str, sender: Player, group: TelegramGroup
+    raw: str, sender: Player, group: TelegramGroup, *, observed_at: datetime | None = None
 ) -> CreatorGroupRegistration | None:
-    config = resolve_effective_game_config(timezone.now())
+    observed_at = observed_at or timezone.now()
+    config = resolve_effective_game_config(observed_at)
     if not config.network.enabled:
         return None
     digest = hashlib.sha256(raw.encode()).hexdigest()
     with transaction.atomic():
+        group = TelegramGroup.objects.select_for_update().get(pk=group.pk)
+        from apps.clans.models import ClanSeason
+
+        if ClanSeason.objects.filter(
+            clan__telegram_group=group,
+            state__in=[ClanSeason.State.ACTIVE, ClanSeason.State.RECOVERY],
+        ).exists():
+            return None
         intent = (
             CreatorRegistrationIntent.objects.select_for_update()
             .filter(
@@ -78,6 +89,12 @@ def consume_registration_token(
         )
         if registration.creator_id != sender.pk:
             return None
+        CreatorRegistrationStateEvent.objects.get_or_create(
+            registration=registration,
+            occurred_at=observed_at,
+            source="TOKEN_CONSUMED",
+            defaults={"state": registration.state, "reward_eligible": False},
+        )
         intent.consumed_at = timezone.now()
         intent.save(update_fields=("consumed_at",))
         group.is_monitored = True
@@ -148,6 +165,10 @@ def verify_registration(registration_id: int) -> str:
             else CreatorGroupRegistration.State.ADMIN_REQUIRED
         )
     with transaction.atomic():
+        group_id = CreatorGroupRegistration.objects.values_list("group_id", flat=True).get(
+            pk=registration_id
+        )
+        TelegramGroup.objects.select_for_update().get(pk=group_id)
         locked = CreatorGroupRegistration.objects.select_for_update().get(pk=registration_id)
         if locked.state in {
             CreatorGroupRegistration.State.SUSPENDED,
@@ -156,6 +177,16 @@ def verify_registration(registration_id: int) -> str:
             return locked.state
         Player.objects.select_for_update().get(pk=locked.creator_id)
         config = resolve_effective_game_config(timezone.now())
+        from apps.clans.models import ClanSeason
+
+        if (
+            state == CreatorGroupRegistration.State.ACTIVE
+            and ClanSeason.objects.filter(
+                clan__telegram_group_id=locked.group_id,
+                state__in=[ClanSeason.State.ACTIVE, ClanSeason.State.RECOVERY],
+            ).exists()
+        ):
+            state = CreatorGroupRegistration.State.ADMIN_REQUIRED
         if (
             state == CreatorGroupRegistration.State.ACTIVE
             and CreatorGroupRegistration.objects.filter(creator=locked.creator, state=state)
@@ -176,15 +207,47 @@ def verify_registration(registration_id: int) -> str:
             locked.bot_verified_at = timezone.now()
             locked.creator_verified_at = timezone.now()
         locked.save()
+        CreatorRegistrationStateEvent.objects.create(
+            registration=locked,
+            state=locked.state,
+            reward_eligible=locked.state == CreatorGroupRegistration.State.ACTIVE,
+            occurred_at=timezone.now(),
+            source="VERIFICATION",
+        )
     return state
 
 
-def fingerprints(text: str) -> tuple[str, str]:
-    exact = unicodedata.normalize("NFC", text)
-    normalized = " ".join(exact.casefold().split())
-    return hashlib.sha256(exact.encode()).hexdigest(), hashlib.sha256(
-        normalized.encode()
-    ).hexdigest()
+def registration_reward_eligible_at(registration: CreatorGroupRegistration, at: datetime) -> bool:
+    event = (
+        registration.state_events.filter(occurred_at__lte=at)
+        .order_by("-occurred_at", "-pk")
+        .first()
+    )
+    if event is not None:
+        return event.reward_eligible
+    # Backward-compatible provenance for rows created before state-event history.
+    return bool(registration.reward_eligible_since and registration.reward_eligible_since <= at)
+
+
+def deactivate_registration_at(registration_id: int, *, at: datetime, source: str) -> None:
+    with transaction.atomic():
+        group_id = CreatorGroupRegistration.objects.values_list("group_id", flat=True).get(
+            pk=registration_id
+        )
+        TelegramGroup.objects.select_for_update().get(pk=group_id)
+        registration = CreatorGroupRegistration.objects.select_for_update().get(pk=registration_id)
+        if registration.state != CreatorGroupRegistration.State.ACTIVE:
+            return
+        registration.state = CreatorGroupRegistration.State.ADMIN_REQUIRED
+        registration.reward_eligible_since = None
+        registration.save(update_fields=("state", "reward_eligible_since", "updated_at"))
+        CreatorRegistrationStateEvent.objects.create(
+            registration=registration,
+            state=registration.state,
+            reward_eligible=False,
+            occurred_at=at,
+            source=source,
+        )
 
 
 def _window_lock_key(
@@ -258,9 +321,7 @@ def _record_activity_locked(
         config.network.enabled
         and season is not None
         and is_reward_earning_time(season, observed_at)
-        and registration.state == CreatorGroupRegistration.State.ACTIVE
-        and registration.reward_eligible_since
-        and observed_at >= registration.reward_eligible_since
+        and registration_reward_eligible_at(registration, observed_at)
     )
     finalized = CreatorWindowSettlement.objects.filter(
         registration=registration,
@@ -473,11 +534,6 @@ def _settle_window_locked(
             allowance.save(update_fields=("points",))
         window_rows.update(window_processed=True)
     return settlement
-
-
-def window_start_for(observed_at: datetime, window_seconds: int) -> datetime:
-    epoch = int(observed_at.timestamp())
-    return datetime.fromtimestamp(epoch - epoch % window_seconds, tz=UTC)
 
 
 def settle_completed_windows(*, limit: int = 200, now: datetime | None = None) -> int:
