@@ -3,7 +3,8 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import structlog
-from django.core.exceptions import ValidationError
+from django.contrib.auth.models import User
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection, transaction
 
 from apps.game_config.models import GameConfigVersion
@@ -124,6 +125,10 @@ def set_settlement_start_epoch(
 ) -> Season:
     """Change the audited operational gate only before any settlement has begun."""
     with transaction.atomic():
+        if actor is not None and (
+            not isinstance(actor, User) or not actor.has_perm("seasons.change_settlement_control")
+        ):
+            raise PermissionDenied("Settlement-control permission required")
         season = Season.objects.select_for_update().get(pk=season.pk)
         config = resolve_game_config_version(season.baseline_config_id)
         distribution = config.dlx_distribution

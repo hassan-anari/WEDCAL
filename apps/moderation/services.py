@@ -1,6 +1,8 @@
 # mypy: disable-error-code="misc"
+import uuid
 from datetime import datetime, timedelta
 
+from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection, transaction
 from django.db.models import Q
@@ -93,6 +95,9 @@ def _same_action(
     reason: str,
     actor_id: int | None,
     system_actor: str,
+    staff_actor_id: int | None,
+    suspension_expires_at: datetime | None,
+    correlation_id: uuid.UUID | None,
 ) -> bool:
     return (
         action.case_id == case_id
@@ -101,6 +106,9 @@ def _same_action(
         and action.reason == reason
         and action.actor_id == actor_id
         and action.system_actor == system_actor
+        and action.staff_actor_id == staff_actor_id
+        and action.suspension_expires_at == suspension_expires_at
+        and (correlation_id is None or action.correlation_id == correlation_id)
     )
 
 
@@ -112,16 +120,18 @@ def apply_action(
     idempotency_key: str,
     actor: Player | None = None,
     system_actor: str = "",
+    staff_actor: User | None = None,
     suspension_expires_at: datetime | None = None,
+    correlation_id: uuid.UUID | None = None,
 ) -> ModerationAction:
-    if actor is None and not system_actor:
+    if actor is None and staff_actor is None and not system_actor:
         raise PermissionDenied("An actor is required")
+    if staff_actor is not None and not staff_actor.has_perm("moderation.apply_moderation_actions"):
+        raise PermissionDenied("Moderation action permission required")
     if action_type not in ModerationAction.Type.values or not reason.strip() or not idempotency_key:
         raise ValidationError("Invalid moderation action")
-    if (
-        action_type == ModerationAction.Type.SUSPEND
-        and actor is not None
-        and (suspension_expires_at is None or suspension_expires_at <= timezone.now())
+    if action_type == ModerationAction.Type.SUSPEND and (
+        suspension_expires_at is None or suspension_expires_at <= timezone.now()
     ):
         raise ValidationError("A future suspension expiry is required")
     with transaction.atomic():
@@ -140,6 +150,9 @@ def apply_action(
                 reason=reason,
                 actor_id=actor.pk if actor else None,
                 system_actor=system_actor,
+                staff_actor_id=getattr(staff_actor, "pk", None),
+                suspension_expires_at=suspension_expires_at,
+                correlation_id=correlation_id,
             ):
                 raise ModerationIdempotencyConflict("Idempotency key belongs to another action")
             return existing
@@ -206,26 +219,33 @@ def apply_action(
             case=case,
             actor=actor,
             system_actor=system_actor,
+            staff_actor=staff_actor,
             target=target,
             action_type=action_type,
             reason=reason,
             previous_state=previous,
             resulting_state=resulting,
             idempotency_key=idempotency_key,
+            correlation_id=correlation_id or uuid.uuid4(),
+            suspension_expires_at=suspension_expires_at,
         )
         if desired == Player.ModerationState.SUSPENDED and target.moderation_state == desired:
             target.suspension_expires_at = suspension_expires_at
             target.suspension_action = action
+            target.save(update_fields=("suspension_expires_at", "suspension_action", "updated_at"))
+        elif desired == Player.ModerationState.BANNED:
+            target.suspension_expires_at = None
+            target.suspension_action = None
             target.save(update_fields=("suspension_expires_at", "suspension_action", "updated_at"))
         if action_type in {
             ModerationAction.Type.WARN,
             ModerationAction.Type.SUSPEND,
             ModerationAction.Type.BAN,
         }:
-            from apps.notifications.services import emit_notification
+            from apps.notifications.services import emit_notification_safely
 
             transaction.on_commit(
-                lambda recipient=target, created_action=action: emit_notification(
+                lambda recipient=target, created_action=action: emit_notification_safely(
                     recipient=recipient,
                     event_key=f"MODERATION_{created_action.action_type}",
                     source_domain="MODERATION",
@@ -313,7 +333,7 @@ def protected_network_activity_ids(now: datetime | None = None):  # type: ignore
 
 
 def view_sensitive_evidence(
-    *, evidence_id: int, actor: object, reason: str = "case review", now: datetime | None = None
+    *, evidence_id: int, actor: User, reason: str, now: datetime | None = None
 ) -> dict[str, object]:
     """Resolve only explicitly supported evidence kinds and audit every successful read."""
     if not getattr(actor, "has_perm", lambda _permission: False)(
@@ -352,3 +372,31 @@ def view_sensitive_evidence(
             reason=reason,
         )
         return result
+
+
+@transaction.atomic
+def add_manual_note(
+    *, case_id: int, note: str, reason: str, staff_actor: User
+) -> ModerationEvidence:
+    if not staff_actor.has_perm("moderation.apply_moderation_actions"):
+        raise PermissionDenied("Moderation action permission required")
+    if not note.strip() or len(note) > 4000 or not reason.strip():
+        raise ValidationError("A bounded note and operator reason are required")
+    case = ModerationCase.objects.select_for_update().get(pk=case_id)
+    evidence = ModerationEvidence.objects.create(
+        case=case,
+        kind=ModerationEvidence.Kind.MANUAL_NOTE,
+        manual_note=note,
+        verified_server_observation=False,
+    )
+    from apps.notifications.models import OperatorAuditEvent
+
+    OperatorAuditEvent.objects.create(
+        actor=staff_actor,
+        action="MODERATION_MANUAL_NOTE_ADDED",
+        target_type="ModerationCase",
+        target_id=str(case.public_id),
+        reason=reason,
+        after_state={"evidence_id": evidence.pk, "kind": evidence.kind},
+    )
+    return evidence

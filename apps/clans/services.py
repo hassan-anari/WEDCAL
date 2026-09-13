@@ -3,9 +3,9 @@ import uuid
 from collections.abc import Callable
 from contextlib import suppress
 from datetime import datetime, timedelta
-from typing import Any
 
 from django.conf import settings
+from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, models, transaction
 from django.db.models import QuerySet
@@ -42,7 +42,7 @@ def resolve_invite_credential_risk(
     *,
     invite_id: int,
     outcome: str,
-    actor: Any,
+    actor: User,
     reason: str,
     ticket_reference: str = "",
 ) -> ClanInvite:
@@ -51,6 +51,8 @@ def resolve_invite_credential_risk(
         raise ValidationError("Unsupported invite-risk resolution outcome")
     if not reason.strip():
         raise ValidationError("Resolution reason is required")
+    if not actor.has_perm("clans.resolve_invite_risk"):
+        raise PermissionDenied("Invite-risk resolution permission required")
     invite = ClanInvite.objects.select_for_update().get(pk=invite_id)
     if invite.state != ClanInvite.State.MANUAL_REVIEW or not invite.unknown_credential_risk:
         raise ClanConflict("Invite is not awaiting credential-risk review")
@@ -969,10 +971,10 @@ def reconcile_telegram_membership(
                 )
             membership.save(update_fields=(*fields,))
             if not present and old_access == ClanMembership.Access.ACTIVE:
-                from apps.notifications.services import emit_notification
+                from apps.notifications.services import emit_notification_safely
 
                 transaction.on_commit(
-                    lambda member=membership: emit_notification(
+                    lambda member=membership: emit_notification_safely(
                         recipient=member.player,
                         event_key="CLAN_ACCESS_LOST",
                         source_domain="CLAN",

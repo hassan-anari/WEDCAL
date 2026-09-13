@@ -141,12 +141,18 @@ def test_first_touch_and_self_referral(world) -> None:  # type: ignore[no-untype
 @pytest.mark.django_db
 def test_disabled_referral_and_network_fail_closed(world) -> None:  # type: ignore[no-untyped-def]
     config, _, player = world
-    config.payload = disabled_payload()
-    # Published rows are immutable, so use queryset update to emulate a historical fixture snapshot.
-    GameConfigVersion.objects.filter(pk=config.pk).update(payload=config.payload)
+    disabled = GameConfigVersion.objects.create(
+        schema_version=config.schema_version,
+        version="phase5-disabled",
+        effective_at=AT + timedelta(days=1),
+        payload=disabled_payload(),
+    )
+    publish_game_config(disabled, published_at=AT)
     inviter, invitee = player(301), player(302)
-    assert attribute_start(invitee, get_or_create_code(inviter).code, at=AT) is None
-    resolved = resolve_game_config_version(config.pk)
+    assert (
+        attribute_start(invitee, get_or_create_code(inviter).code, at=disabled.effective_at) is None
+    )
+    resolved = resolve_game_config_version(disabled.pk)
     assert not resolved.referral.enabled and not resolved.network.enabled
 
 

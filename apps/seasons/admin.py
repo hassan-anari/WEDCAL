@@ -1,20 +1,79 @@
+import uuid
+
+from django import forms
 from django.contrib import admin
-from django.db.models import QuerySet
-from django.http import HttpRequest
+from django.core.exceptions import PermissionDenied
+from django.http import HttpRequest, HttpResponse
+from django.shortcuts import redirect
+from django.template.response import TemplateResponse
+from django.urls import path, reverse
+from django.utils.html import format_html
 
 from apps.seasons.models import PlayerSeason, Season, SeasonSettlementControlEvent
-from apps.seasons.services import activate_season
+from apps.seasons.services import activate_season, set_settlement_start_epoch
+
+
+class SettlementControlForm(forms.Form):
+    new_epoch = forms.IntegerField(min_value=1)
+    reason = forms.CharField(max_length=1000, widget=forms.Textarea)
+    ticket_reference = forms.CharField(max_length=128, required=False)
+    correlation_id = forms.UUIDField(initial=uuid.uuid4)
 
 
 @admin.register(Season)
 class SeasonAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
-    list_display = ("code", "title", "status", "starts_at", "ends_at", "baseline_config")
+    list_display = (
+        "code",
+        "title",
+        "status",
+        "starts_at",
+        "ends_at",
+        "baseline_config",
+        "settlement_operation",
+    )
     actions = ("activate_selected",)
 
     @admin.action(description="Activate selected draft season")
-    def activate_selected(self, request: HttpRequest, queryset: QuerySet[Season]) -> None:
+    def activate_selected(self, request: HttpRequest, queryset):  # type: ignore[no-untyped-def]
         for season in queryset:
             activate_season(season)
+
+    def get_urls(self):  # type: ignore[no-untyped-def]
+        return [
+            path(
+                "<int:object_id>/settlement-control/",
+                self.admin_site.admin_view(self.settlement_control_view),
+                name="season_settlement_control",
+            )
+        ] + super().get_urls()
+
+    @admin.display(description="Settlement control")
+    def settlement_operation(self, obj: Season) -> str:
+        return format_html(
+            '<a href="{}">Controlled change</a>',
+            reverse("admin:season_settlement_control", args=(obj.pk,)),
+        )
+
+    def settlement_control_view(self, request: HttpRequest, object_id: int) -> HttpResponse:
+        if not request.user.has_perm("seasons.change_settlement_control"):
+            raise PermissionDenied
+        season = Season.objects.get(pk=object_id)
+        form = SettlementControlForm(request.POST or None)
+        if request.method == "POST" and form.is_valid():
+            set_settlement_start_epoch(
+                season,
+                form.cleaned_data["new_epoch"],
+                actor=request.user,
+                reason=form.cleaned_data["reason"],
+                ticket_reference=form.cleaned_data["ticket_reference"],
+                correlation_id=form.cleaned_data["correlation_id"],
+            )
+            return redirect("admin:seasons_season_changelist")
+        return TemplateResponse(
+            request,
+            "admin/seasons/settlement_control.html",
+            {"form": form, "season": season},
+        )
 
     def get_readonly_fields(
         self, request: HttpRequest, obj: Season | None = None
@@ -32,27 +91,29 @@ class SeasonAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
         )
 
 
-@admin.register(SeasonSettlementControlEvent)
-class SeasonSettlementControlEventAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
-    list_display = ("season", "previous_start_epoch", "new_start_epoch", "changed_at")
-    readonly_fields = ("season", "previous_start_epoch", "new_start_epoch", "changed_at")
-
+class ReadOnlyAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     def has_add_permission(self, request: HttpRequest) -> bool:
         return False
 
-    def has_delete_permission(
-        self, request: HttpRequest, obj: SeasonSettlementControlEvent | None = None
-    ) -> bool:
+    def has_change_permission(self, request: HttpRequest, obj=None) -> bool:  # type: ignore[no-untyped-def]
         return False
+
+    def has_delete_permission(self, request: HttpRequest, obj=None) -> bool:  # type: ignore[no-untyped-def]
+        return False
+
+
+@admin.register(SeasonSettlementControlEvent)
+class SeasonSettlementControlEventAdmin(ReadOnlyAdmin):
+    list_display = (
+        "season",
+        "previous_start_epoch",
+        "new_start_epoch",
+        "actor",
+        "service_actor",
+        "changed_at",
+    )
 
 
 @admin.register(PlayerSeason)
-class PlayerSeasonAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
+class PlayerSeasonAdmin(ReadOnlyAdmin):
     list_display = ("player", "season", "season_points", "updated_at")
-    readonly_fields = ("player", "season", "season_points", "created_at", "updated_at")
-
-    def has_add_permission(self, request: HttpRequest) -> bool:
-        return False
-
-    def has_delete_permission(self, request: HttpRequest, obj: PlayerSeason | None = None) -> bool:
-        return False

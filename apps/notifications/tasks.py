@@ -17,6 +17,14 @@ def materialize_broadcasts() -> int:
         state=BroadcastCampaign.State.MATERIALIZING
     ).values_list("id", flat=True)[:20]:
         total += services.materialize_campaign(campaign_id)
+    for campaign_id in BroadcastCampaign.objects.filter(
+        state__in=(
+            BroadcastCampaign.State.QUEUED,
+            BroadcastCampaign.State.SENDING,
+            BroadcastCampaign.State.CANCELLED,
+        )
+    ).values_list("id", flat=True)[:100]:
+        services.reconcile_campaign(campaign_id)
     return total
 
 

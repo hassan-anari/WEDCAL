@@ -69,6 +69,13 @@ class ModerationAction(models.Model):
         blank=True,
         related_name="moderation_actions_taken",
     )
+    staff_actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="moderation_actions_taken",
+    )
     system_actor = models.CharField(max_length=64, blank=True)
     target = models.ForeignKey(
         "players.Player", on_delete=models.PROTECT, related_name="moderation_actions_received"
@@ -78,7 +85,19 @@ class ModerationAction(models.Model):
     previous_state = models.JSONField(default=dict)
     resulting_state = models.JSONField(default=dict)
     idempotency_key = models.CharField(max_length=128, unique=True)
+    correlation_id = models.UUIDField(default=uuid.uuid4)
+    suspension_expires_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        permissions = [("apply_moderation_actions", "Can apply moderation actions")]
+        constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(action_type="SUSPEND")
+                | models.Q(suspension_expires_at__isnull=False),
+                name="moderation_suspend_has_expiry",
+            )
+        ]
 
 
 class ModerationEvidenceAccess(models.Model):

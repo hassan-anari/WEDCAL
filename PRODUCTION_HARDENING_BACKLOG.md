@@ -269,7 +269,7 @@ recomputing historical entries with a newer config.
 ## PH-002 — GameConfig publication can bypass the publication service
 
 **Origin:** Phase 3 Config
-**State:** `OPEN`
+**State:** `VERIFYING` — Phase-10 PR #14 correction requires final hosted green evidence
 **Gate:** `LAUNCH-BLOCKER`
 **Evidence:** `apps/game_config/admin.py` makes published objects read-only, but a DRAFT object's `status` is still editable. `GameConfigVersion.save()` protects rows that were already published, but does not itself enforce that the DRAFT→PUBLISHED transition went through `publish_game_config`; queryset/update/maintenance paths can also bypass model save.
 
@@ -313,7 +313,7 @@ tests prove inserts remain valid and both mutation forms fail; projection rebuil
 ## PH-004 — MissionDefinition can diverge from configured verification policy
 
 **Origin:** Phase 4 Missions
-**State:** `OPEN`
+**State:** `VERIFYING` — Phase-10 PR #14 correction requires final hosted green evidence
 **Gate:** `LAUNCH-BLOCKER`
 **Evidence:** `apps/missions/services.py` checks that a mission key exists in the effective config, but execution branches on the DB row's `verification_family` / `repeat_policy`. There is no canonical equality/compatibility check between the DB definition and the configured `MissionRule` before execution.
 
@@ -467,7 +467,7 @@ Examples requiring explicit close handling:
 ## PH-009 — Moderation evidence access and retention audit
 
 **Origin:** Phase 5 evidence primitives; Phase 7B retention holds; staff tooling continues in Phase 10
-**State:** `PARTIALLY RESOLVED`
+**State:** `VERIFYING` — audited Admin viewer implemented; final hosted green evidence required
 **Gate:** `PHASE-10-BLOCKER` before staff evidence access is exposed
 
 Phase 7B adds bounded evidence references/holds: active cases protect referenced NetworkActivity
@@ -723,6 +723,8 @@ Typing attempts use `typing.reset_timezone`; mission eligibility currently deriv
 
 ## PH-026 — Economy config changes at unsafe time boundaries
 
+**State:** `VERIFYING` — domain-specific preview/rejection implemented; final hosted green evidence required
+
 Immutable/effective-dated config history is good, but a new config can become effective in the middle of a daily/Typing/Base Tap period or Creator window. Base Tap currently refuses further taps for the same UTC-day accumulator when its config version differs, which is safe but operationally surprising.
 
 **Acceptance:**
@@ -736,6 +738,8 @@ Immutable/effective-dated config history is good, but a new config can become ef
 
 ## PH-027 — Settlement control changes need actor/reason audit
 
+**State:** `VERIFYING` — controlled Admin operation and DB guard require final hosted race evidence
+
 `SeasonSettlementControlEvent` records previous/new epoch and timestamp, but not the operator identity or reason. Once this becomes a financially meaningful control, provenance matters.
 
 **Acceptance:** Phase 10 admin action/service records authenticated actor (or service actor), reason/ticket/reference and request correlation where applicable. No direct silent DB edit path.
@@ -745,6 +749,8 @@ Immutable/effective-dated config history is good, but a new config can become ef
 # 8. Infrastructure, security and operations
 
 ## PH-028 — Django Admin static assets
+
+**State:** `VERIFYING` — production Docker Admin login/static smoke added; hosted result required
 
 Historical Phase 1 review identified that the Uvicorn image has no explicit `collectstatic`/WhiteNoise/reverse-proxy static path. Current Dockerfile still contains no static collection/serving step and settings expose only `STATIC_URL`.
 
@@ -1177,3 +1183,12 @@ A future agent must therefore ask two questions for every discovered problem:
 - PH-045: an audited, locked manual-review operation supports confirmed revocation, still-unsafe retention, or safe known-credential revocation retry. Broader historical PH-045 questions remain open.
 
 No Phase-11 backup, scale, final SLO, worker-sizing, season-close, or launch-hardening work was started.
+
+
+## Phase 10 PR #14 correction delta
+
+**Reviewed hosted HEAD:** `8c3b5c3f02ef30d2bd6dcf2eb26c72652633d9ff` (Phase 0, Quality and Docker green; Foundation 485 passed / 9 failed).
+
+The correction keeps the accepted PostgreSQL mutation guards and updates obsolete fixtures to use draft publication and settlement-control services. It adds notification channel convergence, deterministic broadcast completion, campaign-first cancellation/claim locking, expired cancelled-flight reconciliation, immutable active campaign definitions, service-backed moderation/config/settlement/invite Admin forms, mandatory suspension expiry including system actions, typed audited evidence viewing, manual notes, domain-specific safe-cutover validation, governance lifecycle notifications, and production Admin asset smoke.
+
+PH-002, PH-004, PH-009, PH-026, PH-027 and PH-028 remain `VERIFYING` until the final hosted correction HEAD is green. PH-034 remains broader Phase-11 work while its Phase-10 delivery-state metrics slice is implemented. PH-045 remains open overall; only its Phase-10 locked/audited manual-review operation is under final verification. No Phase-11 work was started.

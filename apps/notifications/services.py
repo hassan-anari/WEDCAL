@@ -6,7 +6,7 @@ from typing import Any
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Q
+from django.db.models import Count, Exists, OuterRef, Q
 from django.utils import timezone
 
 from apps.notifications.models import (
@@ -26,17 +26,72 @@ class NotificationIdempotencyConflict(ValidationError):
     pass
 
 
-def _signature(notification: Notification) -> tuple[object, ...]:
-    return (
+def emit_notification_safely(**kwargs: Any) -> None:
+    """Best-effort seam used after a domain transaction has durably committed."""
+    try:
+        emit_notification(**kwargs)
+    except Exception:
+        import structlog
+
+        structlog.get_logger(__name__).exception(
+            "notification_emit_failed",
+            event_key=kwargs.get("event_key"),
+            source_id=kwargs.get("source_id"),
+        )
+
+
+def _validate_existing_event(
+    notification: Notification,
+    *,
+    recipient: Player,
+    event_key: str,
+    source_domain: str,
+    source_type: str,
+    source_id: str,
+    payload: dict[str, Any],
+    explicit_title: str,
+    explicit_body: str,
+) -> None:
+    semantics = (
         notification.recipient_id,
         notification.event_key,
         notification.source_domain,
         notification.source_type,
         notification.source_id,
-        notification.title,
-        notification.body,
         notification.payload,
     )
+    expected = (recipient.pk, event_key, source_domain, source_type, source_id, payload)
+    if (
+        semantics != expected
+        or (explicit_title and notification.title != explicit_title)
+        or (explicit_body and notification.body != explicit_body)
+    ):
+        raise NotificationIdempotencyConflict("Notification idempotency key conflict")
+
+
+def _ensure_telegram_delivery(notification: Notification, recipient: Player) -> TelegramDelivery:
+    telegram_template = (
+        NotificationTemplate.objects.filter(
+            event_key=notification.event_key,
+            channel=NotificationTemplate.Channel.TELEGRAM,
+            enabled=True,
+        )
+        .order_by("-version")
+        .first()
+    )
+    text = telegram_template.body if telegram_template else ""
+    available = bool(recipient.first_private_contact_at and text)
+    delivery, _ = TelegramDelivery.objects.get_or_create(
+        notification=notification,
+        defaults={
+            "telegram_user_id": recipient.telegram_user_id,
+            "text_snapshot": text,
+            "state": DeliveryState.PENDING if available else DeliveryState.SKIPPED,
+            "error_category": "" if available else "private_contact_or_template_unavailable",
+            "completed_at": None if available else timezone.now(),
+        },
+    )
+    return delivery
 
 
 def emit_notification(
@@ -53,6 +108,23 @@ def emit_notification(
     telegram: bool = False,
 ) -> tuple[Notification, bool]:
     safe_payload = payload or {}
+    existing = Notification.objects.filter(idempotency_key=idempotency_key).first()
+    if existing is not None:
+        _validate_existing_event(
+            existing,
+            recipient=recipient,
+            event_key=event_key,
+            source_domain=source_domain,
+            source_type=source_type,
+            source_id=source_id,
+            payload=safe_payload,
+            explicit_title=title,
+            explicit_body=body,
+        )
+        if telegram:
+            with transaction.atomic():
+                _ensure_telegram_delivery(existing, recipient)
+        return existing, False
     template = (
         NotificationTemplate.objects.filter(
             event_key=event_key, channel=NotificationTemplate.Channel.IN_APP, enabled=True
@@ -62,16 +134,6 @@ def emit_notification(
     )
     if template:
         title, body = template.title, template.body
-    expected = (
-        recipient.pk,
-        event_key,
-        source_domain,
-        source_type,
-        source_id,
-        title,
-        body,
-        safe_payload,
-    )
     try:
         with transaction.atomic():
             notification = Notification.objects.create(
@@ -87,35 +149,24 @@ def emit_notification(
                 template=template,
             )
             if telegram:
-                telegram_template = (
-                    NotificationTemplate.objects.filter(
-                        event_key=event_key,
-                        channel=NotificationTemplate.Channel.TELEGRAM,
-                        enabled=True,
-                    )
-                    .order_by("-version")
-                    .first()
-                )
-                text = telegram_template.body if telegram_template else ""
-                TelegramDelivery.objects.create(
-                    notification=notification,
-                    telegram_user_id=recipient.telegram_user_id,
-                    text_snapshot=text,
-                    state=DeliveryState.PENDING
-                    if recipient.first_private_contact_at and text
-                    else DeliveryState.SKIPPED,
-                    error_category=""
-                    if recipient.first_private_contact_at and text
-                    else "private_contact_or_template_unavailable",
-                    completed_at=None
-                    if recipient.first_private_contact_at and text
-                    else timezone.now(),
-                )
+                _ensure_telegram_delivery(notification, recipient)
             return notification, True
     except IntegrityError:
         existing = Notification.objects.get(idempotency_key=idempotency_key)
-        if _signature(existing) != expected:
-            raise NotificationIdempotencyConflict("Notification idempotency key conflict") from None
+        _validate_existing_event(
+            existing,
+            recipient=recipient,
+            event_key=event_key,
+            source_domain=source_domain,
+            source_type=source_type,
+            source_id=source_id,
+            payload=safe_payload,
+            explicit_title=title,
+            explicit_body=body,
+        )
+        if telegram:
+            with transaction.atomic():
+                _ensure_telegram_delivery(existing, recipient)
         return existing, False
 
 
@@ -249,7 +300,9 @@ def materialize_campaign(campaign_id: int, batch_size: int = 1000) -> int:
         if len(batch) < batch_size:
             campaign.state = BroadcastCampaign.State.QUEUED
         campaign.save(update_fields=("materialization_cursor", "state"))
-        return len(batch)
+        count = len(batch)
+    reconcile_campaign(campaign_id)
+    return count
 
 
 @transaction.atomic
@@ -279,18 +332,89 @@ def cancel_campaign(*, campaign: BroadcastCampaign, actor: Any, reason: str) -> 
     return campaign
 
 
+TERMINAL_DELIVERY_STATES = {
+    DeliveryState.SENT,
+    DeliveryState.FAILED,
+    DeliveryState.UNCERTAIN,
+    DeliveryState.SKIPPED,
+}
+SENDABLE_CAMPAIGN_STATES = {
+    BroadcastCampaign.State.QUEUED,
+    BroadcastCampaign.State.SENDING,
+}
+
+
+@transaction.atomic
+def claim_broadcast_recipients(limit: int) -> list[BroadcastRecipient]:
+    """Campaign lock wins before recipient locks; committed PROCESSING means in-flight."""
+    now = timezone.now()
+    claimable = BroadcastRecipient.objects.filter(campaign_id=OuterRef("pk")).filter(
+        Q(state=DeliveryState.PENDING)
+        | Q(state=DeliveryState.RETRY_WAIT, next_attempt_at__lte=now)
+        | Q(state=DeliveryState.PROCESSING, lease_expires_at__lte=now)
+    )
+    campaign = (
+        BroadcastCampaign.objects.select_for_update(skip_locked=True)
+        .filter(state__in=SENDABLE_CAMPAIGN_STATES)
+        .annotate(has_claimable=Exists(claimable))
+        .filter(has_claimable=True)
+        .order_by("id")
+        .first()
+    )
+    if campaign is None:
+        return []
+    rows = list(
+        BroadcastRecipient.objects.select_for_update(skip_locked=True)
+        .filter(campaign=campaign)
+        .filter(
+            Q(state=DeliveryState.PENDING)
+            | Q(state=DeliveryState.RETRY_WAIT, next_attempt_at__lte=now)
+            | Q(state=DeliveryState.PROCESSING, lease_expires_at__lte=now)
+        )
+        .order_by("id")[:limit]
+    )
+    for row in rows:
+        row.state = DeliveryState.PROCESSING
+        row.lease_token = uuid.uuid4()
+        row.lease_expires_at = now + timedelta(seconds=settings.NOTIFICATION_DELIVERY_LEASE_SECONDS)
+        row.attempt_count += 1
+        row.save(update_fields=("state", "lease_token", "lease_expires_at", "attempt_count"))
+    return rows
+
+
+@transaction.atomic
+def reconcile_campaign(campaign_id: int) -> BroadcastCampaign:
+    campaign = BroadcastCampaign.objects.select_for_update().get(pk=campaign_id)
+    if campaign.state == BroadcastCampaign.State.CANCELLED:
+        campaign.recipients.filter(
+            state=DeliveryState.PROCESSING, lease_expires_at__lte=timezone.now()
+        ).update(
+            state=DeliveryState.UNCERTAIN,
+            completed_at=timezone.now(),
+            error_category="cancelled_inflight_lease_expired",
+            lease_token=None,
+            lease_expires_at=None,
+        )
+        return campaign
+    if campaign.state not in SENDABLE_CAMPAIGN_STATES:
+        return campaign
+    if not campaign.recipients.exclude(state__in=TERMINAL_DELIVERY_STATES).exists():
+        campaign.state = BroadcastCampaign.State.COMPLETED
+        campaign.completed_at = timezone.now()
+        campaign.save(update_fields=("state", "completed_at"))
+    return campaign
+
+
 def deliver_broadcasts(limit: int | None = None) -> int:
-    rows = _claim(BroadcastRecipient, limit=limit or settings.NOTIFICATION_DELIVERY_BATCH_SIZE)
-    rows = [
-        row
-        for row in rows
-        if row.campaign.state in {BroadcastCampaign.State.QUEUED, BroadcastCampaign.State.SENDING}
-    ]
+    rows = claim_broadcast_recipients(limit or settings.NOTIFICATION_DELIVERY_BATCH_SIZE)
+    campaign_ids = {row.campaign_id for row in rows}
     for row in rows:
         _deliver(row, row.campaign.body_snapshot)
         BroadcastCampaign.objects.filter(
             pk=row.campaign_id, state=BroadcastCampaign.State.QUEUED
         ).update(state=BroadcastCampaign.State.SENDING)
+    for campaign_id in campaign_ids:
+        reconcile_campaign(campaign_id)
     return len(rows)
 
 

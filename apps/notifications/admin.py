@@ -34,6 +34,21 @@ class NotificationTemplateAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     list_display = ("event_key", "channel", "version", "enabled", "created_at")
     readonly_fields = ("created_by", "created_at")
 
+    def get_readonly_fields(
+        self, request: HttpRequest, obj: NotificationTemplate | None = None
+    ) -> tuple[str, ...]:
+        if obj:
+            return (
+                "event_key",
+                "channel",
+                "version",
+                "title",
+                "body",
+                "created_by",
+                "created_at",
+            )
+        return ("created_by", "created_at")
+
     def save_model(
         self, request: HttpRequest, obj: NotificationTemplate, form: Any, change: bool
     ) -> None:
@@ -63,6 +78,22 @@ class BroadcastCampaignAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
         "created_at",
     )
     actions = ("queue_selected", "cancel_selected")
+
+    def get_readonly_fields(
+        self, request: HttpRequest, obj: BroadcastCampaign | None = None
+    ) -> tuple[str, ...]:
+        history = (
+            "created_by",
+            "state",
+            "materialization_cursor",
+            "queued_at",
+            "completed_at",
+            "cancelled_at",
+            "created_at",
+        )
+        if obj and obj.state != BroadcastCampaign.State.DRAFT:
+            return history + ("audience_type", "title_snapshot", "body_snapshot", "purpose")
+        return history
 
     def save_model(
         self, request: HttpRequest, obj: BroadcastCampaign, form: Any, change: bool

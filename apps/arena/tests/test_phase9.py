@@ -17,6 +17,7 @@ from apps.game_config.services import resolve_game_config_version
 from apps.players.models import Player
 from apps.rewards.services import settle_player_reward
 from apps.seasons.models import PlayerSeason
+from apps.seasons.services import set_settlement_start_epoch
 from dexo_land.api import api
 
 AT = datetime(2026, 1, 2, tzinfo=UTC)
@@ -123,8 +124,7 @@ def test_six_source_time_epochs(phase4_config_factory, season_factory) -> None: 
 def test_unconfigured_scoring_fails_closed(phase4_config_factory, season_factory) -> None:  # type: ignore[no-untyped-def]
     config = phase4_config_factory()
     season = season_factory(config)
-    season.settlement_start_epoch = 1
-    season.save(update_fields=("settlement_start_epoch",))
+    season = set_settlement_start_epoch(season, 1, service_actor="test", reason="test setup")
     epoch = initialize_epochs(season)[0]
     epoch.state = EconomicEpoch.State.FROZEN
     epoch.save(update_fields=("state",))

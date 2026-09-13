@@ -247,6 +247,27 @@ def open_case(
             source_id=str(case.pk),
             metadata={"case_type": case_type},
         )
+        from apps.notifications.services import emit_notification_safely
+
+        recipients = {row.player_id: row.player for row in voters}
+        if locked_target:
+            recipients[locked_target.player_id] = locked_target.player
+        notification_recipients = tuple(recipients.values())
+
+        def notify_opened() -> None:
+            for recipient in notification_recipients:
+                emit_notification_safely(
+                    recipient=recipient,
+                    event_key="CLAN_GOVERNANCE_OPENED",
+                    source_domain="CLAN",
+                    source_type="CLAN_GOVERNANCE_CASE",
+                    source_id=str(case.pk),
+                    idempotency_key=f"clan-governance-opened:{case.pk}:{recipient.pk}",
+                    payload={"case_id": case.pk, "case_type": case.case_type},
+                    telegram=True,
+                )
+
+        transaction.on_commit(notify_opened)
         return case
 
 
@@ -358,6 +379,28 @@ def finalize_case(case_id: int, *, now: datetime | None = None) -> ClanGovernanc
             source_id=str(case.pk),
             metadata={"status": case.status},
         )
+        from apps.notifications.services import emit_notification_safely
+
+        recipient_ids = set(case.electors.values_list("player_id", flat=True))
+        if case.target_membership_id:
+            assert case.target_membership is not None
+            recipient_ids.add(case.target_membership.player_id)
+        recipients = tuple(Player.objects.filter(pk__in=recipient_ids))
+
+        def notify_finalized() -> None:
+            for recipient in recipients:
+                emit_notification_safely(
+                    recipient=recipient,
+                    event_key="CLAN_GOVERNANCE_FINALIZED",
+                    source_domain="CLAN",
+                    source_type="CLAN_GOVERNANCE_CASE",
+                    source_id=str(case.pk),
+                    idempotency_key=f"clan-governance-finalized:{case.pk}:{recipient.pk}",
+                    payload={"case_id": case.pk, "status": case.status},
+                    telegram=True,
+                )
+
+        transaction.on_commit(notify_finalized)
         return case
 
 
@@ -434,10 +477,10 @@ def sweep_inactivity(*, now: datetime | None = None, limit: int = 100) -> int:
                     warning_event = ClanMembershipEvent.objects.create(
                         membership=m, kind="INACTIVITY_WARNING", occurred_at=now
                     )
-                    from apps.notifications.services import emit_notification
+                    from apps.notifications.services import emit_notification_safely
 
                     transaction.on_commit(
-                        lambda player=m.player, event=warning_event: emit_notification(
+                        lambda player=m.player, event=warning_event: emit_notification_safely(
                             recipient=player,
                             event_key="CLAN_INACTIVITY_WARNING",
                             source_domain="CLAN",
@@ -537,10 +580,10 @@ def observe_bot_admin_state(
                 source_type="TELEGRAM",
                 source_id=str(int(observed_at.timestamp())),
             )
-            from apps.notifications.services import emit_notification
+            from apps.notifications.services import emit_notification_safely
 
             transaction.on_commit(
-                lambda captain=cs.captain, clan_season=cs: emit_notification(
+                lambda captain=cs.captain, clan_season=cs: emit_notification_safely(
                     recipient=captain,
                     event_key="CLAN_BOT_ADMIN_LOST",
                     source_domain="CLAN",

@@ -1,6 +1,7 @@
 import uuid
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 
 
@@ -37,6 +38,16 @@ class NotificationTemplate(models.Model):
                 fields=("event_key", "channel", "version"), name="notification_template_version"
             )
         ]
+
+    def save(self, *args: object, **kwargs: object) -> None:
+        if self.pk:
+            original = NotificationTemplate.objects.get(pk=self.pk)
+            if any(
+                getattr(original, field) != getattr(self, field)
+                for field in ("event_key", "channel", "version", "title", "body")
+            ):
+                raise ValidationError("Create a new template version instead of rewriting history")
+        super().save(*args, **kwargs)  # type: ignore[arg-type]
 
 
 class Notification(models.Model):
@@ -125,6 +136,16 @@ class BroadcastCampaign(models.Model):
 
     class Meta:
         permissions = [("manage_broadcasts", "Can manage and send broadcasts")]
+
+    def save(self, *args: object, **kwargs: object) -> None:
+        if self.pk:
+            original = BroadcastCampaign.objects.get(pk=self.pk)
+            defining_fields = ("audience_type", "title_snapshot", "body_snapshot", "purpose")
+            if (original.state != self.State.DRAFT or self.state != self.State.DRAFT) and any(
+                getattr(original, field) != getattr(self, field) for field in defining_fields
+            ):
+                raise ValidationError("Campaign content and audience are immutable after draft")
+        super().save(*args, **kwargs)  # type: ignore[arg-type]
 
 
 class BroadcastRecipient(DeliveryFields):

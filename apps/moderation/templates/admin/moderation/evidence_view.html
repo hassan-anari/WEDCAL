@@ -1,0 +1,8 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+{% if result %}
+  {% if result.available %}<pre>{{ result.content|default:result }}</pre>{% else %}<p>Evidence unavailable: {{ result.reason }}</p>{% endif %}
+{% else %}
+<form method="post">{% csrf_token %}{{ form.as_p }}<input type="submit" value="View evidence"></form>
+{% endif %}
+{% endblock %}
