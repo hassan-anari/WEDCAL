@@ -217,6 +217,9 @@ def settle_clan_reward(
     metadata: dict[str, Any] | None = None,
     source_facts_verified: bool = False,
 ) -> tuple[ClanEconomicSettlement, bool]:
+    from apps.seasons.barrier import acquire_economic_write_barrier
+
+    acquire_economic_write_barrier(membership.season_id)
     _validate_key(idempotency_key)
     if (
         source_type not in {"CLAN_ACTIVITY", "CLAN_MISSION"}

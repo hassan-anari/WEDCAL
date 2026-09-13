@@ -62,6 +62,9 @@ def start_attempt(player: Player, idempotency_key: str, at: datetime) -> tuple[T
     require_reward_earning_time(season, at)
     period = _period(at, resolved.typing.reset_timezone)
     with transaction.atomic():
+        from apps.seasons.barrier import acquire_economic_write_barrier
+
+        acquire_economic_write_barrier(season.pk)
         player = Player.objects.select_for_update().get(pk=player.pk)
         existing = TypingAttempt.objects.filter(
             player=player, start_idempotency_key=idempotency_key
@@ -105,7 +108,13 @@ def submit_attempt(
 ) -> tuple[TypingAttempt, bool]:
     if len(submitted_text) > 4096:
         raise ValueError("Typed result is too large")
+    attempt_season_id = TypingAttempt.objects.values_list("season_id", flat=True).get(
+        player=player, public_id=public_id
+    )
     with transaction.atomic():
+        from apps.seasons.barrier import acquire_economic_write_barrier
+
+        acquire_economic_write_barrier(attempt_season_id)
         player = Player.objects.select_for_update().get(pk=player.pk)
         attempt = (
             TypingAttempt.objects.select_for_update()

@@ -187,6 +187,9 @@ def _mark_ready(player: Player, progress_id: int, at: datetime) -> PlayerMission
     assert season is not None
     require_reward_earning_time(season, at)
     with transaction.atomic():
+        from apps.seasons.barrier import acquire_economic_write_barrier
+
+        acquire_economic_write_barrier(season.pk)
         player = Player.objects.select_for_update().get(pk=player.pk)
         progress = (
             PlayerMission.objects.select_for_update()

@@ -1,8 +1,9 @@
 from celery import shared_task
+from django.db import DatabaseError
 
 
 @shared_task(
-    autoretry_for=(ConnectionError,),
+    autoretry_for=(ConnectionError, DatabaseError),
     retry_backoff=True,
     retry_jitter=True,
     retry_kwargs={"max_retries": 5},

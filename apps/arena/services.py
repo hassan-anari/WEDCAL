@@ -18,6 +18,7 @@ from apps.seasons.models import (
     PlayerSeason,
     PlayerSeasonFinalStanding,
     Season,
+    SeasonCloseRun,
 )
 
 MAX_ORDER_VALUE = 9_999_999_999_999_999_999
@@ -55,6 +56,7 @@ def _keys(target: str) -> tuple[str, str, str, str]:
     return target, f"{target}:members", f"{target}:generations", f"{target}:ready"
 
 
+@transaction.atomic
 def _publish(
     *,
     season_id: int,
@@ -65,6 +67,9 @@ def _publish(
     generation: int,
     source_id: str,
 ) -> RankingProjectionEvent:
+    from apps.seasons.barrier import acquire_economic_write_barrier
+
+    acquire_economic_write_barrier(season_id)
     policy = resolve_game_config_version(
         Season.objects.only("baseline_config_id").get(pk=season_id).baseline_config_id
     ).rankings
@@ -169,6 +174,27 @@ def apply_projection_state(
 def apply_projection_event(
     event: RankingProjectionEvent, *, target: str | None = None, acknowledge: bool = True
 ) -> bool:
+    season = Season.objects.get(pk=event.season_id)
+    if (
+        season.status in (Season.Status.CLOSED, Season.Status.ARCHIVED)
+        or SeasonCloseRun.objects.filter(
+            season=season, barrier_established_at__isnull=False
+        ).exists()
+    ):
+        from apps.arena.models import EconomicEpoch, EpochAnomaly
+
+        epoch = EconomicEpoch.objects.filter(season=season).order_by("-epoch_number").first()
+        if epoch is not None:
+            EpochAnomaly.objects.get_or_create(
+                epoch=epoch,
+                provider="RANKING_AFTER_FINALIZATION_BARRIER",
+                source_id=str(event.pk),
+                defaults={
+                    "source_time": event.created_at,
+                    "details": {"entity": event.entity_type},
+                },
+            )
+        raise RankingProjectionUnavailable("Ranking event arrived after finalization barrier")
     live = ranking_key(event.season_id, event.entity_type)
     destination = target or live
     applied = apply_projection_state(
@@ -309,6 +335,7 @@ def rebuild_ranking(season: Season, entity_type: str) -> bool:
     temporary = f"{live}:tmp:{token}"
     lease = settings.ARENA_REBUILD_LOCK_SECONDS
     try:
+        closed = season.status in (Season.Status.CLOSED, Season.Status.ARCHIVED)
         watermark = (
             RankingProjectionEvent.objects.filter(season=season, entity_type=entity_type)
             .order_by("-id")
@@ -358,10 +385,11 @@ def rebuild_ranking(season: Season, entity_type: str) -> bool:
                 return False
         if not renew_rebuild_lock(season.pk, entity_type, token, lease):
             return False
-        for event in RankingProjectionEvent.objects.filter(
-            season=season, entity_type=entity_type, id__gt=watermark
-        ).order_by("id"):
-            apply_projection_event(event, target=temporary, acknowledge=False)
+        if not closed:
+            for event in RankingProjectionEvent.objects.filter(
+                season=season, entity_type=entity_type, id__gt=watermark
+            ).order_by("id"):
+                apply_projection_event(event, target=temporary, acknowledge=False)
         client.set(f"{temporary}:ready", "1")
         if not promote_rebuild(
             season_id=season.pk,
@@ -372,10 +400,14 @@ def rebuild_ranking(season: Season, entity_type: str) -> bool:
             return False
         # Durable tail replay after promotion closes updates racing the swap. Generation checks
         # make duplicate/out-of-order workers harmless.
-        tail = list(
-            RankingProjectionEvent.objects.filter(
-                season=season, entity_type=entity_type, id__gt=watermark
-            ).order_by("id")
+        tail = (
+            []
+            if closed
+            else list(
+                RankingProjectionEvent.objects.filter(
+                    season=season, entity_type=entity_type, id__gt=watermark
+                ).order_by("id")
+            )
         )
         for event in tail:
             apply_projection_event(event)

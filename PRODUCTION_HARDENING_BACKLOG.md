@@ -1238,3 +1238,12 @@ WATCH items PH-010/011/013/014/016/017/018/021/032/035 now have deterministic lo
 query EXPLAIN, relation sizing, provider-lag and reconciliation measurement primitives. All measured
 capacity outcomes remain **MEASUREMENT REQUIRED IN STAGE 2**. No S1 launch item is promoted merely
 because Stage-1 code exists.
+
+## Phase 11 Stage-1 implementation-review correction
+
+The finalization barrier, durable FAILED write, transient/manual drain scheduling, canonical bounded
+RewardLedger projection rebuild, Season-scoped referral drain, append-only anomaly resolution,
+amount-based DLX adjustment totals, stored Mission config provenance, service-backed Clan credential
+disposition, final-standing-only closed ranking rebuild, and explicit trusted-proxy throttle identity
+are `IMPLEMENTED_PENDING_VERIFICATION`. These corrections require Stage-2 PostgreSQL concurrency and
+failure evidence before any item is promoted to RESOLVED. PH-043 and PH-037 remain unchanged.

@@ -9,10 +9,11 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import structlog
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection, models, transaction
@@ -21,7 +22,6 @@ from django.utils import timezone
 
 from apps.arena.models import (
     AllocationBatch,
-    DlxAdjustment,
     DlxAllocation,
     EconomicEpoch,
     EpochAnomaly,
@@ -42,7 +42,7 @@ from apps.game_config.services import resolve_game_config_version
 from apps.missions.models import PlayerMission
 from apps.network.models import CreatorWindowSettlement, NetworkActivity
 from apps.profile_collection.models import PlayerMedalAward
-from apps.referrals.models import ReferralRelation, ReferralShareOutcome
+from apps.referrals.models import ReferralShareOutcome
 from apps.rewards.models import RewardLedger, RewardSettlementOutbox
 from apps.seasons.models import (
     ClanSeasonFinalStanding,
@@ -211,14 +211,13 @@ def _reward_outbox(season: Season, cutoff: datetime) -> DrainEvidence:
 
 @drain_provider("referral_work")
 def _referrals(season: Season, cutoff: datetime) -> DrainEvidence:
-    reward_ids = RewardLedger.objects.filter(season=season, occurred_at__lt=cutoff).values("pk")
-    qs = RewardLedger.objects.filter(pk__in=reward_ids).exclude(
-        pk__in=ReferralShareOutcome.objects.values("source_reward_id")
-    )
-    pending_relations = ReferralRelation.objects.filter(
-        status=ReferralRelation.Status.PENDING
-    ).count()
-    return _evidence("referral_work", qs, time_field="occurred_at", unresolved=pending_relations)
+    eligible_sources = resolve_game_config_version(
+        season.baseline_config_id
+    ).referral.eligible_reward_sources
+    qs = RewardLedger.objects.filter(
+        season=season, occurred_at__lt=cutoff, source_type__in=eligible_sources
+    ).exclude(pk__in=ReferralShareOutcome.objects.values("source_reward_id"))
+    return _evidence("referral_work", qs, time_field="occurred_at")
 
 
 @drain_provider("base_tap")
@@ -266,50 +265,93 @@ def _epochs(season: Season, cutoff: datetime) -> DrainEvidence:
 
 @drain_provider("economic_manual_review")
 def _anomalies(season: Season, cutoff: datetime) -> DrainEvidence:
-    qs = EpochAnomaly.objects.filter(epoch__season=season)
-    open_holds = (
-        DlxAdjustment.objects.filter(
-            allocation__season=season, kind=DlxAdjustment.Kind.HOLD
-        ).count()
-        - DlxAdjustment.objects.filter(
-            allocation__season=season, kind=DlxAdjustment.Kind.RELEASE_HOLD
-        ).count()
-    )
+    from apps.arena.adjustments import season_adjustment_totals
+
+    qs = EpochAnomaly.objects.filter(epoch__season=season, resolution__isnull=True)
     return _evidence(
-        "economic_manual_review", qs, time_field="created_at", unresolved=max(open_holds, 0)
+        "economic_manual_review",
+        qs,
+        time_field="created_at",
+        unresolved=qs.count(),
+        watermark={"dlx_adjustments": season_adjustment_totals(season)},
     )
 
 
-def reconcile_season_points(season: Season, *, repair: bool = False) -> dict[str, int]:
-    expected_rows = (
-        RewardLedger.objects.filter(season=season)
-        .values("player_id")
-        .annotate(total=Sum("player_amount"))
+def reconcile_season_points(
+    season: Season, *, repair: bool = False, after_player_id: int = 0, limit: int = 500
+) -> dict[str, int]:
+    """Bounded adapter over the canonical all-Season RewardLedger projection rebuild."""
+    from apps.players.models import Player
+    from apps.progression.models import PlayerProgression
+    from apps.rewards.services import rebuild_player_reward_projections
+
+    player_ids = list(
+        Player.objects.filter(
+            models.Q(reward_ledger__season=season) | models.Q(seasons__season=season),
+            pk__gt=after_player_id,
+        )
+        .order_by("pk")
+        .values_list("pk", flat=True)
+        .distinct()[:limit]
     )
-    expected = {row["player_id"]: int(row["total"] or 0) for row in expected_rows}
-    projected = {
-        row.player_id: row.season_points for row in PlayerSeason.objects.filter(season=season)
-    }
-    ids = set(expected) | set(projected)
-    drift = sum(1 for player_id in ids if expected.get(player_id, 0) != projected.get(player_id, 0))
-    repaired = 0
-    if repair:
-        with transaction.atomic():
-            for player_id in sorted(ids):
-                value = expected.get(player_id, 0)
-                row, _ = PlayerSeason.objects.select_for_update().get_or_create(
-                    season=season, player_id=player_id
-                )
-                if row.season_points != value:
-                    row.season_points = value
-                    row.ranking_generation += 1
-                    row.save(update_fields=("season_points", "ranking_generation", "updated_at"))
-                    repaired += 1
+    drifted = repaired = 0
+    from apps.game_config.services import resolve_effective_game_config
+
+    config = resolve_effective_game_config(timezone.now())
+    for player_id in player_ids:
+        expected_season = int(
+            RewardLedger.objects.filter(season=season, player_id=player_id).aggregate(
+                value=Sum("player_amount")
+            )["value"]
+            or 0
+        )
+        expected_lifetime = int(
+            RewardLedger.objects.filter(player_id=player_id).aggregate(value=Sum("player_amount"))[
+                "value"
+            ]
+            or 0
+        )
+        projected_season = (
+            PlayerSeason.objects.filter(season=season, player_id=player_id)
+            .values_list("season_points", flat=True)
+            .first()
+            or 0
+        )
+        projected_lifetime = (
+            PlayerProgression.objects.filter(player_id=player_id)
+            .values_list("lifetime_points", flat=True)
+            .first()
+            or 0
+        )
+        drift = expected_season != projected_season or expected_lifetime != projected_lifetime
+        drifted += int(drift)
+        if repair and drift:
+            rebuild_player_reward_projections(Player.objects.get(pk=player_id), config)
+            repaired += 1
     return {
-        "expected_season_points": sum(expected.values()),
-        "projected_season_points": sum(projected.values()),
-        "drifted_players": drift,
+        "expected_season_points": int(
+            RewardLedger.objects.filter(season=season).aggregate(value=Sum("player_amount"))[
+                "value"
+            ]
+            or 0
+        ),
+        "projected_season_points": int(
+            PlayerSeason.objects.filter(season=season).aggregate(value=Sum("season_points"))[
+                "value"
+            ]
+            or 0
+        ),
+        "expected_lifetime_points": int(
+            RewardLedger.objects.aggregate(value=Sum("player_amount"))["value"] or 0
+        ),
+        "projected_lifetime_points": int(
+            PlayerProgression.objects.aggregate(value=Sum("lifetime_points"))["value"] or 0
+        ),
+        "drifted_players": drifted,
         "repaired_players": repaired,
+        "processed_players": len(player_ids),
+        "next_player_id": player_ids[-1] if player_ids else after_player_id,
+        "complete": int(len(player_ids) < limit),
     }
 
 
@@ -332,12 +374,9 @@ def reconcile_season_dlx(season: Season, *, record_residuals: bool = False) -> d
     confirmed_batches = AllocationBatch.objects.filter(
         epoch__season=season, confirmed_at__isnull=False
     ).count()
-    adjustment_totals = {
-        row["kind"]: int(row["value"] or 0)
-        for row in DlxAdjustment.objects.filter(allocation__season=season)
-        .values("kind")
-        .annotate(value=Sum("amount"))
-    }
+    from apps.arena.adjustments import season_adjustment_totals
+
+    adjustment_totals = season_adjustment_totals(season)
     if record_residuals:
         for row in budgets.filter(epoch__epoch_number=6).select_related("config_version"):
             amount = row.carry_out
@@ -447,10 +486,10 @@ def start_or_resume_close(
     return run
 
 
-def _enqueue(run_id: int) -> None:
+def _enqueue(run_id: int, *, countdown: int | None = None) -> None:
     from apps.seasons.tasks import advance_season_close
 
-    advance_season_close.delay(run_id)
+    advance_season_close.apply_async(args=(run_id,), countdown=countdown)
 
 
 def _settle_ready_missions(season: Season, limit: int) -> int:
@@ -459,12 +498,14 @@ def _settle_ready_missions(season: Season, limit: int) -> int:
         .select_related("player", "definition", "config_version")
         .order_by("pk")[:limit]
     )
-    from apps.game_config.services import resolve_effective_game_config
     from apps.rewards.services import settle_player_reward
 
     for progress in rows:
         assert progress.verified_at and progress.config_version_id
-        resolved = resolve_effective_game_config(progress.verified_at)
+        resolved = resolve_game_config_version(progress.config_version_id)
+        rule = resolved.missions.definition(progress.definition.key)
+        if rule.reward_points != progress.reward_amount:
+            raise ValidationError("Mission entitlement does not match its stored configuration")
         with transaction.atomic():
             locked = PlayerMission.objects.select_for_update().get(pk=progress.pk)
             if locked.status != PlayerMission.Status.REWARD_READY:
@@ -605,99 +646,186 @@ def award_season_honors(season: Season, *, limit: int = 1000) -> dict[str, int]:
     return {"created": created, "remaining": remaining}
 
 
-def finalize_clans(season: Season) -> int:
-    # Historical rows are retained. Credentials become non-authorizing because all join paths
-    # already require an ACTIVE Season/ClanSeason; states remain available for audit/revocation.
-    ClanJoinRequest.objects.filter(
-        clan_season__season=season,
-        state__in=(ClanJoinRequest.State.PENDING, ClanJoinRequest.State.ACCEPTED),
-    ).update(state=ClanJoinRequest.State.CANCELLED, decided_at=timezone.now())
-    ClanInvite.objects.filter(
-        models.Q(join_request__clan_season__season=season) | models.Q(membership__season=season),
-        state__in=(ClanInvite.State.ACTIVE, ClanInvite.State.CREATING, ClanInvite.State.PENDING),
-        unknown_credential_risk=False,
-    ).update(state=ClanInvite.State.REVOKE_PENDING, desired_terminal_state=ClanInvite.State.REVOKED)
-    return (
-        ClanSeason.objects.filter(season=season)
-        .exclude(state=ClanSeason.State.ENDED)
-        .update(state=ClanSeason.State.ENDED, accepting_members=False)
-    )
+def finalize_clans(season: Season, *, limit: int = 200) -> dict[str, int]:
+    from apps.clans.services import close_season_clan_work
+
+    return close_season_clan_work(season.pk, limit=limit)
 
 
-def advance_close(run_id: int, *, batch_size: int = 500) -> str:
+def _advance_close_stage(run_id: int, *, batch_size: int) -> tuple[str, str]:
     with transaction.atomic():
         run = SeasonCloseRun.objects.select_for_update().select_related("season").get(pk=run_id)
         if run.stage == SeasonCloseRun.Stage.COMPLETED:
-            return run.stage
+            return run.stage, "STOP"
         season = run.season
-        try:
-            if run.stage == SeasonCloseRun.Stage.PREPARING:
-                report = preview_close(season)
-                run.readiness_evidence = report.as_dict()
-                run.stage = SeasonCloseRun.Stage.DRAINING
-            elif run.stage == SeasonCloseRun.Stage.DRAINING:
-                wallet_ids = list(
-                    TypingWallet.objects.filter(season=season, claimable_balance__gt=0)
-                    .order_by("pk")
-                    .values_list("pk", flat=True)[:batch_size]
-                )
-                for wallet_id in wallet_ids:
-                    auto_settle_wallet_for_season(wallet_id, close_run_id=run.pk, at=timezone.now())
-                _settle_ready_missions(season, batch_size)
-                report = preview_close(season)
-                run.drain_evidence = {item.provider: asdict(item) for item in report.providers}
-                if report.blocking_reasons:
-                    run.save()
-                    return run.stage
-                run.stage = SeasonCloseRun.Stage.RECONCILING
-            elif run.stage == SeasonCloseRun.Stage.RECONCILING:
-                xp = reconcile_season_points(season, repair=True)
-                dlx = reconcile_season_dlx(season, record_residuals=True)
-                run.reconciliation_evidence = {"xp": xp, "dlx": dlx}
-                if xp["drifted_players"] and xp["repaired_players"] != xp["drifted_players"]:
-                    raise ValidationError("XP reconciliation did not converge")
-                if not dlx["reconciled"]:
-                    raise ValidationError("DLX reconciliation did not converge")
-                run.stage = SeasonCloseRun.Stage.FREEZING_RANKINGS
-            elif run.stage == SeasonCloseRun.Stage.FREEZING_RANKINGS:
-                standings = freeze_standings(season, batch_size=batch_size)
-                run.progress = {**run.progress, "standings": standings}
-                if standings["complete"]:
-                    run.stage = SeasonCloseRun.Stage.AWARDING_HONORS
-            elif run.stage == SeasonCloseRun.Stage.AWARDING_HONORS:
-                honors = award_season_honors(season, limit=batch_size)
-                run.progress = {**run.progress, "honors": honors}
-                if not honors["remaining"]:
-                    run.stage = SeasonCloseRun.Stage.FINALIZING
-            elif run.stage == SeasonCloseRun.Stage.FINALIZING:
-                run.progress = {**run.progress, "clans_ended": finalize_clans(season)}
-                report = preview_close(season)
-                remaining = [x for x in report.blocking_reasons if x != "season_not_active"]
-                if remaining:
-                    raise ValidationError(f"Final close blockers remain: {remaining}")
-                with connection.cursor() as cursor:
-                    cursor.execute("SELECT set_config('dexo.season_transition', 'on', true)")
-                season.status = Season.Status.CLOSED
-                season.save(update_fields=("status", "updated_at"))
-                with connection.cursor() as cursor:
-                    cursor.execute("SELECT set_config('dexo.season_transition', 'off', true)")
-                run.stage = SeasonCloseRun.Stage.COMPLETED
-                run.completed_at = timezone.now()
-            run.save()
-        except Exception as exc:
-            run.failure_stage = run.stage
-            run.failure_category = type(exc).__name__
-            run.failed_at = timezone.now()
-            run.stage = SeasonCloseRun.Stage.FAILED
-            run.save()
-            logger.exception(
-                "season_close_stage_failed",
-                season_id=season.pk,
-                close_run_id=run.pk,
-                failure_category=type(exc).__name__,
+        if run.stage == SeasonCloseRun.Stage.PREPARING:
+            report = preview_close(season)
+            run.readiness_evidence = report.as_dict()
+            run.stage = SeasonCloseRun.Stage.DRAINING
+        elif run.stage == SeasonCloseRun.Stage.DRAINING:
+            wallet_ids = list(
+                TypingWallet.objects.filter(season=season, claimable_balance__gt=0)
+                .order_by("pk")
+                .values_list("pk", flat=True)[:batch_size]
             )
-            raise
-    if run.stage != SeasonCloseRun.Stage.COMPLETED:
-        _enqueue(run.pk)
-    logger.info("season_close_advanced", season_id=season.pk, close_run_id=run.pk, stage=run.stage)
-    return run.stage
+            for wallet_id in wallet_ids:
+                auto_settle_wallet_for_season(wallet_id, close_run_id=run.pk, at=timezone.now())
+            missions_settled = _settle_ready_missions(season, batch_size)
+            report = preview_close(season)
+            run.drain_evidence = {item.provider: asdict(item) for item in report.providers}
+            if wallet_ids or missions_settled:
+                run.blocker_kind = "TRANSIENT"
+                run.next_recheck_at = timezone.now()
+                run.save()
+                return run.stage, "IMMEDIATE"
+            manual = any(
+                item.blocking and item.unresolved_review_count for item in report.providers
+            )
+            managed = {"xp_projection_drift"}
+            blockers = [reason for reason in report.blocking_reasons if reason not in managed]
+            if blockers:
+                run.blocker_kind = "MANUAL" if manual else "TRANSIENT"
+                run.next_recheck_at = (
+                    None
+                    if manual
+                    else timezone.now() + timedelta(seconds=settings.SEASON_CLOSE_RECHECK_SECONDS)
+                )
+                run.save()
+                return run.stage, "STOP" if manual else "DELAY"
+            from apps.seasons.barrier import acquire_close_barrier
+
+            acquire_close_barrier(season.pk)
+            # Shared writers that began before us have committed before this exclusive lock returns.
+            # Recheck every durable provider while still holding the exclusive transaction lock.
+            report = preview_close(season)
+            run.drain_evidence = {item.provider: asdict(item) for item in report.providers}
+            blockers = [reason for reason in report.blocking_reasons if reason not in managed]
+            if blockers:
+                run.blocker_kind = (
+                    "MANUAL"
+                    if any(
+                        item.blocking and item.unresolved_review_count for item in report.providers
+                    )
+                    else "TRANSIENT"
+                )
+                run.next_recheck_at = (
+                    None
+                    if run.blocker_kind == "MANUAL"
+                    else (timezone.now() + timedelta(seconds=settings.SEASON_CLOSE_RECHECK_SECONDS))
+                )
+                run.save()
+                return run.stage, "STOP" if run.blocker_kind == "MANUAL" else "DELAY"
+            with connection.cursor() as barrier_cursor:
+                barrier_cursor.execute("SELECT set_config('dexo.season_close_barrier', 'on', true)")
+            run.barrier_established_at = timezone.now()
+            run.blocker_kind = ""
+            run.next_recheck_at = None
+            run.stage = SeasonCloseRun.Stage.RECONCILING
+        elif run.stage == SeasonCloseRun.Stage.RECONCILING:
+            projection_cursor = int(run.progress.get("xp_player_cursor", 0))
+            xp = reconcile_season_points(
+                season, repair=True, after_player_id=projection_cursor, limit=batch_size
+            )
+            run.progress = {
+                **run.progress,
+                "xp_player_cursor": xp["next_player_id"],
+                "xp_drifted_players": int(run.progress.get("xp_drifted_players", 0))
+                + xp["drifted_players"],
+                "xp_repaired_players": int(run.progress.get("xp_repaired_players", 0))
+                + xp["repaired_players"],
+            }
+            dlx = reconcile_season_dlx(season, record_residuals=True)
+            run.reconciliation_evidence = {"xp": xp, "dlx": dlx}
+            if xp["drifted_players"] and xp["repaired_players"] != xp["drifted_players"]:
+                raise ValidationError("XP reconciliation did not converge")
+            if not dlx["reconciled"]:
+                raise ValidationError("DLX reconciliation did not converge")
+            if xp["complete"]:
+                final_xp = reconcile_season_points(season, repair=False, limit=batch_size)
+                if final_xp["expected_season_points"] != final_xp["projected_season_points"]:
+                    raise ValidationError("Season XP totals remain unreconciled")
+                if final_xp["expected_lifetime_points"] != final_xp["projected_lifetime_points"]:
+                    raise ValidationError("Lifetime XP totals remain unreconciled")
+                run.stage = SeasonCloseRun.Stage.FREEZING_RANKINGS
+        elif run.stage == SeasonCloseRun.Stage.FREEZING_RANKINGS:
+            standings = freeze_standings(season, batch_size=batch_size)
+            run.progress = {**run.progress, "standings": standings}
+            if standings["complete"]:
+                run.stage = SeasonCloseRun.Stage.AWARDING_HONORS
+        elif run.stage == SeasonCloseRun.Stage.AWARDING_HONORS:
+            honors = award_season_honors(season, limit=batch_size)
+            run.progress = {**run.progress, "honors": honors}
+            if not honors["remaining"]:
+                run.stage = SeasonCloseRun.Stage.FINALIZING
+        elif run.stage == SeasonCloseRun.Stage.FINALIZING:
+            clan_result = finalize_clans(season, limit=batch_size)
+            run.progress = {**run.progress, "clans": clan_result}
+            if clan_result["unresolved"]:
+                run.blocker_kind = (
+                    "MANUAL"
+                    if _clan_open_work(season, run.cutoff_at).unresolved_review_count
+                    else "TRANSIENT"
+                )
+                run.next_recheck_at = (
+                    None
+                    if run.blocker_kind == "MANUAL"
+                    else (timezone.now() + timedelta(seconds=settings.SEASON_CLOSE_RECHECK_SECONDS))
+                )
+                run.save()
+                return run.stage, "STOP" if run.blocker_kind == "MANUAL" else "DELAY"
+            report = preview_close(season)
+            remaining = [
+                item
+                for item in report.blocking_reasons
+                if item not in {"season_not_active", "xp_projection_drift"}
+            ]
+            if remaining:
+                raise ValidationError(f"Final close blockers remain: {remaining}")
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT set_config('dexo.season_transition', 'on', true)")
+            season.status = Season.Status.CLOSED
+            season.save(update_fields=("status", "updated_at"))
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT set_config('dexo.season_transition', 'off', true)")
+            run.stage = SeasonCloseRun.Stage.COMPLETED
+            run.completed_at = timezone.now()
+        run.save()
+        if run.barrier_established_at is not None:
+            with connection.cursor() as barrier_cursor:
+                barrier_cursor.execute(
+                    "SELECT set_config('dexo.season_close_barrier', 'off', true)"
+                )
+        return run.stage, "STOP" if run.stage == SeasonCloseRun.Stage.COMPLETED else "IMMEDIATE"
+
+
+def _persist_close_failure(run_id: int, failed_stage: str, exc: Exception) -> None:
+    with transaction.atomic():
+        run = SeasonCloseRun.objects.select_for_update().get(pk=run_id)
+        run.failure_stage = failed_stage
+        run.failure_category = type(exc).__name__
+        run.failed_at = timezone.now()
+        run.stage = SeasonCloseRun.Stage.FAILED
+        run.next_recheck_at = None
+        run.blocker_kind = ""
+        run.save()
+
+
+def advance_close(run_id: int, *, batch_size: int = 500) -> str:
+    failed_stage = SeasonCloseRun.objects.values_list("stage", flat=True).get(pk=run_id)
+    try:
+        stage, scheduling = _advance_close_stage(run_id, batch_size=batch_size)
+    except Exception as exc:
+        _persist_close_failure(run_id, failed_stage, exc)
+        logger.exception(
+            "season_close_stage_failed",
+            close_run_id=run_id,
+            failure_stage=failed_stage,
+            failure_category=type(exc).__name__,
+        )
+        raise
+    if scheduling == "IMMEDIATE":
+        _enqueue(run_id)
+    elif scheduling == "DELAY":
+        _enqueue(run_id, countdown=settings.SEASON_CLOSE_RECHECK_SECONDS)
+    logger.info("season_close_advanced", close_run_id=run_id, stage=stage)
+    return stage

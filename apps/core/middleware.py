@@ -71,7 +71,11 @@ class MutationThrottleMiddleware:
             None,
         )
         if policy is not None:
-            forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "").split(",", 1)[0].strip()
+            forwarded = (
+                request.META.get("HTTP_X_FORWARDED_FOR", "").split(",", 1)[0].strip()
+                if settings.TRUST_PROXY_CLIENT_IP
+                else ""
+            )
             identity = forwarded or request.META.get("REMOTE_ADDR", "unknown")
             bucket = int(__import__("time").time()) // policy[1]
             key = f"throttle:{request.path}:{identity}:{bucket}"

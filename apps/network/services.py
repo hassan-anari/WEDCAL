@@ -286,6 +286,10 @@ def record_activity(
     season = resolve_historical_season(at=observed_at, required=False)
     start = window_start_for(observed_at, config.network.window_seconds)
     with transaction.atomic():
+        if season is not None:
+            from apps.seasons.barrier import acquire_economic_write_barrier
+
+            acquire_economic_write_barrier(season.pk)
         _lock_window(registration.pk, season.pk if season else None, config.id, start)
         return _record_activity_locked(
             registration=registration,
@@ -437,6 +441,9 @@ def settle_window(
     registration_id: int, window_start: datetime, config_id: int, season_id: int
 ) -> CreatorWindowSettlement:
     with transaction.atomic():
+        from apps.seasons.barrier import acquire_economic_write_barrier
+
+        acquire_economic_write_barrier(season_id)
         _lock_window(registration_id, season_id, config_id, window_start)
         return _settle_window_locked(registration_id, window_start, config_id, season_id)
 

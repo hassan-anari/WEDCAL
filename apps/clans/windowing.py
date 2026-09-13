@@ -115,6 +115,9 @@ def _finalize(activity: ClanActivity, now: datetime) -> bool:
     if end + timedelta(seconds=qualification_horizon) > now:
         return False
     with transaction.atomic():
+        from apps.seasons.barrier import acquire_economic_write_barrier
+
+        acquire_economic_write_barrier(activity.season_id)
         assert activity.sender_id is not None
         lock_activity_qualification(activity.clan_season_id, activity.sender_id)
         lock_activity_window(activity.membership_id, activity.config_version_id, start)

@@ -20,6 +20,30 @@ not worker time.
 6. Use `python manage.py reconcile_season founding-season` for an independent dry-run. XP repair is
    limited to the projection: `--repair-xp` never edits `RewardLedger` or lifetime progression.
 
+### Finalization barrier and retry contract
+
+All close-relevant writers take the shared PostgreSQL Season advisory transaction lock before their
+domain row locks. Close takes the exclusive form only after an initial drain, then repeats every
+durable provider query under that lock before persisting `barrier_established_at`. Once persisted,
+shared writers fail closed; already-created idempotent ledger retries may still return their immutable
+result. Canonical order is **Season advisory barrier → Player/Season/domain rows → append-only ledger
+or projection → commit**. RabbitMQ state never participates.
+
+A stage failure rolls back its stage transaction. The exception is caught outside that transaction;
+a new transaction locks the close run and durably records FAILED, the exact failed stage/category,
+timestamp, and cleared scheduling metadata before the exception is re-raised. Operator resume restores
+that exact stage and increments the retry count once. Transient drain blockers persist `TRANSIENT` and
+a deployment-configured delayed recheck timestamp; manual-review blockers persist `MANUAL`, schedule
+no polling, and wait for explicit operator resolution/resume.
+
+XP repair is bounded by a persisted player cursor and delegates to
+`rebuild_player_reward_projections`, which rebuilds Lifetime, level, Dexo stage, every Season score,
+and tie timestamp from immutable RewardLedger history. Referral drain considers only configured
+share-eligible RewardLedger sources in the closing Season without a canonical outcome. DLX adjustment
+reporting uses amounts—not row counts—and reports held/released/forfeited/reversed totals. Resolved
+epoch anomalies remain immutable; use `python manage.py resolve_epoch_anomaly ...` with the dedicated
+permission and explicit disposition.
+
 Close auto-settles source-Season Typing credits and final server-owned `REWARD_READY` mission
 entitlements. It freezes immutable PostgreSQL Player/Clan standings, evaluates zero-point medals
 with integer rule `rank × 10000 <= population × percentile_bps`, records category residuals without

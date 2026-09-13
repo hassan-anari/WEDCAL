@@ -45,6 +45,9 @@ def submit_tap_batch(
     require_reward_earning_time(season, at)
     utc_day = at.astimezone(UTC).date()
     with transaction.atomic():
+        from apps.seasons.barrier import acquire_economic_write_barrier
+
+        acquire_economic_write_barrier(season.pk)
         locked_player = Player.objects.select_for_update().get(pk=player.pk)
         existing = (
             BaseTapReceipt.objects.select_related("accumulator")
@@ -155,6 +158,18 @@ def _result(
 
 
 def finalize_tap_accumulator(
+    accumulator_id: int, *, at: datetime | None = None
+) -> BaseTapDailyAccumulator:
+    from apps.seasons.barrier import economic_write_session_barrier
+
+    season_id = BaseTapDailyAccumulator.objects.values_list("season_id", flat=True).get(
+        pk=accumulator_id
+    )
+    with economic_write_session_barrier(season_id):
+        return _finalize_tap_accumulator(accumulator_id, at=at)
+
+
+def _finalize_tap_accumulator(
     accumulator_id: int, *, at: datetime | None = None
 ) -> BaseTapDailyAccumulator:
     now = at or timezone.now()
