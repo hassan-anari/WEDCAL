@@ -261,23 +261,36 @@ def apply_action(
 def expire_suspensions(*, now: datetime | None = None, limit: int = 100) -> int:
     now = now or timezone.now()
     expired = 0
-    ids = list(
+    candidates = list(
         Player.objects.filter(
-            moderation_state=Player.ModerationState.SUSPENDED, suspension_expires_at__lte=now
+            moderation_state=Player.ModerationState.SUSPENDED,
+            suspension_expires_at__lte=now,
+            suspension_action__isnull=False,
         )
         .order_by("suspension_expires_at")
-        .values_list("id", flat=True)[:limit]
+        .values_list("id", "suspension_action_id", "suspension_action__case_id")[:limit]
     )
-    for player_id in ids:
+    for player_id, source_action_id, case_id in candidates:
         with transaction.atomic():
+            # Canonical moderation transition order: case first, target Player second.
+            case = ModerationCase.objects.select_for_update().get(pk=case_id)
             player = Player.objects.select_for_update().get(pk=player_id)
             if (
                 player.moderation_state != Player.ModerationState.SUSPENDED
                 or player.suspension_expires_at is None
                 or player.suspension_expires_at > now
+                or player.suspension_action_id != source_action_id
             ):
                 continue
-            source = player.suspension_action
+            source = ModerationAction.objects.filter(
+                pk=source_action_id,
+                case=case,
+                target=player,
+                action_type=ModerationAction.Type.SUSPEND,
+                suspension_expires_at=player.suspension_expires_at,
+            ).first()
+            if source is None:
+                continue
             player.moderation_state = Player.ModerationState.ACTIVE
             player.suspension_expires_at = None
             player.suspension_action = None
@@ -289,20 +302,19 @@ def expire_suspensions(*, now: datetime | None = None, limit: int = 100) -> int:
                     "updated_at",
                 )
             )
-            if source:
-                ModerationAction.objects.create(
-                    case=source.case,
-                    system_actor="suspension-expiry",
-                    target=player,
-                    action_type=ModerationAction.Type.DISMISS,
-                    reason="Temporary suspension expired",
-                    previous_state={
-                        "moderation_state": "SUSPENDED",
-                        "suspension_action_id": source.pk,
-                    },
-                    resulting_state={"moderation_state": "ACTIVE"},
-                    idempotency_key=f"suspension-expiry:{source.pk}",
-                )
+            ModerationAction.objects.create(
+                case=case,
+                system_actor="suspension-expiry",
+                target=player,
+                action_type=ModerationAction.Type.DISMISS,
+                reason="Temporary suspension expired",
+                previous_state={
+                    "moderation_state": "SUSPENDED",
+                    "suspension_action_id": source.pk,
+                },
+                resulting_state={"moderation_state": "ACTIVE"},
+                idempotency_key=f"suspension-expiry:{source.pk}",
+            )
             expired += 1
     return expired
 

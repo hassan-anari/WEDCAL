@@ -136,19 +136,23 @@ def test_suspension_expiry_vs_concurrent_ban_never_restores_active(clan_world):
 
     def expire():
         close_old_connections()
-        expire_suspensions(now=expiry + timedelta(seconds=1))
-        close_old_connections()
+        try:
+            expire_suspensions(now=expiry + timedelta(seconds=1))
+        finally:
+            close_old_connections()
 
     def ban():
         close_old_connections()
-        apply_action(
-            case_id=case.pk,
-            action_type="BAN",
-            reason="newer decision",
-            idempotency_key="threaded-ban",
-            system_actor="test",
-        )
-        close_old_connections()
+        try:
+            apply_action(
+                case_id=case.pk,
+                action_type="BAN",
+                reason="newer decision",
+                idempotency_key="threaded-ban",
+                system_actor="test",
+            )
+        finally:
+            close_old_connections()
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = (pool.submit(expire), pool.submit(ban))
@@ -156,3 +160,7 @@ def test_suspension_expiry_vs_concurrent_ban_never_restores_active(clan_world):
             future.result()
     target.refresh_from_db()
     assert target.moderation_state == Player.ModerationState.BANNED
+    assert target.suspension_expires_at is None
+    assert target.suspension_action is None
+    latest = ModerationAction.objects.filter(target=target).latest("created_at", "pk")
+    assert latest.idempotency_key == "threaded-ban"
