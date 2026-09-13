@@ -33,15 +33,18 @@ def preview_safe_cutover(config: GameConfigVersion) -> tuple[str, ...]:
     daily_reset_fields = ("reset_timezone", "reset_hour", "reset_minute")
     old_daily, new_daily = old.get("daily", {}), new.get("daily", {})
     if any(old_daily.get(field) != new_daily.get(field) for field in daily_reset_fields):
-        daily = new.get("daily", {})
-        zone = ZoneInfo(str(daily.get("reset_timezone", "UTC")))
-        local = at.astimezone(zone)
-        if (local.hour, local.minute, local.second, local.microsecond) != (
-            int(daily.get("reset_hour", 0)),
-            int(daily.get("reset_minute", 0)),
-            0,
-            0,
-        ):
+
+        def is_reset_boundary(policy: dict[str, Any]) -> bool:
+            zone = ZoneInfo(str(policy.get("reset_timezone", "UTC")))
+            local = at.astimezone(zone)
+            return (local.hour, local.minute, local.second, local.microsecond) == (
+                int(policy.get("reset_hour", 0)),
+                int(policy.get("reset_minute", 0)),
+                0,
+                0,
+            )
+
+        if not is_reset_boundary(old_daily) or not is_reset_boundary(new_daily):
             issues.append("Daily reset-policy changes require the configured reset boundary")
 
     if old.get("base_tap") != new.get("base_tap"):

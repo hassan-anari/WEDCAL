@@ -106,6 +106,25 @@ class BroadcastCampaignAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     def has_module_permission(self, request: HttpRequest) -> bool:
         return request.user.has_perm("notifications.manage_broadcasts")
 
+    def has_view_permission(
+        self, request: HttpRequest, obj: BroadcastCampaign | None = None
+    ) -> bool:
+        return request.user.has_perm("notifications.manage_broadcasts")
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return request.user.has_perm("notifications.manage_broadcasts")
+
+    def has_change_permission(
+        self, request: HttpRequest, obj: BroadcastCampaign | None = None
+    ) -> bool:
+        return request.user.has_perm("notifications.manage_broadcasts")
+
+    def has_delete_permission(
+        self, request: HttpRequest, obj: BroadcastCampaign | None = None
+    ) -> bool:
+        # Campaign rows are operational history; cancellation is the only terminal operation.
+        return False
+
     def delivery_metrics(self, obj: BroadcastCampaign) -> dict[str, int]:
         return campaign_metrics(obj)
 

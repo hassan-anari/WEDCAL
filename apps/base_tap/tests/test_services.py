@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+from django.core.exceptions import ValidationError
 from django.db import close_old_connections
 
 from apps.base_tap.models import BaseTapDailyAccumulator, BaseTapReceipt
@@ -229,3 +230,25 @@ def test_historical_recovery_preserves_source_without_regressing_progression(
     assert reward.occurred_at == s1_at
     assert progression.config_version == s2_config
     assert progression.level == 2 and progression.dexo_stage == "newborn"
+
+
+@pytest.mark.django_db
+def test_midday_base_tap_policy_publication_rejected_with_open_accumulator(
+    phase4_config_factory: Any, season_factory: Any, player_factory: Any
+) -> None:
+    at = datetime(2026, 1, 2, 10, tzinfo=UTC)
+    config = phase4_config_factory(
+        effective_at=at - timedelta(days=1), mutate=no_rate_limit, version="tap-cutover-v1"
+    )
+    season_factory(config, starts_at=at - timedelta(days=1))
+    submit_tap_batch(player_factory(), tap_count=1, idempotency_key="open-day", at=at)
+
+    def change_daily_cap(payload: dict[str, Any]) -> None:
+        payload["base_tap"]["rewarded_taps_per_utc_day"] += 1
+
+    with pytest.raises(ValidationError, match="Base Tap policy changes require 00:00 UTC"):
+        phase4_config_factory(
+            effective_at=at + timedelta(hours=1),
+            mutate=change_daily_cap,
+            version="tap-cutover-v2",
+        )

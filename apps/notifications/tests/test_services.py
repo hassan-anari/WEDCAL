@@ -217,7 +217,8 @@ def test_permanent_delivery_failure_is_terminal(monkeypatch):
         lambda *_: TelegramResult(False, category="blocked_by_user"),
     )
     deliver_notifications()
-    assert notification.telegram_delivery.state == DeliveryState.FAILED
+    delivery = TelegramDelivery.objects.get(notification=notification)
+    assert delivery.state == DeliveryState.FAILED
 
 
 def test_broadcast_completes_from_durable_terminal_rows(monkeypatch):

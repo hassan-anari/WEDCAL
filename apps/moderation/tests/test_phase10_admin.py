@@ -115,3 +115,44 @@ def test_admin_moderation_action_records_staff_actor(client, clan_world):
     assert response.status_code == 302
     action = ModerationAction.objects.get(idempotency_key="admin-warn")
     assert action.staff_actor == staff and action.actor is None
+
+
+def test_suspension_expiry_vs_concurrent_ban_never_restores_active(clan_world):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from django.db import close_old_connections
+
+    reporter, target = clan_world[-2](), clan_world[-2]()
+    case = create_report(reporter=reporter, target=target, category="race", reason="reason")
+    expiry = timezone.now() + timedelta(seconds=1)
+    apply_action(
+        case_id=case.pk,
+        action_type="SUSPEND",
+        reason="temporary",
+        idempotency_key="threaded-suspend",
+        system_actor="test",
+        suspension_expires_at=expiry,
+    )
+
+    def expire():
+        close_old_connections()
+        expire_suspensions(now=expiry + timedelta(seconds=1))
+        close_old_connections()
+
+    def ban():
+        close_old_connections()
+        apply_action(
+            case_id=case.pk,
+            action_type="BAN",
+            reason="newer decision",
+            idempotency_key="threaded-ban",
+            system_actor="test",
+        )
+        close_old_connections()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = (pool.submit(expire), pool.submit(ban))
+        for future in futures:
+            future.result()
+    target.refresh_from_db()
+    assert target.moderation_state == Player.ModerationState.BANNED

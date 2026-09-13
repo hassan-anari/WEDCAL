@@ -53,3 +53,49 @@ def test_database_guard_rejects_model_queryset_and_sql_publication():
         )
     candidate.refresh_from_db()
     assert candidate.status == GameConfigVersion.Status.DRAFT
+
+
+def test_daily_reset_change_must_be_safe_under_old_and_new_boundaries():
+    base_at = datetime(2026, 3, 1, tzinfo=UTC)
+    original = deepcopy(BASE_CONFIG)
+    base = draft("daily-reset-base", base_at, original)
+    publish_game_config(base, published_at=base_at - timedelta(seconds=1))
+    changed = deepcopy(BASE_CONFIG)
+    changed["daily"]["reset_hour"] = 1
+
+    at_new_boundary = draft(
+        "daily-new-boundary",
+        base_at + timedelta(days=1, hours=1),
+        changed,
+    )
+    assert preview_safe_cutover(at_new_boundary) == (
+        "Daily reset-policy changes require the configured reset boundary",
+    )
+    with pytest.raises(ValidationError):
+        publish_game_config(
+            at_new_boundary,
+            published_at=base_at + timedelta(days=1),
+        )
+
+
+def test_active_season_dlx_policy_requires_epoch_boundary(phase4_config_factory, season_factory):
+    starts = datetime(2026, 4, 1, tzinfo=UTC)
+    config = phase4_config_factory(
+        effective_at=starts - timedelta(days=1), version="dlx-boundary-v1"
+    )
+    season_factory(config, starts_at=starts)
+
+    def change_settlement_default(payload):
+        payload["dlx_distribution"]["default_settlement_start_epoch"] = 2
+
+    with pytest.raises(ValidationError, match="economic-epoch boundary"):
+        phase4_config_factory(
+            effective_at=starts + timedelta(days=1),
+            mutate=change_settlement_default,
+            version="dlx-boundary-unsafe",
+        )
+    phase4_config_factory(
+        effective_at=starts + timedelta(days=7),
+        mutate=change_settlement_default,
+        version="dlx-boundary-safe",
+    )

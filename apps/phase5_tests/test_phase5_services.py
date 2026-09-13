@@ -1122,3 +1122,52 @@ def test_network_activity_without_historical_season_fails_closed(world) -> None:
     )
     assert activity and activity.season is None
     assert not activity.program_active and activity.rewardable_chars == 0
+
+
+@pytest.mark.django_db
+def test_open_creator_window_snapshots_config_across_mid_window_cutover(world) -> None:  # type: ignore[no-untyped-def]
+    config_v1, _, player = world
+    creator, speaker = player(1991), player(1992)
+    group = TelegramGroup.objects.create(
+        telegram_chat_id=-1991,
+        chat_type="supergroup",
+        is_monitored=True,
+        first_seen_at=AT,
+        last_seen_at=AT,
+    )
+    registration = CreatorGroupRegistration.objects.create(
+        creator=creator,
+        group=group,
+        state=CreatorGroupRegistration.State.ACTIVE,
+        reward_eligible_since=AT - timedelta(days=1),
+    )
+    before = record_activity(
+        registration=registration,
+        sender=speaker,
+        message_id=19911,
+        update_id=19911,
+        text="before-cutover-message" * 2,
+        observed_at=AT + timedelta(seconds=30),
+    )
+    changed = copy.deepcopy(BASE)
+    changed["network_activity"]["creator_reward"]["max_points_per_window_per_group"] += 1
+    switch = AT + timedelta(minutes=1)
+    config_v2 = GameConfigVersion.objects.create(
+        schema_version=changed["meta"]["schema_version"],
+        version="creator-window-v2",
+        effective_at=switch,
+        payload=changed,
+    )
+    publish_game_config(config_v2, published_at=switch - timedelta(seconds=1))
+    after = record_activity(
+        registration=registration,
+        sender=speaker,
+        message_id=19912,
+        update_id=19912,
+        text="after-cutover-message" * 2,
+        observed_at=switch + timedelta(seconds=1),
+    )
+    assert before is not None and after is not None
+    assert before.config_version_id == config_v1.pk
+    assert after.config_version_id == config_v2.pk
+    assert window_start_for(before.observed_at, 900) == window_start_for(after.observed_at, 900)

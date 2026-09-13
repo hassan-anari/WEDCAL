@@ -5,3 +5,8 @@ SECRET_KEY = "deterministic-test-secret-key"
 DB_POOL_ENABLED = False
 DATABASES["default"]["OPTIONS"] = {}  # noqa: F405
 PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
+# Admin unit tests render static references without running production collectstatic.
+# Production keeps CompressedManifestStaticFilesStorage from base settings.
+STORAGES["staticfiles"] = {  # noqa: F405
+    "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+}
