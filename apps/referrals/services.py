@@ -102,6 +102,68 @@ def _tier(
     return (eligible[-1].key, eligible[-1].share_bps) if eligible else None
 
 
+def record_typing_credit_performance(
+    *,
+    invitee: Player,
+    season_id: int,
+    config_version_id: int,
+    attempt_source_id: str,
+    source_time: datetime,
+    credit_amount: int,
+) -> None:
+    """Freeze-worthy referral provenance at Typing completion, not wallet claim time."""
+    from apps.arena.models import PerformanceSourceFact
+    from apps.moderation.services import moderation_state_at
+
+    config = resolve_game_config_version(config_version_id)
+    if not config.referral.enabled or "TYPING_CLAIM" not in config.referral.eligible_reward_sources:
+        return
+    relation = (
+        ReferralRelation.objects.select_related("inviter")
+        .filter(
+            invitee=invitee,
+            status=ReferralRelation.Status.VERIFIED,
+            verified_at__lt=source_time,
+        )
+        .first()
+    )
+    if relation is None:
+        return
+    blocked = set(config.referral.blocked_moderation_states) | {
+        Player.ModerationState.SUSPENDED,
+        Player.ModerationState.BANNED,
+    }
+    if (
+        moderation_state_at(invitee, source_time) in blocked
+        or moderation_state_at(relation.inviter, source_time) in blocked
+    ):
+        return
+    tier = _tier(config, relation.inviter, source_time)
+    if tier is None:
+        return
+    tier_key, share_bps = tier
+    referral_amount = credit_amount * share_bps // 10000
+    if referral_amount <= 0:
+        return
+    PerformanceSourceFact.objects.create(
+        season_id=season_id,
+        player=relation.inviter,
+        category="VERIFIED_REFERRAL",
+        source_type="TYPING_REFERRAL_CREDIT",
+        source_id=attempt_source_id,
+        source_time=source_time,
+        amount=referral_amount,
+        config_version_id=config_version_id,
+        metadata={
+            "invitee_id": invitee.pk,
+            "relation_id": relation.pk,
+            "tier_key": tier_key,
+            "share_bps": share_bps,
+            "typing_credit_amount": credit_amount,
+        },
+    )
+
+
 def activate_relation(relation_id: int, *, at: datetime | None = None) -> bool:
     now = at or timezone.now()
     season = resolve_current_season(at=now, required=False)

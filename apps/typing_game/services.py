@@ -161,6 +161,7 @@ def submit_attempt(
         )
         if reward:
             from apps.arena.models import PerformanceSourceFact
+            from apps.referrals.services import record_typing_credit_performance
 
             wallet, _ = TypingWallet.objects.select_for_update().get_or_create(
                 player=player, season=attempt.season
@@ -186,6 +187,14 @@ def submit_attempt(
                 amount=reward,
                 config_version=attempt.config_version,
                 metadata={"attempt_id": attempt.pk, "credit_transaction_id": credit.pk},
+            )
+            record_typing_credit_performance(
+                invitee=player,
+                season_id=attempt.season_id,
+                config_version_id=attempt.config_version_id,
+                attempt_source_id=str(attempt.public_id),
+                source_time=at,
+                credit_amount=reward,
             )
             wallet.claimable_balance += reward
             wallet.save(update_fields=["claimable_balance", "updated_at"])

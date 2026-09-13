@@ -246,6 +246,11 @@ def _build_performance_snapshots(epoch: EconomicEpoch, policy: DlxDistributionCo
         # Typing performance is represented once by its immutable source-time CREDIT fact.
         # A later wallet claim is XP settlement, not a second weekly performance event.
         .exclude(source_type="TYPING_CLAIM")
+        # Its passive Referral Share is likewise represented at Typing CREDIT source time.
+        .exclude(
+            source_type="REFERRAL",
+            referral_share_source__source_reward__source_type="TYPING_CLAIM",
+        )
         .values("player_id", "source_type")
         .annotate(
             amount=Sum("player_amount"), events=Count("id"), latest_source_at=Max("occurred_at")
@@ -277,6 +282,25 @@ def _build_performance_snapshots(epoch: EconomicEpoch, policy: DlxDistributionCo
             "amount": amount,
             "events": events,
         }
+    durable_referral_rows = list(
+        PerformanceSourceFact.objects.filter(
+            season=epoch.season,
+            player_id__in=qualified_ids,
+            source_time__gte=epoch.starts_at,
+            source_time__lt=epoch.ends_at,
+            category="VERIFIED_REFERRAL",
+        )
+        .values("player_id", "source_type")
+        .annotate(amount=Sum("amount"), events=Count("id"), latest_source_at=Max("source_time"))
+    )
+    durable_referral = {
+        int(row["player_id"]): {
+            "durable_source_amount": cast(int, row["amount"]),
+            "durable_source_events": cast(int, row["events"]),
+            "durable_source_type": str(row["source_type"]),
+        }
+        for row in durable_referral_rows
+    }
     clan_rows = {
         row["membership__player_id"]: row
         for row in ClanEconomicSettlement.objects.filter(
@@ -306,7 +330,10 @@ def _build_performance_snapshots(epoch: EconomicEpoch, policy: DlxDistributionCo
                 "durable_sources": (durable_core.get(player_id) or {}).get("by_source_type", {}),
             },
             "CREATOR_COMMUNITY_GROWTH": reward_rows.get((player_id, "CREATOR"), {}),
-            "VERIFIED_REFERRAL": reward_rows.get((player_id, "REFERRAL"), {}),
+            "VERIFIED_REFERRAL": {
+                **reward_rows.get((player_id, "REFERRAL"), {}),
+                **durable_referral.get(player_id, {}),
+            },
             "LOYALTY_CONSISTENCY": {
                 "reward_event_count": sum(int(row["events"]) for row in all_rewards),
                 "source_window_start": epoch.starts_at.isoformat(),

@@ -7,9 +7,9 @@
 **Phase 7A review base:** `132bcc187512bf38cf34e0e123f79c3b01493e6e`
 **Phase 8 review base:** PR #12 final correctness pass (2026-09-12)
 **Phase 9 correction review base:** PR #13 `5233ed302f8ae515a91a2c9aa9682ebbec9ffb6f`
-**Phase 9 correction reviewed hosted HEAD:** `9e025b938453e42a2ff2b6615cebd65c61273212`
+**Phase 9 correction reviewed hosted HEAD:** `485df50de3925e82631325450f165c2067f01962`
 **Initial review date:** 2026-09-10
-**Last reviewed:** 2026-09-13 (Phase 9 PR #13 final Typing/tie correction; 485 tests green locally)
+**Last reviewed:** 2026-09-13 (Phase 9 PR #13 Typing-referral correction; 489 tests green locally)
 **Owner:** repository/product owner
 
 ---
@@ -389,6 +389,10 @@ no longer blocks, unfinished Typing attempts do block, DRAINING evidence commits
 and permanent source-time Base Tap facts survive receipt expiry and feed frozen raw snapshots.
 The final correction also records completed Typing CREDIT performance as an append-only fact at the
 attempt completion source time, independently of a later voluntary claim.
+Typing-derived passive Referral performance is captured at the same boundary in a distinct
+VERIFIED_REFERRAL fact with immutable relation, tier, config and source-time provenance. A later
+Typing claim and Referral RewardLedger settlement are excluded from weekly aggregation for that
+same source, so neither batching nor post-freeze processing can reinterpret or double-count it.
 
 ---
 
@@ -1140,6 +1144,7 @@ Append immutable resolution records here when open items are closed.
 | 2026-09-12 | PH-005, PH-006, PH-007, PH-042 reopened | PR #13 review at `5233ed3` | Independent review found incomplete source-time, rebuild, freeze, carry, reconciliation and concurrency evidence | PH-003 remains accepted; reopened blockers require correction plus hosted green evidence. |
 | 2026-09-12 | PH-005, PH-006, PH-007, PH-042 re-resolved | PR #13 hosted correction `9e025b9` | 480-test hosted PostgreSQL/Redis suite; immutable-history migrations; source-time qualification/drain; generation-safe rebuild; delayed carry; actual-ledger reconciliation; adjustment contention | Hosted CI was green. |
 | 2026-09-13 | PH-005, PH-006, PH-007, PH-042 final verification | PR #13 follow-up to hosted `9e025b9` | 485-test local suite; Typing CREDIT source-time facts; claim-independent frozen inputs; score-producing-only Clan tie backfill | Marked VERIFYING until final hosted CI confirms the complete corrected HEAD. |
+| 2026-09-13 | PH-006 Typing-referral attribution | PR #13 follow-up to hosted `485df50` | 489-test local suite; immutable Typing-referral source facts; source-time relation/tier provenance; later Referral ledger de-duplication | Final hosted CI is required before Phase-9 blockers return to RESOLVED. |
 
 ---
 
