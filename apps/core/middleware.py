@@ -4,7 +4,9 @@ from typing import Any
 
 import structlog
 from asgiref.sync import iscoroutinefunction, markcoroutinefunction
-from django.http import HttpRequest, HttpResponse
+from django.conf import settings
+from django.core.cache import cache
+from django.http import HttpRequest, HttpResponse, JsonResponse
 
 SAFE_REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
@@ -48,3 +50,42 @@ class RequestContextMiddleware:
             return response
         finally:
             structlog.contextvars.clear_contextvars()
+
+
+class MutationThrottleMiddleware:
+    """Cheap Redis-backed request-cost guard; database domain caps remain authoritative."""
+
+    sync_capable = True
+    async_capable = False
+
+    def __init__(self, get_response: Any) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        policy = next(
+            (
+                value
+                for prefix, value in settings.MUTATION_THROTTLE_POLICIES.items()
+                if request.method == "POST" and request.path.startswith(prefix)
+            ),
+            None,
+        )
+        if policy is not None:
+            forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "").split(",", 1)[0].strip()
+            identity = forwarded or request.META.get("REMOTE_ADDR", "unknown")
+            bucket = int(__import__("time").time()) // policy[1]
+            key = f"throttle:{request.path}:{identity}:{bucket}"
+            try:
+                count = 1 if cache.add(key, 1, timeout=policy[1] + 1) else cache.incr(key)
+                if count > policy[0]:
+                    response = JsonResponse(
+                        {"detail": "Request rate limit exceeded", "code": "RATE_LIMITED"},
+                        status=429,
+                    )
+                    response["Retry-After"] = str(policy[1])
+                    return response
+            except Exception:
+                # Availability fail-open is safe: PostgreSQL caps still prevent over-credit.
+                pass
+        downstream_response: HttpResponse = self.get_response(request)
+        return downstream_response

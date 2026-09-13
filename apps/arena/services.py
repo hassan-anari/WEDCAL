@@ -13,7 +13,12 @@ from django_redis.cache import RedisCache  # type: ignore[import-untyped]
 from apps.arena.models import RankingProjectionEvent, RankingProjectionState
 from apps.clans.models import ClanSeason
 from apps.game_config.services import resolve_game_config_version
-from apps.seasons.models import PlayerSeason, Season
+from apps.seasons.models import (
+    ClanSeasonFinalStanding,
+    PlayerSeason,
+    PlayerSeasonFinalStanding,
+    Season,
+)
 
 MAX_ORDER_VALUE = 9_999_999_999_999_999_999
 
@@ -312,8 +317,23 @@ def rebuild_ranking(season: Season, entity_type: str) -> bool:
             or 0
         )
         policy = resolve_game_config_version(season.baseline_config_id).rankings
-        if entity_type == RankingProjectionEvent.Entity.PLAYER:
-            rows: Any = PlayerSeason.objects.filter(
+        rows: Any
+        if (
+            season.status in (Season.Status.CLOSED, Season.Status.ARCHIVED)
+            and entity_type == RankingProjectionEvent.Entity.PLAYER
+        ):
+            rows = PlayerSeasonFinalStanding.objects.filter(season=season).values_list(
+                "player_id", "final_season_points", "score_reached_at", "ranking_generation"
+            )
+        elif season.status in (Season.Status.CLOSED, Season.Status.ARCHIVED):
+            rows = ClanSeasonFinalStanding.objects.filter(season=season).values_list(
+                "clan_season_id",
+                "final_competitive_score",
+                "score_reached_at",
+                "ranking_generation",
+            )
+        elif entity_type == RankingProjectionEvent.Entity.PLAYER:
+            rows = PlayerSeason.objects.filter(
                 season=season, season_points__gte=policy.minimum_score
             ).values_list("player_id", "season_points", "score_reached_at", "ranking_generation")
         else:

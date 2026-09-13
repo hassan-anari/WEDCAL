@@ -106,9 +106,11 @@ def activate_season(season: Season) -> Season:
         season.status = Season.Status.ACTIVE
         with connection.cursor() as cursor:
             cursor.execute("SELECT set_config('dexo.settlement_control', 'on', true)")
+            cursor.execute("SELECT set_config('dexo.season_transition', 'on', true)")
         season.save(update_fields=["status", "settlement_start_epoch", "updated_at"])
         with connection.cursor() as cursor:
             cursor.execute("SELECT set_config('dexo.settlement_control', 'off', true)")
+            cursor.execute("SELECT set_config('dexo.season_transition', 'off', true)")
     logger.info("season_activated", season_id=season.pk, season_code=season.code)
     return season
 
@@ -162,4 +164,33 @@ def set_settlement_start_epoch(
             correlation_id=correlation_id or uuid.uuid4(),
         )
     logger.info("settlement_start_epoch_changed", season_id=season.pk, epoch=epoch)
+    return season
+
+
+def archive_closed_season(
+    season: Season, *, actor: User, reason: str, ticket_reference: str = ""
+) -> Season:
+    """Controlled presentation/archive transition after a completed economic close."""
+    if not actor.has_perm("seasons.close_season"):
+        raise PermissionDenied("Season-close permission required")
+    if not reason.strip():
+        raise ValidationError("Archive reason is required")
+    with transaction.atomic():
+        season = Season.objects.select_for_update().get(pk=season.pk)
+        if season.status != Season.Status.CLOSED or not getattr(season, "close_run", None):
+            raise ValidationError("Only a durably completed closed Season may be archived")
+        if season.close_run.stage != "COMPLETED":
+            raise ValidationError("Season close is incomplete")
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT set_config('dexo.season_transition', 'on', true)")
+        season.status = Season.Status.ARCHIVED
+        season.save(update_fields=("status", "updated_at"))
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT set_config('dexo.season_transition', 'off', true)")
+    logger.info(
+        "season_archived",
+        season_id=season.pk,
+        actor_id=actor.pk,
+        ticket_reference=ticket_reference,
+    )
     return season

@@ -3,10 +3,10 @@
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
-
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 REQUIRED_FILES = (
@@ -155,6 +155,52 @@ def validate_invariants(contents: dict[str, str]) -> list[str]:
         errors.append("Source of Truth contains stale per-season DLX distribution wording.")
     if "atomic_units" in example:
         errors.append("Example config must not imply finalized native-chain atomic units.")
+
+    try:
+        payload = json.loads(example)
+        distribution = payload["dlx_distribution"]
+        timing = distribution["timing"]
+        dlx = payload["dlx"]
+        typing = payload["typing"]
+        base_tap = payload["base_tap"]
+        weights = distribution["category_weights_bps"]
+        if (
+            timing["product_period_days"] != 45
+            or timing["epoch_count"] != 6
+            or timing["epoch_days"] != 7
+            or timing["closing_days"] != 3
+        ):
+            errors.append(
+                "Structured config must encode exactly 45 days, six 7-day epochs "
+                "and 3 closing days."
+            )
+        if sum(weights.values()) != 10_000:
+            errors.append("Structured DLX category weights must total exactly 10000 bps.")
+        forbidden = (
+            dlx["confirmed_allocation_claimable_transferable_or_tradable"],
+            dlx["wallet_withdrawal_or_on_chain_claim_enabled"],
+        )
+        if (
+            any(value is not False for value in forbidden)
+            or distribution["accounting_unit"] != "OFF_CHAIN_DLX_ALLOCATION_AMOUNT"
+        ):
+            errors.append("Structured config must keep Season-1 DLX off-chain and non-liquid.")
+        if "dlx" in base_tap:
+            errors.append("Structured config must prohibit direct Base Tap DLX.")
+        canonical_typing = {
+            "completed_invalid_attempt_consumes_quota": True,
+            "technical_failure_consumes_quota": False,
+            "claimable_wallet_enabled": True,
+            "claim_anytime": True,
+            "auto_settle_at_season_close": True,
+            "claim_preserves_source_season": True,
+        }
+        if any(typing.get(key) is not value for key, value in canonical_typing.items()):
+            errors.append(
+                "Structured config must retain canonical Season-1 Typing lifecycle flags."
+            )
+    except (KeyError, TypeError, json.JSONDecodeError) as exc:
+        errors.append(f"Example config structural validation failed: {exc}")
 
     return errors
 

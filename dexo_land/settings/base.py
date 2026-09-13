@@ -51,6 +51,7 @@ MIDDLEWARE = [
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "apps.core.middleware.MutationThrottleMiddleware",
     "apps.core.middleware.RequestContextMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -102,6 +103,12 @@ CELERY_BROKER_URL = os.getenv(
 )
 CELERY_RESULT_BACKEND = None
 CELERY_TASK_IGNORE_RESULT = True
+CELERY_TASK_ACKS_LATE = True
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = int(os.getenv("CELERY_WORKER_PREFETCH_MULTIPLIER", "1"))
+CELERY_TASK_SOFT_TIME_LIMIT = int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", "240"))
+CELERY_TASK_TIME_LIMIT = int(os.getenv("CELERY_TASK_TIME_LIMIT", "300"))
+CELERY_WORKER_CANCEL_LONG_RUNNING_TASKS_ON_CONNECTION_LOSS = True
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_ACCEPT_CONTENT = ["json"]
@@ -117,11 +124,16 @@ CELERY_BEAT_SCHEDULE: dict[str, Any] = {
 }
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+OPERATIONS_METRICS_TOKEN = os.getenv("OPERATIONS_METRICS_TOKEN", "unsafe-local-operations-token")
 TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "")
 TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
 telegram_bot_id = os.getenv("TELEGRAM_BOT_ID", "").strip()
 TELEGRAM_BOT_ID = int(telegram_bot_id) if telegram_bot_id else None
 TELEGRAM_INIT_DATA_MAX_AGE_SECONDS = int(os.getenv("TELEGRAM_INIT_DATA_MAX_AGE_SECONDS", "3600"))
+TELEGRAM_API_GLOBAL_RPS = int(os.getenv("TELEGRAM_API_GLOBAL_RPS", "25"))
+TELEGRAM_API_METHOD_RPS = int(os.getenv("TELEGRAM_API_METHOD_RPS", "15"))
+TELEGRAM_API_DEFAULT_RETRY_SECONDS = int(os.getenv("TELEGRAM_API_DEFAULT_RETRY_SECONDS", "60"))
+TELEGRAM_API_RETRY_JITTER_SECONDS = int(os.getenv("TELEGRAM_API_RETRY_JITTER_SECONDS", "30"))
 TELEGRAM_INGRESS_RETENTION_SECONDS = int(os.getenv("TELEGRAM_INGRESS_RETENTION_SECONDS", "604800"))
 TELEGRAM_INGRESS_PROCESSING_LEASE_SECONDS = int(
     os.getenv("TELEGRAM_INGRESS_PROCESSING_LEASE_SECONDS", "300")
@@ -270,6 +282,22 @@ NOTIFICATION_DELIVERY_LEASE_SECONDS = int(os.getenv("NOTIFICATION_DELIVERY_LEASE
 NOTIFICATION_DELIVERY_BATCH_SIZE = int(os.getenv("NOTIFICATION_DELIVERY_BATCH_SIZE", "100"))
 NOTIFICATION_MAX_ATTEMPTS = int(os.getenv("NOTIFICATION_MAX_ATTEMPTS", "5"))
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Deployment policy, not domain economics. Tune from Stage-2 measurements.
+MUTATION_THROTTLE_POLICIES = {
+    "/api/v1/base/": (
+        int(os.getenv("THROTTLE_BASE_TAP_REQUESTS", "120")),
+        int(os.getenv("THROTTLE_BASE_TAP_WINDOW_SECONDS", "60")),
+    ),
+    "/api/v1/typing/": (
+        int(os.getenv("THROTTLE_TYPING_REQUESTS", "60")),
+        int(os.getenv("THROTTLE_TYPING_WINDOW_SECONDS", "60")),
+    ),
+    "/api/v1/missions/": (
+        int(os.getenv("THROTTLE_MISSION_REQUESTS", "60")),
+        int(os.getenv("THROTTLE_MISSION_WINDOW_SECONDS", "60")),
+    ),
+}
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 LOG_JSON = env_bool("LOG_JSON", os.getenv("DJANGO_SETTINGS_MODULE", "").endswith(".production"))

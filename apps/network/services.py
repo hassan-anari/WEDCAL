@@ -137,9 +137,12 @@ def verify_registration(registration_id: int) -> str:
     )
     if not bot.ok or not creator.ok:
         category = bot.category if not bot.ok else creator.category
+        retry_after = bot.retry_after if not bot.ok else creator.retry_after
+        jitter = registration_id % max(settings.TELEGRAM_API_RETRY_JITTER_SECONDS, 1)
+        delay = max(retry_after or settings.TELEGRAM_API_DEFAULT_RETRY_SECONDS, 1) + jitter
         CreatorGroupRegistration.objects.filter(pk=registration_id).update(
             last_verification_error=category or "verification_error",
-            next_verification_at=timezone.now() + timedelta(minutes=5),
+            next_verification_at=timezone.now() + timedelta(seconds=delay),
         )
         if category in {
             "timeout",
@@ -147,6 +150,7 @@ def verify_registration(registration_id: int) -> str:
             "connection_error",
             "non_json_response",
             "telegram_not_ok",
+            "local_rate_limited",
         }:
             raise RuntimeError(category)
         state = CreatorGroupRegistration.State.ADMIN_REQUIRED

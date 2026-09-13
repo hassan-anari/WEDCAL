@@ -1,0 +1,11 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<h1>Season close: {{ season.code }}</h1>
+<p><strong>Non-mutating preview.</strong> Ready: {{ report.ready }}; cutoff: {{ report.cutoff_at }}</p>
+{% if report.blocking_reasons %}<h2>Blockers</h2><ul>{% for item in report.blocking_reasons %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}
+<h2>Drain providers</h2>
+<table><thead><tr><th>Provider</th><th>Pending</th><th>Oldest age</th><th>State</th></tr></thead><tbody>
+{% for item in report.providers %}<tr><td>{{ item.provider }}</td><td>{{ item.pending_count }}</td><td>{{ item.oldest_processing_age_seconds }}</td><td>{{ item.safe_terminal_state }}</td></tr>{% endfor %}
+</tbody></table>
+<h2>Start / Resume Close</h2><form method="post">{% csrf_token %}{{ form.as_p }}<button type="submit">Start / Resume Close</button></form>
+{% endblock %}

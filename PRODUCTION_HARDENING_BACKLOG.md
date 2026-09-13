@@ -1202,3 +1202,39 @@ PH-002, PH-004, PH-009, PH-026, PH-027 and PH-028 remain `VERIFYING` until the f
 - Broadcast Admin authorization now treats `notifications.manage_broadcasts` as authoritative for direct view/add/change URLs and keeps deletion disabled.
 - New PostgreSQL threaded evidence covers Broadcast claim/cancel/lease/finalization races, suspension expiry vs BAN, and invite-risk resolution vs operators/revocation lifecycle.
 - PH-002, PH-004, PH-009, PH-026, PH-027, and PH-028 remain VERIFYING until the final hosted correction HEAD is green. PH-034 remains OPEN overall; only its Phase-10 durable delivery metrics slice is implemented. PH-045 remains OPEN overall; its Phase-10 operational sub-requirement is under final hosted verification.
+
+
+# Phase 11 Stage-1 hardening delta
+
+**Canonical accepted baseline:** merge `0d1906c10ad2b94d6029f831937d79aba2cb192a`;
+the final hosted Phase-10 suite passed **519 / 519**. PH-002, PH-004, PH-009, PH-026, PH-027 and
+PH-028 are accepted as resolved by that merge and are not reopened without regression evidence.
+
+**State vocabulary for this delta:** `IMPLEMENTED_PENDING_VERIFICATION` means code/tooling exists,
+but Stage 2 must provide PostgreSQL, concurrency, drill, load, scan, or hosted-CI evidence before
+promotion to RESOLVED.
+
+| Item | Stage-1 state | Implementation / remaining evidence |
+|---|---|---|
+| PH-008 | IMPLEMENTED_PENDING_VERIFICATION | Durable provider registry, readiness report and persisted drain evidence; full close drill pending |
+| PH-012 | IMPLEMENTED_PENDING_VERIFICATION | Configured Redis request-cost throttling before mutation DB work; benchmark pending |
+| PH-015 | IMPLEMENTED_PENDING_VERIFICATION | Reward outbox counts, lag, retry and error-category metrics |
+| PH-019 | IMPLEMENTED_PENDING_VERIFICATION | Global/method Bot API budget, retry-after scheduling and jitter; burst drill pending |
+| PH-020 | VERIFYING | Typing errors typed; bootstrap query budget remains Stage-2 measurement |
+| PH-022 | IMPLEMENTED_PENDING_VERIFICATION | Unsupported S1 lifecycle flag values rejected at publication |
+| PH-023 | IMPLEMENTED_PENDING_VERIFICATION | Typing mission uses Typing reset timezone |
+| PH-024 | IMPLEMENTED_PENDING_VERIFICATION | Stable expected Typing 409/429 responses and OpenAPI declarations |
+| PH-025 | IMPLEMENTED_PENDING_VERIFICATION | Missed Daily period exposes effective reset streak without deleting history |
+| PH-029 / PH-030 | IMPLEMENTED_PENDING_VERIFICATION | Production security injection and rotation runbook; security execution pending |
+| PH-031 | IMPLEMENTED_PENDING_VERIFICATION | Guarded backup/restore and reconciliation commands; actual restore pending |
+| PH-033 / PH-034 | IMPLEMENTED_PENDING_VERIFICATION | Operational snapshot and Stage-2 SLO worksheet; alert thresholds pending measurement |
+| PH-037 | OWNER_ACTION_REQUIRED | Configure required GitHub ruleset; not changed by application code |
+| PH-038 | IMPLEMENTED_PENDING_VERIFICATION | Structural contract-gate expansion remains subject to hosted gate |
+| PH-039 | IMPLEMENTED_PENDING_VERIFICATION | Dependency/container report workflow added; findings not yet evaluated |
+| PH-043 | OPEN — OWNER PRODUCT DECISION REQUIRED BEFORE S1 LAUNCH | **PH-043 IMPLEMENTATION BLOCKED BY PRODUCT DECISION**; no server evidence exists |
+| PH-049 | IMPLEMENTED_PENDING_VERIFICATION | Bounded ledger/projection reconciliation interface; deliberate drift drill pending |
+
+WATCH items PH-010/011/013/014/016/017/018/021/032/035 now have deterministic load manifests,
+query EXPLAIN, relation sizing, provider-lag and reconciliation measurement primitives. All measured
+capacity outcomes remain **MEASUREMENT REQUIRED IN STAGE 2**. No S1 launch item is promoted merely
+because Stage-1 code exists.

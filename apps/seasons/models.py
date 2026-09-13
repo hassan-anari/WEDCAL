@@ -1,4 +1,7 @@
+import uuid
+
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 
@@ -73,3 +76,98 @@ class SeasonSettlementControlEvent(models.Model):
     class Meta:
         indexes = [models.Index(fields=("season", "changed_at", "id"))]
         permissions = [("change_settlement_control", "Can change settlement control")]
+
+
+class SeasonCloseRun(models.Model):
+    """Durable, resumable coordinator for one Season close operation."""
+
+    class Stage(models.TextChoices):
+        PREPARING = "PREPARING", "Preparing"
+        DRAINING = "DRAINING", "Draining"
+        RECONCILING = "RECONCILING", "Reconciling"
+        FREEZING_RANKINGS = "FREEZING_RANKINGS", "Freezing rankings"
+        AWARDING_HONORS = "AWARDING_HONORS", "Awarding honors"
+        FINALIZING = "FINALIZING", "Finalizing"
+        COMPLETED = "COMPLETED", "Completed"
+        FAILED = "FAILED", "Failed"
+
+    season = models.OneToOneField(Season, on_delete=models.PROTECT, related_name="close_run")
+    idempotency_key = models.CharField(max_length=200, unique=True)
+    stage = models.CharField(max_length=24, choices=Stage.choices, default=Stage.PREPARING)
+    cutoff_at = models.DateTimeField()
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.PROTECT)
+    service_actor = models.CharField(max_length=80, blank=True)
+    reason = models.CharField(max_length=1000)
+    ticket_reference = models.CharField(max_length=128, blank=True)
+    correlation_id = models.UUIDField(default=uuid.uuid4, unique=True)
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    failed_at = models.DateTimeField(null=True, blank=True)
+    failure_stage = models.CharField(max_length=24, blank=True)
+    failure_category = models.CharField(max_length=100, blank=True)
+    retry_count = models.PositiveIntegerField(default=0)
+    readiness_evidence = models.JSONField(default=dict)
+    drain_evidence = models.JSONField(default=dict)
+    reconciliation_evidence = models.JSONField(default=dict)
+    progress = models.JSONField(default=dict)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        permissions = [("close_season", "Can preview and close a Season")]
+        indexes = [models.Index(fields=("stage", "updated_at"), name="season_close_stage")]
+
+
+class ImmutableStanding(models.Model):
+    final_rank = models.PositiveBigIntegerField()
+    score_reached_at = models.DateTimeField()
+    ranking_generation = models.PositiveBigIntegerField()
+    ranked_population = models.PositiveBigIntegerField()
+    provenance = models.JSONField(default=dict)
+    finalized_at = models.DateTimeField()
+
+    class Meta:
+        abstract = True
+
+    def save(self, *args: object, **kwargs: object) -> None:
+        if self.pk:
+            raise ValidationError("Final standings are immutable")
+        super().save(*args, **kwargs)  # type: ignore[arg-type]
+
+    def delete(self, *args: object, **kwargs: object) -> tuple[int, dict[str, int]]:
+        raise ValidationError("Final standings are immutable")
+
+
+class PlayerSeasonFinalStanding(ImmutableStanding):
+    season = models.ForeignKey(Season, on_delete=models.PROTECT, related_name="final_players")
+    player = models.ForeignKey(Player, on_delete=models.PROTECT, related_name="final_standings")
+    final_season_points = models.PositiveBigIntegerField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("season", "player"), name="season_final_player"),
+            models.UniqueConstraint(
+                fields=("season", "final_rank"), name="season_final_player_rank"
+            ),
+            models.CheckConstraint(
+                condition=Q(final_rank__gte=1), name="season_player_rank_positive"
+            ),
+        ]
+        indexes = [models.Index(fields=("season", "final_rank"), name="season_final_player_order")]
+
+
+class ClanSeasonFinalStanding(ImmutableStanding):
+    season = models.ForeignKey(Season, on_delete=models.PROTECT, related_name="final_clans")
+    clan_season = models.OneToOneField(
+        "clans.ClanSeason", on_delete=models.PROTECT, related_name="final_standing"
+    )
+    clan = models.ForeignKey("clans.Clan", on_delete=models.PROTECT, related_name="final_standings")
+    final_competitive_score = models.PositiveBigIntegerField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("season", "final_rank"), name="season_final_clan_rank"),
+            models.CheckConstraint(
+                condition=Q(final_rank__gte=1), name="season_clan_rank_positive"
+            ),
+        ]
+        indexes = [models.Index(fields=("season", "final_rank"), name="season_final_clan_order")]

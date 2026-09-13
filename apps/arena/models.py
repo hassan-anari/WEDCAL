@@ -293,3 +293,38 @@ class DlxAdjustment(models.Model):
         indexes = [
             models.Index(fields=("allocation", "created_at"), name="arena_adjustment_lookup")
         ]
+
+
+class SeasonDlxResidualEvent(models.Model):
+    """Append-only disposition of a final category remainder; never a player allocation."""
+
+    season = models.ForeignKey(
+        "seasons.Season", on_delete=models.PROTECT, related_name="dlx_residuals"
+    )
+    category = models.CharField(max_length=40)
+    amount = models.PositiveBigIntegerField()
+    provenance = models.JSONField(default=dict)
+    config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
+    disposition = models.CharField(max_length=64)
+    reason = models.CharField(max_length=500)
+    idempotency_key = models.CharField(max_length=200, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("season", "category"), name="arena_season_residual_category"
+            )
+        ]
+
+    def save(self, *args: object, **kwargs: object) -> None:
+        if self.pk:
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError("Season DLX residual events are append-only")
+        super().save(*args, **kwargs)  # type: ignore[arg-type]
+
+    def delete(self, *args: object, **kwargs: object) -> tuple[int, dict[str, int]]:
+        from django.core.exceptions import ValidationError
+
+        raise ValidationError("Season DLX residual events are append-only")

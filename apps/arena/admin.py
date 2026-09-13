@@ -31,5 +31,6 @@ for model in (
     models.AllocationBatch,
     models.DlxAllocation,
     models.DlxAdjustment,
+    models.SeasonDlxResidualEvent,
 ):
     admin.site.register(model, ReadOnlyEconomicAdmin)

@@ -284,6 +284,85 @@ def claim_wallet(player: Player, idempotency_key: str, at: datetime) -> tuple[Ty
     return claim, True
 
 
+def auto_settle_wallet_for_season(
+    wallet_id: int, *, close_run_id: int, at: datetime
+) -> tuple[TypingClaim, bool]:
+    """Settle one wallet through the canonical claim ledger path using source provenance."""
+    with transaction.atomic():
+        wallet = (
+            TypingWallet.objects.select_for_update()
+            .select_related("player", "season")
+            .get(pk=wallet_id)
+        )
+        key = f"season-close:{close_run_id}:typing:{wallet.pk}"
+        existing = TypingClaim.objects.filter(player=wallet.player, idempotency_key=key).first()
+        if existing:
+            return existing, False
+        credits = list(
+            TypingWalletTransaction.objects.select_for_update()
+            .filter(
+                wallet=wallet, kind=TypingWalletTransaction.Kind.CREDIT, claimed_by__isnull=True
+            )
+            .select_related("attempt", "config_version")
+            .order_by("pk")
+        )
+        amount = sum(row.amount for row in credits)
+        claim = TypingClaim.objects.create(
+            player=wallet.player,
+            season=wallet.season,
+            idempotency_key=key,
+            amount=amount,
+            claimed_at=at,
+        )
+        if not credits:
+            if wallet.claimable_balance:
+                raise ValueError("Typing wallet projection has no supporting unclaimed credits")
+            return claim, True
+        if amount != wallet.claimable_balance:
+            raise ValueError("Typing wallet projection does not reconcile to source credits")
+        groups: dict[int, list[TypingWalletTransaction]] = defaultdict(list)
+        for credit in credits:
+            groups[credit.config_version_id].append(credit)
+        for config_id, rows in groups.items():
+            occurred_at = min(
+                row.attempt.submitted_at or row.attempt.started_at
+                for row in rows
+                if row.attempt is not None
+            )
+            resolved = resolve_effective_game_config(occurred_at)
+            if resolved.id != config_id:
+                raise ValueError("Typing credit config history is inconsistent")
+            settle_player_reward(
+                player=wallet.player,
+                source_type="TYPING_CLAIM",
+                source_id=f"close:{close_run_id}:{wallet.pk}:{config_id}",
+                context="TYPING",
+                amount=sum(row.amount for row in rows),
+                idempotency_key=f"typing-close:{close_run_id}:{wallet.pk}:{config_id}",
+                occurred_at=occurred_at,
+                resolved_config=resolved,
+                metadata={"typing_claim_id": claim.pk, "season_close_run_id": close_run_id},
+                source_season=wallet.season,
+                preserve_config_version=True,
+                source_eligibility_verified=True,
+            )
+        TypingWalletTransaction.objects.filter(pk__in=[row.pk for row in credits]).update(
+            claimed_by=claim
+        )
+        TypingWalletTransaction.objects.create(
+            wallet=wallet,
+            kind=TypingWalletTransaction.Kind.DEBIT,
+            amount=amount,
+            claim=claim,
+            season=wallet.season,
+            config_version=credits[-1].config_version,
+            idempotency_key=f"typing-close-debit:{close_run_id}:{wallet.pk}",
+        )
+        wallet.claimable_balance = 0
+        wallet.save(update_fields=("claimable_balance", "updated_at"))
+        return claim, True
+
+
 def rebuild_wallet(wallet: TypingWallet) -> TypingWallet:
     with transaction.atomic():
         wallet = TypingWallet.objects.select_for_update().get(pk=wallet.pk)

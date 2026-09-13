@@ -6,6 +6,7 @@ from typing import Any
 
 import structlog
 from django.conf import settings
+from django.core.cache import cache
 
 logger = structlog.get_logger(__name__)
 
@@ -23,6 +24,21 @@ def request(method: str, parameters: dict[str, Any]) -> TelegramResult:
     token = settings.TELEGRAM_BOT_TOKEN
     if not token:
         return TelegramResult(False, category="configuration_error")
+    # Short Redis buckets cap both the single-bot global budget and costly method bursts.
+    # Workers never sleep; callers persist retry scheduling from retry_after.
+    bucket = int(__import__("time").time())
+    for key, limit in (
+        (f"telegram-api:global:{bucket}", settings.TELEGRAM_API_GLOBAL_RPS),
+        (f"telegram-api:method:{method}:{bucket}", settings.TELEGRAM_API_METHOD_RPS),
+    ):
+        try:
+            count = 1 if cache.add(key, 1, timeout=2) else cache.incr(key)
+            if count > limit:
+                logger.warning("telegram_api_budget_exhausted", method=method)
+                return TelegramResult(False, category="local_rate_limited", retry_after=1)
+        except Exception:
+            # Telegram remains authoritative and will return 429; rate control is availability aid.
+            pass
     req = urllib.request.Request(
         f"https://api.telegram.org/bot{token}/{method}",
         data=json.dumps(parameters).encode(),
