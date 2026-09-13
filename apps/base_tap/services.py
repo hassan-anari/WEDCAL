@@ -90,6 +90,19 @@ def submit_tap_batch(
             accepted_at=at,
             expires_at=at + timedelta(days=config.base_tap.receipt_retention_days),
         )
+        from apps.arena.models import PerformanceSourceFact
+
+        PerformanceSourceFact.objects.create(
+            season=season,
+            player=locked_player,
+            category="CORE_GAMEPLAY",
+            source_type="BASE_TAP_BATCH",
+            source_id=str(receipt.pk),
+            source_time=at,
+            amount=earned,
+            config_version_id=config.id,
+            metadata={"accepted_taps": accepted, "utc_day": str(utc_day)},
+        )
         accumulator.accepted_taps += accepted
         accumulator.pending_points += earned
         if accumulator.first_accepted_at is None:

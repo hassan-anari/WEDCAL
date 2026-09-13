@@ -43,6 +43,8 @@ class PlayerSeason(models.Model):
     player = models.ForeignKey(Player, on_delete=models.CASCADE, related_name="seasons")
     season = models.ForeignKey(Season, on_delete=models.PROTECT, related_name="players")
     season_points = models.BigIntegerField(default=0)
+    score_reached_at = models.DateTimeField(null=True, blank=True)
+    ranking_generation = models.PositiveBigIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -53,6 +55,7 @@ class PlayerSeason(models.Model):
                 condition=Q(season_points__gte=0), name="player_season_points_nonnegative"
             ),
         ]
+        indexes = [models.Index(fields=("season", "-season_points", "score_reached_at", "player"))]
 
 
 class SeasonSettlementControlEvent(models.Model):

@@ -1,14 +1,16 @@
 # Dexo Land Backend — Production Hardening Backlog
 
-**Document role:** living production-readiness risk register  
-**Repository:** `hassan-anari/Dalexio-Game-Backend`  
-**Initial scope reviewed:** Phases 0–5 + Season 1 Economy Contract Sync + Base Tap  
+**Document role:** living production-readiness risk register
+**Repository:** `hassan-anari/Dalexio-Game-Backend`
+**Initial scope reviewed:** Phases 0–5 + Season 1 Economy Contract Sync + Base Tap
 **Verified against Phase 6 PR:** `33e14c0b5178d1b79e2c3b5668ff257b012d23f1` (correction base)
 **Phase 7A review base:** `132bcc187512bf38cf34e0e123f79c3b01493e6e`
 **Phase 8 review base:** PR #12 final correctness pass (2026-09-12)
-**Initial review date:** 2026-09-10  
-**Last reviewed:** 2026-09-12 (Phase 8 Clan economy review)
-**Owner:** repository/product owner  
+**Phase 9 correction review base:** PR #13 `5233ed302f8ae515a91a2c9aa9682ebbec9ffb6f`
+**Phase 9 correction reviewed hosted HEAD:** `485df50de3925e82631325450f165c2067f01962`
+**Initial review date:** 2026-09-10
+**Last reviewed:** 2026-09-13 (Phase 9 PR #13 Typing-referral correction; 489 tests green locally)
+**Owner:** repository/product owner
 
 ---
 
@@ -106,11 +108,11 @@ Until functional MVP is complete:
 |---|---|---|---|---|---|
 | PH-001 | Telegram inbound worker-loss redrive | RESOLVED | PHASE-BLOCKER | Resolved in Phase 7A before Clan membership consumes Telegram events | High |
 | PH-002 | GameConfig publication bypass | OPEN | LAUNCH-BLOCKER | Before operators publish real economy configs | High |
-| PH-003 | RewardLedger append-only enforcement | OPEN | PHASE-BLOCKER | Before Phase 9 uses XP history for confirmed DLX allocation | High |
+| PH-003 | RewardLedger append-only enforcement | RESOLVED | PHASE-BLOCKER | PostgreSQL evidence accepted in Phase 9 | High |
 | PH-004 | Mission DB definition ↔ config rule binding | OPEN | LAUNCH-BLOCKER | Before real production missions can be authored/enabled | High |
-| PH-005 | Authoritative anti-Sybil / qualified-player eligibility | OPEN | PHASE-BLOCKER | Before Phase 9 growth unlocks or confirmed DLX settlement | High |
-| PH-006 | Weekly epoch attribution + source-event watermark | OPEN | PHASE-BLOCKER | Phase 9 | High |
-| PH-007 | Weekly DLX settlement engine invariants | OPEN | PHASE-BLOCKER | Phase 9 | High |
+| PH-005 | Authoritative anti-Sybil / qualified-player eligibility | VERIFYING | PHASE-BLOCKER | Final PR #13 hosted CI required | High |
+| PH-006 | Weekly epoch attribution + source-event watermark | VERIFYING | PHASE-BLOCKER | Final PR #13 hosted CI required | High |
+| PH-007 | Weekly DLX settlement engine invariants | VERIFYING | PHASE-BLOCKER | Final PR #13 hosted CI required | High |
 | PH-008 | Season-close drain/finalization of valid pending work | OPEN | PHASE-BLOCKER | Phase 11 | High |
 | PH-009 | Moderation evidence retention/access audit | OPEN | PHASE-BLOCKER | Phase 7/10 when moderation/admin flows are implemented | High |
 | PH-010 | Base Tap recovery throughput | WATCH | MEASURE-BEFORE-LAUNCH | Phase 11 load test; promote if backlog SLA fails | High at scale |
@@ -148,7 +150,7 @@ Until functional MVP is complete:
 | PH-039 | Dependency/container vulnerability review | OPEN | LAUNCH-BLOCKER | Phase 11 | Medium/High |
 | PH-040 | Season 2 REFERENCE/LIVE price source semantics | OPEN | PHASE-BLOCKER | Season 2 price integration, not S1 | High financial UI |
 | PH-041 | DLX native precision / off-chain → chain conversion | OPEN | PHASE-BLOCKER | Before any on-chain claim/transfer | Critical financial |
-| PH-042 | Fraud forfeiture/adjustment ledger + appeal/audit path | OPEN | PHASE-BLOCKER | Phase 9/10 before confirmed DLX becomes operational | High |
+| PH-042 | Fraud forfeiture/adjustment ledger + appeal/audit path | VERIFYING | PHASE-BLOCKER | Final PR #13 hosted CI required; no Phase-10 UI | High |
 | PH-043 | `read-season-brief` authoritative INTERNAL evidence | OPEN | LAUNCH-BLOCKER | Does not block Phase 6/7 MVP development; final S1 mission/launch gate | High functional |
 | PH-044 | Repeated same-key multi-season medal provenance | WATCH | SEASON-2-BLOCKER | Before Season 2 Profile/Collection integration | Medium product/API |
 
@@ -227,9 +229,9 @@ recomputing historical entries with a newer config.
 
 ## PH-001 — Durable Telegram inbound redrive after worker loss
 
-**Origin:** Phase 2 Telegram Identity & Ingestion  
+**Origin:** Phase 2 Telegram Identity & Ingestion
 **State:** `RESOLVED`
-**Gate:** `PHASE-BLOCKER` before Telegram becomes critical to Clan correctness; `LAUNCH-BLOCKER` regardless  
+**Gate:** `PHASE-BLOCKER` before Telegram becomes critical to Clan correctness; `LAUNCH-BLOCKER` regardless
 **Evidence on current main:**
 
 - `apps/telegram/api.py` durably persists an inbound update and then dispatches a Celery task before returning `200`.
@@ -266,9 +268,9 @@ recomputing historical entries with a newer config.
 
 ## PH-002 — GameConfig publication can bypass the publication service
 
-**Origin:** Phase 3 Config  
-**State:** `OPEN`  
-**Gate:** `LAUNCH-BLOCKER`  
+**Origin:** Phase 3 Config
+**State:** `OPEN`
+**Gate:** `LAUNCH-BLOCKER`
 **Evidence:** `apps/game_config/admin.py` makes published objects read-only, but a DRAFT object's `status` is still editable. `GameConfigVersion.save()` protects rows that were already published, but does not itself enforce that the DRAFT→PUBLISHED transition went through `publish_game_config`; queryset/update/maintenance paths can also bypass model save.
 
 **Risk:** malformed or unvalidated economy configuration can become effective without checksum/publication chronology/semantic validation.
@@ -286,9 +288,9 @@ recomputing historical entries with a newer config.
 
 ## PH-003 — RewardLedger is not protected as append-only at the durable boundary
 
-**Origin:** Phase 3 Rewards  
-**State:** `OPEN`  
-**Gate:** `PHASE-BLOCKER` before Phase 9  
+**Origin:** Phase 3 Rewards
+**State:** `RESOLVED`
+**Gate:** `PHASE-BLOCKER` before Phase 9
 **Evidence:** Django Admin is read-only, but `RewardLedger` remains a normal Django model; application/maintenance ORM update/delete can mutate accounting history. Rebuild logic derives projections from this ledger.
 
 **Risk:** silent mutation/deletion changes XP, rankings and later DLX allocation inputs while removing audit history.
@@ -302,13 +304,17 @@ recomputing historical entries with a newer config.
 
 **Target:** must be resolved before Phase 9 consumes RewardLedger history for confirmed DLX allocation.
 
+**Resolution evidence (Phase 9, reviewed base `bfe663b`):** PostgreSQL trigger migration
+`rewards.0005` rejects every row-level UPDATE/DELETE, including direct SQL. Phase-9 PostgreSQL
+tests prove inserts remain valid and both mutation forms fail; projection rebuild remains read-only.
+
 ---
 
 ## PH-004 — MissionDefinition can diverge from configured verification policy
 
-**Origin:** Phase 4 Missions  
-**State:** `OPEN`  
-**Gate:** `LAUNCH-BLOCKER`  
+**Origin:** Phase 4 Missions
+**State:** `OPEN`
+**Gate:** `LAUNCH-BLOCKER`
 **Evidence:** `apps/missions/services.py` checks that a mission key exists in the effective config, but execution branches on the DB row's `verification_family` / `repeat_policy`. There is no canonical equality/compatibility check between the DB definition and the configured `MissionRule` before execution.
 
 **Risk:** an operator could accidentally make a Telegram-membership mission behave like a timed external mission, changing eligibility/reward behavior without an approved economy config change.
@@ -325,9 +331,9 @@ recomputing historical entries with a newer config.
 
 ## PH-005 — Anti-Sybil / qualified-player decision is not yet an authoritative subsystem
 
-**Origin:** Phase 5 Referral + new DLX growth contract  
-**State:** `OPEN`  
-**Gate:** `PHASE-BLOCKER` before Phase 9  
+**Origin:** Phase 5 Referral + new DLX growth contract
+**State:** `VERIFYING` — final corrected hosted CI required
+**Gate:** `PHASE-BLOCKER` before Phase 9
 **Evidence:** the canonical contract says anti-fraud is a real S1 subsystem and referral/growth eligibility must not be raw account creation. `ReferralConfig` still exposes `anti_sybil_pass_required`, but current `referral_activation_is_safe()` evaluates progression, account age and moderation; it does not consume a durable anti-Sybil decision. The growth-unlock config has a `qualified_player_predicate`, but no final evaluator/snapshot engine exists yet.
 
 **Risk:** referral and especially confirmed DLX/growth-unlock economics can be farmed by structurally valid but coordinated fake accounts if "qualified" remains only a loose proxy.
@@ -342,13 +348,22 @@ recomputing historical entries with a newer config.
 
 **Target:** Phase 9 blocker. Phase 7 moderation can provide primitives used here.
 
+**Resolution evidence (Phase 9, reviewed base `bfe663b`):** `QualificationDecision` is an
+append-only, policy-versioned decision history with deterministic current lookup and unique source
+identity. Referral activation and growth counting use this authority and fail closed; tests cover
+missing/versioned decisions, moderation exclusion and duplicate source identity.
+
+**Correction evidence (hosted PR #13 HEAD `9e025b9`):** effective latest-decision queries now exclude a later
+DISQUALIFIED/PENDING decision, use audited source-time moderation state, freeze the exact decision
+row into immutable epoch snapshots, and reject qualification history UPDATE/DELETE in PostgreSQL.
+
 ---
 
 ## PH-006 — Weekly epoch attribution and queue watermark
 
-**Origin:** Economy Sync + Base Tap, cross-phase  
-**State:** `OPEN`  
-**Gate:** `PHASE-BLOCKER` in Phase 9  
+**Origin:** Economy Sync + Base Tap, cross-phase
+**State:** `VERIFYING` — final corrected hosted CI required
+**Gate:** `PHASE-BLOCKER` in Phase 9
 
 **Why this matters:** weekly DLX distribution is based on the user's performance **inside each specific epoch**. A settlement must not accidentally classify work by processing time.
 
@@ -364,12 +379,27 @@ recomputing historical entries with a newer config.
 - Add an ingestion/reward **watermark/drain gate** before epoch freeze: all accepted source work with source time `< epoch_end` is processed or explicitly accounted as pending before the epoch becomes immutable.
 - Test events received/processed late around both sides of an epoch boundary.
 
+**Resolution evidence (Phase 9, reviewed base `bfe663b`):** six durable source-time epochs and an
+explicit PostgreSQL drain provider registry cover Telegram ingress, Network/Clan activity and
+windows, reward/referral outbox, Base Tap accumulators, and Typing wallets. Freeze holds a locked
+epoch row, persists provider watermark evidence, and cannot proceed while pre-cutoff work remains.
+
+**Correction evidence (hosted PR #13 HEAD `9e025b9`):** providers are Season/window scoped, user-held Typing balance
+no longer blocks, unfinished Typing attempts do block, DRAINING evidence commits independently,
+and permanent source-time Base Tap facts survive receipt expiry and feed frozen raw snapshots.
+The final correction also records completed Typing CREDIT performance as an append-only fact at the
+attempt completion source time, independently of a later voluntary claim.
+Typing-derived passive Referral performance is captured at the same boundary in a distinct
+VERIFIED_REFERRAL fact with immutable relation, tier, config and source-time provenance. A later
+Typing claim and Referral RewardLedger settlement are excluded from weekly aggregation for that
+same source, so neither batching nor post-freeze processing can reinterpret or double-count it.
+
 ---
 
 ## PH-007 — Weekly DLX settlement engine invariants
 
-**Origin:** Economy Sync; implementation intentionally assigned to Phase 9 after Clan inputs exist  
-**State:** `OPEN`  
+**Origin:** Economy Sync; implementation intentionally assigned to Phase 9 after Clan inputs exist
+**State:** `VERIFYING` — final corrected hosted CI required
 **Gate:** `PHASE-BLOCKER` in Phase 9
 
 **Required architecture/acceptance:**
@@ -391,12 +421,22 @@ recomputing historical entries with a newer config.
 
 **Do not invent** scoring formulas or milestone thresholds that the owner has not approved.
 
+**Resolution evidence (Phase 9, reviewed base `bfe663b`):** durable epoch, frozen snapshot,
+category budget, batch and allocation models enforce chronological atomic settlement and exact
+`effective = allocations + carry-out + residual` reconciliation. Production scoring and growth
+distribution deliberately return typed fail-closed results because canonical formulas are absent.
+
+**Correction evidence (hosted PR #13 HEAD `9e025b9`):** freeze creates the five-category raw snapshot population,
+PostgreSQL protects frozen/settled inputs, carry materializes only after the preceding epoch settles,
+Season locking serializes the operational control, and reconciliation aggregates actual allocation
+ledger rows. Delayed carry, drift, immutable-history and PostgreSQL contention tests are green.
+
 ---
 
 ## PH-008 — Season-close drain and finalization barrier
 
-**Origin:** Phase 4/5 + Economy Sync  
-**State:** `OPEN`  
+**Origin:** Phase 4/5 + Economy Sync
+**State:** `OPEN`
 **Gate:** `PHASE-BLOCKER` in Phase 11
 
 Current central reward guard correctly prevents new S1 economic events during days 43–45, but valid work from before the Day-42 cutoff can still be pending asynchronously.
@@ -893,6 +933,9 @@ The S1 backend correctly uses an off-chain DLX allocation amount and intentional
 
 ## PH-042 — Fraud adjustment / forfeiture ledger
 
+**State:** `VERIFYING` — final corrected hosted CI required
+**Gate:** `PHASE-BLOCKER` in Phase 9
+
 Confirmed settlement history should not be edited in place when later fraud is proven.
 
 **Acceptance:**
@@ -904,6 +947,15 @@ Confirmed settlement history should not be edited in place when later fraud is p
 - Appeal/reversal uses a new audited adjustment, not mutation of history.
 
 **Target:** Phase 9 allocation primitives + Phase 10 moderation/admin + Phase 11 reconciliation.
+
+**Resolution evidence (Phase 9, reviewed base `bfe663b`):** immutable confirmed allocations plus
+append-only HOLD/RELEASE_HOLD/FORFEIT/REVERSAL records carry reason, evidence, actor, config and
+idempotency provenance. Locked balance checks reject over-adjustment and deterministic read models
+keep Season-1 claimable at zero.
+
+**Correction evidence (hosted PR #13 HEAD `9e025b9`):** PostgreSQL rejects allocation/adjustment UPDATE and DELETE;
+strict request identity compares actor/evidence/metadata; advisory-key plus allocation-row locking
+makes duplicate FORFEIT and HOLD/FORFEIT contention converge; release and reversal append new rows.
 
 ---
 
@@ -1049,9 +1101,9 @@ Future agents should add items using this template:
 ```markdown
 ## PH-XXX — Short title
 
-**Origin:** Phase N / component  
-**State:** `OPEN | WATCH | RESOLVED | SUPERSEDED`  
-**Gate:** `PHASE-BLOCKER | LAUNCH-BLOCKER | MEASURE-BEFORE-LAUNCH | POLISH`  
+**Origin:** Phase N / component
+**State:** `OPEN | WATCH | RESOLVED | SUPERSEDED`
+**Gate:** `PHASE-BLOCKER | LAUNCH-BLOCKER | MEASURE-BEFORE-LAUNCH | POLISH`
 **Target / Promotion Trigger:** ...
 
 **Evidence:**
@@ -1088,6 +1140,11 @@ Append immutable resolution records here when open items are closed.
 |---|---|---|---|---|
 | 2026-09-10 | Initial backlog created | main `85226d4c...` | Review of Phases 0–5, PR reviews, current main source and PR #7 sync/Base Tap | Open items above are intentionally carried forward. |
 | 2026-09-10 | PH-001 | Phase 7A | PostgreSQL lease/redrive/dead-letter implementation and processing regressions | Worker-loss blocker resolved before Clan event dependency. |
+| 2026-09-12 | PH-003, PH-005, PH-006, PH-007, PH-042 | Phase 9 (base `bfe663b`) | PostgreSQL append-only triggers; qualification authority; source-time drain/freeze; atomic DLX ledgers/reconciliation tests | Scoring and growth distribution remain intentionally fail-closed pending approved policy. |
+| 2026-09-12 | PH-005, PH-006, PH-007, PH-042 reopened | PR #13 review at `5233ed3` | Independent review found incomplete source-time, rebuild, freeze, carry, reconciliation and concurrency evidence | PH-003 remains accepted; reopened blockers require correction plus hosted green evidence. |
+| 2026-09-12 | PH-005, PH-006, PH-007, PH-042 re-resolved | PR #13 hosted correction `9e025b9` | 480-test hosted PostgreSQL/Redis suite; immutable-history migrations; source-time qualification/drain; generation-safe rebuild; delayed carry; actual-ledger reconciliation; adjustment contention | Hosted CI was green. |
+| 2026-09-13 | PH-005, PH-006, PH-007, PH-042 final verification | PR #13 follow-up to hosted `9e025b9` | 485-test local suite; Typing CREDIT source-time facts; claim-independent frozen inputs; score-producing-only Clan tie backfill | Marked VERIFYING until final hosted CI confirms the complete corrected HEAD. |
+| 2026-09-13 | PH-006 Typing-referral attribution | PR #13 follow-up to hosted `485df50` | 489-test local suite; immutable Typing-referral source facts; source-time relation/tier provenance; later Referral ledger de-duplication | Final hosted CI is required before Phase-9 blockers return to RESOLVED. |
 
 ---
 
@@ -1097,8 +1154,8 @@ Append immutable resolution records here when open items are closed.
 
 A future agent must therefore ask two questions for every discovered problem:
 
-1. Can this cause wrong money/XP/DLX, duplicated or lost events, authorization bypass, corrupted state, unsafe migration, or unrecoverable operation under realistic current use?  
+1. Can this cause wrong money/XP/DLX, duplicated or lost events, authorization bypass, corrupted state, unsafe migration, or unrecoverable operation under realistic current use?
    → Fix in the current phase as P0/P1.
 
-2. Is the current design correct but capacity/latency/operations are uncertain until realistic scale exists?  
+2. Is the current design correct but capacity/latency/operations are uncertain until realistic scale exists?
    → Record/measure here and promote at its trigger.

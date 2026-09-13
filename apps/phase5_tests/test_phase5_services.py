@@ -8,6 +8,8 @@ import pytest
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
+from apps.arena.models import QualificationDecision
+from apps.arena.qualification import record_qualification_decision
 from apps.game_config.models import GameConfigVersion
 from apps.game_config.services import parse_phase5, publish_game_config, resolve_game_config_version
 from apps.network.models import (
@@ -64,12 +66,23 @@ def world(db, monkeypatch):  # type: ignore[no-untyped-def]
     )
 
     def player(telegram_id: int, *, age_days: int = 3) -> Player:
-        return Player.objects.create(
+        value = Player.objects.create(
             telegram_user_id=telegram_id,
             first_seen_at=AT - timedelta(days=age_days),
             last_seen_at=AT,
             first_seen_source=Player.FirstSeenSource.GROUP_ACTIVITY,
         )
+        record_qualification_decision(
+            player=value,
+            policy_key="QUALIFIED_PLAYER",
+            policy_version=1,
+            decision=QualificationDecision.Decision.QUALIFIED,
+            effective_at=AT - timedelta(days=1),
+            reason_code="TEST_AUTHORITY",
+            source="TEST_WORLD",
+            source_id=str(telegram_id),
+        )
+        return value
 
     return config, season, player
 
@@ -270,6 +283,16 @@ def test_activation_is_two_sided_atomic_and_moderation_gated(world) -> None:  # 
     assert RewardLedger.objects.count() == 0
     invitee.moderation_state = Player.ModerationState.ACTIVE
     invitee.save(update_fields=("moderation_state",))
+    record_qualification_decision(
+        player=invitee,
+        policy_key="QUALIFIED_PLAYER",
+        policy_version=1,
+        decision=QualificationDecision.Decision.QUALIFIED,
+        effective_at=AT,
+        reason_code="TEST_AUTHORITY",
+        source="TEST",
+        source_id="activation-702",
+    )
     assert activate_relation(relation.pk, at=AT + timedelta(hours=2)) is True
     assert sorted(RewardLedger.objects.values_list("player_amount", flat=True)) == [50, 100]
 

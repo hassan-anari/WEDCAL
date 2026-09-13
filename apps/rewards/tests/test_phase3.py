@@ -561,7 +561,6 @@ def test_bootstrap_and_history_are_authenticated_and_private(
         metadata={"private": True},
     )
     other = player(99)
-    RewardLedger.objects.filter(player=person).update(metadata={"private": True})
     history = client.get("/api/v1/rewards/history?limit=1", headers=auth)
     assert history.status_code == 200
     body = history.json()

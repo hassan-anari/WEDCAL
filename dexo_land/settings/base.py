@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     "apps.profile_collection",
     "apps.clans",
     "apps.moderation",
+    "apps.arena",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -149,6 +150,10 @@ REWARD_OUTBOX_LEASE_SECONDS = int(os.getenv("REWARD_OUTBOX_LEASE_SECONDS", "300"
 REWARD_OUTBOX_RETRY_SECONDS = int(os.getenv("REWARD_OUTBOX_RETRY_SECONDS", "60"))
 BASE_TAP_SETTLEMENT_LEASE_SECONDS = int(os.getenv("BASE_TAP_SETTLEMENT_LEASE_SECONDS", "300"))
 BASE_TAP_SETTLEMENT_RETRY_SECONDS = int(os.getenv("BASE_TAP_SETTLEMENT_RETRY_SECONDS", "60"))
+ARENA_REBUILD_LOCK_SECONDS = int(os.getenv("ARENA_REBUILD_LOCK_SECONDS", "300"))
+ARENA_RECONCILIATION_INTERVAL_SECONDS = int(
+    os.getenv("ARENA_RECONCILIATION_INTERVAL_SECONDS", "900")
+)
 
 CELERY_BEAT_SCHEDULE.update(
     {
@@ -202,6 +207,26 @@ CELERY_BEAT_SCHEDULE.update(
         },
         "recover-clan-invite-creation": {
             "task": "apps.clans.tasks.recover_invite_creation",
+            "schedule": 60,
+        },
+        "consume-ranking-projections": {
+            "task": "apps.arena.tasks.consume_ranking_projections",
+            "schedule": 15,
+        },
+        "reconcile-arena-rankings": {
+            "task": "apps.arena.tasks.reconcile_rankings",
+            "schedule": ARENA_RECONCILIATION_INTERVAL_SECONDS,
+        },
+        "drain-freeze-dlx-epochs": {
+            "task": "apps.arena.tasks.drain_and_freeze_epochs",
+            "schedule": 60,
+        },
+        "evaluate-dlx-growth": {
+            "task": "apps.arena.tasks.evaluate_growth_unlocks",
+            "schedule": 300,
+        },
+        "settle-dlx-epochs": {
+            "task": "apps.arena.tasks.settle_epochs",
             "schedule": 60,
         },
     }
