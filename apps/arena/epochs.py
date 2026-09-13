@@ -243,23 +243,40 @@ def _build_performance_snapshots(epoch: EconomicEpoch, policy: DlxDistributionCo
             occurred_at__gte=epoch.starts_at,
             occurred_at__lt=epoch.ends_at,
         )
+        # Typing performance is represented once by its immutable source-time CREDIT fact.
+        # A later wallet claim is XP settlement, not a second weekly performance event.
+        .exclude(source_type="TYPING_CLAIM")
         .values("player_id", "source_type")
         .annotate(
             amount=Sum("player_amount"), events=Count("id"), latest_source_at=Max("occurred_at")
         )
     }
-    durable_core = {
-        row["player_id"]: row
-        for row in PerformanceSourceFact.objects.filter(
+    durable_core_rows = list(
+        PerformanceSourceFact.objects.filter(
             season=epoch.season,
             player_id__in=qualified_ids,
             source_time__gte=epoch.starts_at,
             source_time__lt=epoch.ends_at,
             category="CORE_GAMEPLAY",
         )
-        .values("player_id")
+        .values("player_id", "source_type")
         .annotate(amount=Sum("amount"), events=Count("id"), latest_source_at=Max("source_time"))
-    }
+    )
+    durable_core: dict[int, dict[str, object]] = {}
+    for source in durable_core_rows:
+        player_id = int(source["player_id"])
+        aggregate = durable_core.setdefault(
+            player_id, {"amount": 0, "events": 0, "by_source_type": {}}
+        )
+        amount = cast(int, source["amount"])
+        events = cast(int, source["events"])
+        aggregate["amount"] = cast(int, aggregate["amount"]) + amount
+        aggregate["events"] = cast(int, aggregate["events"]) + events
+        by_source_type = cast(dict[str, dict[str, int]], aggregate["by_source_type"])
+        by_source_type[str(source["source_type"])] = {
+            "amount": amount,
+            "events": events,
+        }
     clan_rows = {
         row["membership__player_id"]: row
         for row in ClanEconomicSettlement.objects.filter(
@@ -286,6 +303,7 @@ def _build_performance_snapshots(epoch: EconomicEpoch, policy: DlxDistributionCo
                 **_combine_reward_rows(all_rewards),
                 "durable_source_amount": (durable_core.get(player_id) or {}).get("amount", 0),
                 "durable_source_events": (durable_core.get(player_id) or {}).get("events", 0),
+                "durable_sources": (durable_core.get(player_id) or {}).get("by_source_type", {}),
             },
             "CREATOR_COMMUNITY_GROWTH": reward_rows.get((player_id, "CREATOR"), {}),
             "VERIFIED_REFERRAL": reward_rows.get((player_id, "REFERRAL"), {}),

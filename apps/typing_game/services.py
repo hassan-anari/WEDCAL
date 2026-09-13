@@ -160,10 +160,12 @@ def submit_attempt(
             ]
         )
         if reward:
+            from apps.arena.models import PerformanceSourceFact
+
             wallet, _ = TypingWallet.objects.select_for_update().get_or_create(
                 player=player, season=attempt.season
             )
-            TypingWalletTransaction.objects.create(
+            credit = TypingWalletTransaction.objects.create(
                 wallet=wallet,
                 kind=TypingWalletTransaction.Kind.CREDIT,
                 amount=reward,
@@ -171,6 +173,19 @@ def submit_attempt(
                 season=attempt.season,
                 config_version=attempt.config_version,
                 idempotency_key=f"typing-credit:{attempt.public_id}",
+            )
+            # Weekly performance follows completion source time, never voluntary claim time.
+            # The attempt one-to-one credit and fact source identity make retries idempotent.
+            PerformanceSourceFact.objects.create(
+                season=attempt.season,
+                player=player,
+                category="CORE_GAMEPLAY",
+                source_type="TYPING_CREDIT",
+                source_id=str(attempt.public_id),
+                source_time=at,
+                amount=reward,
+                config_version=attempt.config_version,
+                metadata={"attempt_id": attempt.pk, "credit_transaction_id": credit.pk},
             )
             wallet.claimable_balance += reward
             wallet.save(update_fields=["claimable_balance", "updated_at"])

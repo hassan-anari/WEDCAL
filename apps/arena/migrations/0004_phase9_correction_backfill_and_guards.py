@@ -17,8 +17,10 @@ def backfill_tie_provenance(apps: Any, schema_editor: Any) -> None:
         PlayerSeason.objects.filter(
             player_id=row["player_id"], season_id=row["season_id"], season_points__gt=0
         ).update(score_reached_at=row["reached"], ranking_generation=row["generation"])
-    for row in ClanEconomicSettlement.objects.values("clan_season_id").annotate(
-        reached=Max("occurred_at"), generation=Count("id")
+    for row in (
+        ClanEconomicSettlement.objects.filter(clan_score_amount__gt=0)
+        .values("clan_season_id")
+        .annotate(reached=Max("occurred_at"), generation=Count("id"))
     ):
         ClanSeason.objects.filter(pk=row["clan_season_id"], competitive_score__gt=0).update(
             score_reached_at=row["reached"], ranking_generation=row["generation"]
