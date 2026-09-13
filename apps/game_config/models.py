@@ -40,3 +40,6 @@ class GameConfigVersion(models.Model):
 
     def __str__(self) -> str:
         return self.version
+
+    class Meta:
+        permissions = [("publish_game_config", "Can publish game configuration")]

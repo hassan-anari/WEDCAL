@@ -1,0 +1,5 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<p>Invite {{ invite.pk }} is reserved while credential risk remains unresolved.</p>
+<form method="post">{% csrf_token %}{{ form.as_p }}<input type="submit" value="Record resolution"></form>
+{% endblock %}

@@ -7,9 +7,10 @@
 **Phase 7A review base:** `132bcc187512bf38cf34e0e123f79c3b01493e6e`
 **Phase 8 review base:** PR #12 final correctness pass (2026-09-12)
 **Phase 9 correction review base:** PR #13 `5233ed302f8ae515a91a2c9aa9682ebbec9ffb6f`
-**Phase 9 correction reviewed hosted HEAD:** `485df50de3925e82631325450f165c2067f01962`
+**Phase 9 merged baseline:** `4ca42b1c2be8bc815648f031a7bd7a8b1c226a36`
+**Phase 10 reviewed hosted HEAD:** `d049af43a3c9d18d4221e883413834d82125ae78`
 **Initial review date:** 2026-09-10
-**Last reviewed:** 2026-09-13 (Phase 9 PR #13 Typing-referral correction; 489 tests green locally)
+**Last reviewed:** 2026-09-13 (Phase 10 PR #14 final correction; hosted baseline 503/505 tests)
 **Owner:** repository/product owner
 
 ---
@@ -107,14 +108,14 @@ Until functional MVP is complete:
 | ID | Area | State | Gate | Target / Promotion Trigger | Impact |
 |---|---|---|---|---|---|
 | PH-001 | Telegram inbound worker-loss redrive | RESOLVED | PHASE-BLOCKER | Resolved in Phase 7A before Clan membership consumes Telegram events | High |
-| PH-002 | GameConfig publication bypass | OPEN | LAUNCH-BLOCKER | Before operators publish real economy configs | High |
+| PH-002 | GameConfig publication bypass | VERIFYING | LAUNCH-BLOCKER | Before operators publish real economy configs | High |
 | PH-003 | RewardLedger append-only enforcement | RESOLVED | PHASE-BLOCKER | PostgreSQL evidence accepted in Phase 9 | High |
-| PH-004 | Mission DB definition ↔ config rule binding | OPEN | LAUNCH-BLOCKER | Before real production missions can be authored/enabled | High |
-| PH-005 | Authoritative anti-Sybil / qualified-player eligibility | VERIFYING | PHASE-BLOCKER | Final PR #13 hosted CI required | High |
-| PH-006 | Weekly epoch attribution + source-event watermark | VERIFYING | PHASE-BLOCKER | Final PR #13 hosted CI required | High |
-| PH-007 | Weekly DLX settlement engine invariants | VERIFYING | PHASE-BLOCKER | Final PR #13 hosted CI required | High |
+| PH-004 | Mission DB definition ↔ config rule binding | VERIFYING | LAUNCH-BLOCKER | Before real production missions can be authored/enabled | High |
+| PH-005 | Authoritative anti-Sybil / qualified-player eligibility | RESOLVED | PHASE-BLOCKER | Accepted in merged Phase 9 | High |
+| PH-006 | Weekly epoch attribution + source-event watermark | RESOLVED | PHASE-BLOCKER | Accepted in merged Phase 9 | High |
+| PH-007 | Weekly DLX settlement engine invariants | RESOLVED | PHASE-BLOCKER | Accepted in merged Phase 9 | High |
 | PH-008 | Season-close drain/finalization of valid pending work | OPEN | PHASE-BLOCKER | Phase 11 | High |
-| PH-009 | Moderation evidence retention/access audit | OPEN | PHASE-BLOCKER | Phase 7/10 when moderation/admin flows are implemented | High |
+| PH-009 | Moderation evidence retention/access audit | VERIFYING | PHASE-BLOCKER | Phase 7/10 when moderation/admin flows are implemented | High |
 | PH-010 | Base Tap recovery throughput | WATCH | MEASURE-BEFORE-LAUNCH | Phase 11 load test; promote if backlog SLA fails | High at scale |
 | PH-011 | Base Tap receipt cleanup/table growth | WATCH | MEASURE-BEFORE-LAUNCH | Phase 11 load test; promote if creation > cleanup sustainably | High at scale |
 | PH-012 | Base Tap / Mini App ingress abuse throttling | OPEN | LAUNCH-BLOCKER | Before public traffic | High |
@@ -131,9 +132,9 @@ Until functional MVP is complete:
 | PH-023 | Typing mission reset-period coupling | OPEN | LAUNCH-BLOCKER | Before Daily and Typing reset timezones may diverge | Medium |
 | PH-024 | Typing expected failures → deterministic 4xx | OPEN | POLISH | Before frontend production integration is frozen | Medium |
 | PH-025 | Daily streak display after a missed period | OPEN | POLISH | Phase 6/10 frontend/API polish | Low/Medium |
-| PH-026 | Economy config cutover at unsafe mid-period boundaries | OPEN | LAUNCH-BLOCKER | Before live config operations | High operational |
-| PH-027 | Settlement-control audit actor/reason | OPEN | LAUNCH-BLOCKER | Phase 10 admin operations | Medium/High |
-| PH-028 | Django Admin static assets in deployed Uvicorn topology | OPEN | LAUNCH-BLOCKER | Before production Admin is relied upon | Medium |
+| PH-026 | Economy config cutover at unsafe mid-period boundaries | VERIFYING | LAUNCH-BLOCKER | Before live config operations | High operational |
+| PH-027 | Settlement-control audit actor/reason | VERIFYING | LAUNCH-BLOCKER | Phase 10 admin operations | Medium/High |
+| PH-028 | Django Admin static assets in deployed Uvicorn topology | VERIFYING | LAUNCH-BLOCKER | Before production Admin is relied upon | Medium |
 | PH-029 | Production web/admin security hardening | OPEN | LAUNCH-BLOCKER | Phase 11 / production deployment | High |
 | PH-030 | Secret/token rotation and log-redaction runbook | OPEN | LAUNCH-BLOCKER | Phase 11 | High |
 | PH-031 | PostgreSQL backup + restore drill | OPEN | LAUNCH-BLOCKER | Phase 11 | Critical operational |
@@ -150,7 +151,7 @@ Until functional MVP is complete:
 | PH-039 | Dependency/container vulnerability review | OPEN | LAUNCH-BLOCKER | Phase 11 | Medium/High |
 | PH-040 | Season 2 REFERENCE/LIVE price source semantics | OPEN | PHASE-BLOCKER | Season 2 price integration, not S1 | High financial UI |
 | PH-041 | DLX native precision / off-chain → chain conversion | OPEN | PHASE-BLOCKER | Before any on-chain claim/transfer | Critical financial |
-| PH-042 | Fraud forfeiture/adjustment ledger + appeal/audit path | VERIFYING | PHASE-BLOCKER | Final PR #13 hosted CI required; no Phase-10 UI | High |
+| PH-042 | Fraud forfeiture/adjustment ledger + appeal/audit path | RESOLVED | PHASE-BLOCKER | Accepted in merged Phase 9; Phase-10 operations retained | High |
 | PH-043 | `read-season-brief` authoritative INTERNAL evidence | OPEN | LAUNCH-BLOCKER | Does not block Phase 6/7 MVP development; final S1 mission/launch gate | High functional |
 | PH-044 | Repeated same-key multi-season medal provenance | WATCH | SEASON-2-BLOCKER | Before Season 2 Profile/Collection integration | Medium product/API |
 
@@ -269,7 +270,7 @@ recomputing historical entries with a newer config.
 ## PH-002 — GameConfig publication can bypass the publication service
 
 **Origin:** Phase 3 Config
-**State:** `OPEN`
+**State:** `VERIFYING` — Phase-10 PR #14 correction requires final hosted green evidence
 **Gate:** `LAUNCH-BLOCKER`
 **Evidence:** `apps/game_config/admin.py` makes published objects read-only, but a DRAFT object's `status` is still editable. `GameConfigVersion.save()` protects rows that were already published, but does not itself enforce that the DRAFT→PUBLISHED transition went through `publish_game_config`; queryset/update/maintenance paths can also bypass model save.
 
@@ -313,7 +314,7 @@ tests prove inserts remain valid and both mutation forms fail; projection rebuil
 ## PH-004 — MissionDefinition can diverge from configured verification policy
 
 **Origin:** Phase 4 Missions
-**State:** `OPEN`
+**State:** `VERIFYING` — Phase-10 PR #14 correction requires final hosted green evidence
 **Gate:** `LAUNCH-BLOCKER`
 **Evidence:** `apps/missions/services.py` checks that a mission key exists in the effective config, but execution branches on the DB row's `verification_family` / `repeat_policy`. There is no canonical equality/compatibility check between the DB definition and the configured `MissionRule` before execution.
 
@@ -332,7 +333,7 @@ tests prove inserts remain valid and both mutation forms fail; projection rebuil
 ## PH-005 — Anti-Sybil / qualified-player decision is not yet an authoritative subsystem
 
 **Origin:** Phase 5 Referral + new DLX growth contract
-**State:** `VERIFYING` — final corrected hosted CI required
+**State:** `RESOLVED` — accepted Phase-9 hosted CI on merged HEAD
 **Gate:** `PHASE-BLOCKER` before Phase 9
 **Evidence:** the canonical contract says anti-fraud is a real S1 subsystem and referral/growth eligibility must not be raw account creation. `ReferralConfig` still exposes `anti_sybil_pass_required`, but current `referral_activation_is_safe()` evaluates progression, account age and moderation; it does not consume a durable anti-Sybil decision. The growth-unlock config has a `qualified_player_predicate`, but no final evaluator/snapshot engine exists yet.
 
@@ -362,7 +363,7 @@ row into immutable epoch snapshots, and reject qualification history UPDATE/DELE
 ## PH-006 — Weekly epoch attribution and queue watermark
 
 **Origin:** Economy Sync + Base Tap, cross-phase
-**State:** `VERIFYING` — final corrected hosted CI required
+**State:** `RESOLVED` — accepted Phase-9 hosted CI on merged HEAD
 **Gate:** `PHASE-BLOCKER` in Phase 9
 
 **Why this matters:** weekly DLX distribution is based on the user's performance **inside each specific epoch**. A settlement must not accidentally classify work by processing time.
@@ -399,7 +400,7 @@ same source, so neither batching nor post-freeze processing can reinterpret or d
 ## PH-007 — Weekly DLX settlement engine invariants
 
 **Origin:** Economy Sync; implementation intentionally assigned to Phase 9 after Clan inputs exist
-**State:** `VERIFYING` — final corrected hosted CI required
+**State:** `RESOLVED` — accepted Phase-9 hosted CI on merged HEAD
 **Gate:** `PHASE-BLOCKER` in Phase 9
 
 **Required architecture/acceptance:**
@@ -467,7 +468,7 @@ Examples requiring explicit close handling:
 ## PH-009 — Moderation evidence access and retention audit
 
 **Origin:** Phase 5 evidence primitives; Phase 7B retention holds; staff tooling continues in Phase 10
-**State:** `PARTIALLY RESOLVED`
+**State:** `VERIFYING` — audited Admin viewer implemented; final hosted green evidence required
 **Gate:** `PHASE-10-BLOCKER` before staff evidence access is exposed
 
 Phase 7B adds bounded evidence references/holds: active cases protect referenced NetworkActivity
@@ -723,6 +724,8 @@ Typing attempts use `typing.reset_timezone`; mission eligibility currently deriv
 
 ## PH-026 — Economy config changes at unsafe time boundaries
 
+**State:** `VERIFYING` — domain-specific preview/rejection implemented; final hosted green evidence required
+
 Immutable/effective-dated config history is good, but a new config can become effective in the middle of a daily/Typing/Base Tap period or Creator window. Base Tap currently refuses further taps for the same UTC-day accumulator when its config version differs, which is safe but operationally surprising.
 
 **Acceptance:**
@@ -736,6 +739,8 @@ Immutable/effective-dated config history is good, but a new config can become ef
 
 ## PH-027 — Settlement control changes need actor/reason audit
 
+**State:** `VERIFYING` — controlled Admin operation and DB guard require final hosted race evidence
+
 `SeasonSettlementControlEvent` records previous/new epoch and timestamp, but not the operator identity or reason. Once this becomes a financially meaningful control, provenance matters.
 
 **Acceptance:** Phase 10 admin action/service records authenticated actor (or service actor), reason/ticket/reference and request correlation where applicable. No direct silent DB edit path.
@@ -745,6 +750,8 @@ Immutable/effective-dated config history is good, but a new config can become ef
 # 8. Infrastructure, security and operations
 
 ## PH-028 — Django Admin static assets
+
+**State:** `VERIFYING` — production Docker Admin login/static smoke added; hosted result required
 
 Historical Phase 1 review identified that the Uvicorn image has no explicit `collectstatic`/WhiteNoise/reverse-proxy static path. Current Dockerfile still contains no static collection/serving step and settings expose only `STATIC_URL`.
 
@@ -933,7 +940,7 @@ The S1 backend correctly uses an off-chain DLX allocation amount and intentional
 
 ## PH-042 — Fraud adjustment / forfeiture ledger
 
-**State:** `VERIFYING` — final corrected hosted CI required
+**State:** `RESOLVED` — accepted Phase-9 hosted CI on merged HEAD
 **Gate:** `PHASE-BLOCKER` in Phase 9
 
 Confirmed settlement history should not be edited in place when later fraud is proven.
@@ -1159,3 +1166,39 @@ A future agent must therefore ask two questions for every discovered problem:
 
 2. Is the current design correct but capacity/latency/operations are uncertain until realistic scale exists?
    → Record/measure here and promote at its trigger.
+
+
+# Phase 10 Hardening Backlog Delta (implementation review)
+
+**Canonical reviewed baseline:** Phase-9 merge `4ca42b1c2be8bc815648f031a7bd7a8b1c226a36` (PR #13: 489/489 hosted tests, Phase 0, Foundation, PostgreSQL/Redis/RabbitMQ, migration drift, and Docker runtime green). The stale Phase-9 PH-005/006/007/042 verification states above are accepted as resolved.
+
+**Phase-10 implementation evidence pending hosted PR gate:**
+
+- PH-002: PostgreSQL publication trigger plus transaction-local service authorization; direct ORM/queryset/SQL publication is fail-closed. Final state remains subject to hosted PostgreSQL tests.
+- PH-004: mission start/list/verify/claim now fail closed when DB verification/repeat policy diverges from the effective configured MissionRule; policy-bearing Admin fields are read-only after creation.
+- PH-009: typed evidence resolution, explicit permission, deterministic purged/expired results, and durable per-view access audit were added.
+- PH-026: publication chronology remains fail-closed. Domain-specific boundary preview enforcement needs final hosted evidence before this item can be marked resolved.
+- PH-027: settlement-control events now retain actor/service actor, reason, ticket, correlation identity and before/after epochs; a PostgreSQL guard rejects direct field mutation.
+- PH-028: WhiteNoise compressed manifest storage, STATIC_ROOT, image-build collectstatic, and DEBUG-independent production serving were added. Resolution requires hosted Docker/Admin asset smoke.
+- PH-034: durable notification and broadcast recipient states provide rebuildable pending/processing/sent/retry/failed/uncertain/skipped metrics. Full SLO/alert/runbook work remains Phase 11.
+- PH-045: an audited, locked manual-review operation supports confirmed revocation, still-unsafe retention, or safe known-credential revocation retry. Broader historical PH-045 questions remain open.
+
+No Phase-11 backup, scale, final SLO, worker-sizing, season-close, or launch-hardening work was started.
+
+
+## Phase 10 PR #14 correction delta
+
+**Reviewed hosted HEAD:** `d049af43a3c9d18d4221e883413834d82125ae78` (Quality and Docker/runtime green; PostgreSQL suite 503 passed / 2 failed before this narrow correction).
+
+The correction keeps the accepted PostgreSQL mutation guards and updates obsolete fixtures to use draft publication and settlement-control services. It adds notification channel convergence, deterministic broadcast completion, campaign-first cancellation/claim locking, expired cancelled-flight reconciliation, immutable active campaign definitions, service-backed moderation/config/settlement/invite Admin forms, mandatory suspension expiry including system actions, typed audited evidence viewing, manual notes, domain-specific safe-cutover validation, governance lifecycle notifications, and production Admin asset smoke.
+
+PH-002, PH-004, PH-009, PH-026, PH-027 and PH-028 remain `VERIFYING` until the final hosted correction HEAD is green. PH-034 remains broader Phase-11 work while its Phase-10 delivery-state metrics slice is implemented. PH-045 remains open overall; only its Phase-10 locked/audited manual-review operation is under final verification. No Phase-11 work was started.
+
+
+### PR #14 narrow final-correction backlog delta
+
+- PH-026 evidence now covers old-and-new Daily reset boundaries, an open Base Tap accumulator, Typing attempt/wallet config snapshots (`test_claim_groups_original_config_versions_without_repricing`), Mission started/reward-ready snapshots (`test_mission_claim_snapshot_idempotency_and_config_boundary`), an open Creator aggregation window split by durable activity config, and active-Season DLX epoch boundaries.
+- PH-009 test rendering uses non-manifest test storage only; production retains WhiteNoise manifest storage and its Docker Admin asset smoke.
+- Broadcast Admin authorization now treats `notifications.manage_broadcasts` as authoritative for direct view/add/change URLs and keeps deletion disabled.
+- New PostgreSQL threaded evidence covers Broadcast claim/cancel/lease/finalization races, suspension expiry vs BAN, and invite-risk resolution vs operators/revocation lifecycle.
+- PH-002, PH-004, PH-009, PH-026, PH-027, and PH-028 remain VERIFYING until the final hosted correction HEAD is green. PH-034 remains OPEN overall; only its Phase-10 durable delivery metrics slice is implemented. PH-045 remains OPEN overall; its Phase-10 operational sub-requirement is under final hosted verification.

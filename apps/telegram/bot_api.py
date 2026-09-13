@@ -33,7 +33,9 @@ def request(method: str, parameters: dict[str, Any]) -> TelegramResult:
             payload = json.loads(response.read(65536))
     except TimeoutError:
         logger.warning("telegram_api_failure", method=method, category="timeout")
-        return TelegramResult(False, category="timeout", ambiguous=method == "createChatInviteLink")
+        return TelegramResult(
+            False, category="timeout", ambiguous=method in {"createChatInviteLink", "sendMessage"}
+        )
     except urllib.error.HTTPError as exc:
         retry_after = None
         try:
@@ -54,15 +56,19 @@ def request(method: str, parameters: dict[str, Any]) -> TelegramResult:
             False,
             category=category,
             retry_after=retry_after,
-            ambiguous=method == "createChatInviteLink" and exc.code >= 500,
+            ambiguous=method in {"createChatInviteLink", "sendMessage"} and exc.code >= 500,
         )
     except json.JSONDecodeError:
         return TelegramResult(
-            False, category="non_json_response", ambiguous=method == "createChatInviteLink"
+            False,
+            category="non_json_response",
+            ambiguous=method in {"createChatInviteLink", "sendMessage"},
         )
     except (urllib.error.URLError, OSError):
         return TelegramResult(
-            False, category="connection_error", ambiguous=method == "createChatInviteLink"
+            False,
+            category="connection_error",
+            ambiguous=method in {"createChatInviteLink", "sendMessage"},
         )
     if not isinstance(payload, dict) or payload.get("ok") is not True:
         retry = (

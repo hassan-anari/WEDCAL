@@ -106,3 +106,7 @@ jobs:
           docker compose exec -T beat test -w /app/run
           curl --fail --silent --show-error http://localhost:8000/health/live
           curl --fail --silent --show-error http://localhost:8000/health/ready
+          curl --fail --silent --show-error http://localhost:8000/admin/login/ > /tmp/admin-login.html
+          admin_asset="$(grep -oE '/static/admin/(css|js)/[^\" ]+' /tmp/admin-login.html | head -1)"
+          test -n "$admin_asset"
+          curl --fail --silent --show-error "http://localhost:8000${admin_asset}" > /dev/null

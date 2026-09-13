@@ -52,8 +52,7 @@ def qualify(player: Player, config_id: int, source_id: str = "qualified") -> Qua
 
 
 def settled_allocation(config, season, player) -> DlxAllocation:  # type: ignore[no-untyped-def]
-    season.settlement_start_epoch = 1
-    season.save(update_fields=("settlement_start_epoch",))
+    season = set_settlement_start_epoch(season, 1, service_actor="test", reason="test setup")
     epoch = EconomicEpoch.objects.create(
         season=season,
         epoch_number=1,
@@ -145,6 +144,7 @@ def test_source_time_moderation_does_not_reinterpret_cutoff(  # type: ignore[no-
         previous_state={"moderation_state": "ACTIVE"},
         resulting_state={"moderation_state": "SUSPENDED"},
         idempotency_key="suspend",
+        suspension_expires_at=AT + timedelta(days=30),
     )
     ModerationAction.objects.filter(pk=action.pk).update(
         created_at=AT + timedelta(hours=action_offset)
@@ -230,8 +230,7 @@ def test_delayed_same_category_carry_materializes_only_after_prior_settlement(  
     config = phase4_config_factory()
     season = season_factory(config)
     player = player_factory()
-    season.settlement_start_epoch = 3
-    season.save(update_fields=("settlement_start_epoch",))
+    season = set_settlement_start_epoch(season, 3, service_actor="test", reason="test setup")
     decision = qualify(player, config.pk, "carry-player")
     epochs = []
     for number in (1, 2, 3):
@@ -478,8 +477,7 @@ def test_first_settlement_and_control_change_have_one_serialized_winner(  # type
     config = phase4_config_factory()
     season = season_factory(config)
     player = player_factory()
-    season.settlement_start_epoch = 1
-    season.save(update_fields=("settlement_start_epoch",))
+    season = set_settlement_start_epoch(season, 1, service_actor="test", reason="test setup")
     epoch = EconomicEpoch.objects.create(
         season=season,
         epoch_number=1,

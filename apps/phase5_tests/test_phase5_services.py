@@ -141,12 +141,18 @@ def test_first_touch_and_self_referral(world) -> None:  # type: ignore[no-untype
 @pytest.mark.django_db
 def test_disabled_referral_and_network_fail_closed(world) -> None:  # type: ignore[no-untyped-def]
     config, _, player = world
-    config.payload = disabled_payload()
-    # Published rows are immutable, so use queryset update to emulate a historical fixture snapshot.
-    GameConfigVersion.objects.filter(pk=config.pk).update(payload=config.payload)
+    disabled = GameConfigVersion.objects.create(
+        schema_version=config.schema_version,
+        version="phase5-disabled",
+        effective_at=AT + timedelta(days=1),
+        payload=disabled_payload(),
+    )
+    publish_game_config(disabled, published_at=AT)
     inviter, invitee = player(301), player(302)
-    assert attribute_start(invitee, get_or_create_code(inviter).code, at=AT) is None
-    resolved = resolve_game_config_version(config.pk)
+    assert (
+        attribute_start(invitee, get_or_create_code(inviter).code, at=disabled.effective_at) is None
+    )
+    resolved = resolve_game_config_version(disabled.pk)
     assert not resolved.referral.enabled and not resolved.network.enabled
 
 
@@ -1116,3 +1122,52 @@ def test_network_activity_without_historical_season_fails_closed(world) -> None:
     )
     assert activity and activity.season is None
     assert not activity.program_active and activity.rewardable_chars == 0
+
+
+@pytest.mark.django_db
+def test_open_creator_window_snapshots_config_across_mid_window_cutover(world) -> None:  # type: ignore[no-untyped-def]
+    config_v1, _, player = world
+    creator, speaker = player(1991), player(1992)
+    group = TelegramGroup.objects.create(
+        telegram_chat_id=-1991,
+        chat_type="supergroup",
+        is_monitored=True,
+        first_seen_at=AT,
+        last_seen_at=AT,
+    )
+    registration = CreatorGroupRegistration.objects.create(
+        creator=creator,
+        group=group,
+        state=CreatorGroupRegistration.State.ACTIVE,
+        reward_eligible_since=AT - timedelta(days=1),
+    )
+    before = record_activity(
+        registration=registration,
+        sender=speaker,
+        message_id=19911,
+        update_id=19911,
+        text="before-cutover-message" * 2,
+        observed_at=AT + timedelta(seconds=30),
+    )
+    changed = copy.deepcopy(BASE)
+    changed["network_activity"]["creator_reward"]["max_points_per_window_per_group"] += 1
+    switch = AT + timedelta(minutes=1)
+    config_v2 = GameConfigVersion.objects.create(
+        schema_version=changed["meta"]["schema_version"],
+        version="creator-window-v2",
+        effective_at=switch,
+        payload=changed,
+    )
+    publish_game_config(config_v2, published_at=switch - timedelta(seconds=1))
+    after = record_activity(
+        registration=registration,
+        sender=speaker,
+        message_id=19912,
+        update_id=19912,
+        text="after-cutover-message" * 2,
+        observed_at=switch + timedelta(seconds=1),
+    )
+    assert before is not None and after is not None
+    assert before.config_version_id == config_v1.pk
+    assert after.config_version_id == config_v2.pk
+    assert window_start_for(before.observed_at, 900) == window_start_for(after.observed_at, 900)

@@ -1,9 +1,11 @@
+# mypy: disable-error-code="misc"
 import uuid
 from collections.abc import Callable
 from contextlib import suppress
 from datetime import datetime, timedelta
 
 from django.conf import settings
+from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, models, transaction
 from django.db.models import QuerySet
@@ -33,6 +35,64 @@ from apps.telegram.services import membership_semantics
 
 class ClanConflict(ValidationError):
     pass
+
+
+@transaction.atomic
+def resolve_invite_credential_risk(
+    *,
+    invite_id: int,
+    outcome: str,
+    actor: User,
+    reason: str,
+    ticket_reference: str = "",
+) -> ClanInvite:
+    """Resolve an uncertain Telegram credential without bypassing its lifecycle."""
+    if outcome not in {"CONFIRMED_REVOKED", "STILL_UNSAFE", "RETRY_REVOCATION"}:
+        raise ValidationError("Unsupported invite-risk resolution outcome")
+    if not reason.strip():
+        raise ValidationError("Resolution reason is required")
+    if not actor.has_perm("clans.resolve_invite_risk"):
+        raise PermissionDenied("Invite-risk resolution permission required")
+    invite = ClanInvite.objects.select_for_update().get(pk=invite_id)
+    if invite.state != ClanInvite.State.MANUAL_REVIEW or not invite.unknown_credential_risk:
+        raise ClanConflict("Invite is not awaiting credential-risk review")
+    before = {"state": invite.state, "unknown_credential_risk": True}
+    if outcome == "CONFIRMED_REVOKED":
+        invite.state = ClanInvite.State.REVOKED
+        invite.unknown_credential_risk = False
+        invite.invite_link = ""
+        invite.desired_terminal_state = ""
+        invite.save(
+            update_fields=(
+                "state",
+                "unknown_credential_risk",
+                "invite_link",
+                "desired_terminal_state",
+                "updated_at",
+            )
+        )
+    elif outcome == "RETRY_REVOCATION":
+        if not invite.invite_link:
+            raise ClanConflict("A known credential is required for safe revocation retry")
+        invite.state = ClanInvite.State.REVOKE_PENDING
+        invite.next_revoke_retry_at = timezone.now()
+        invite.save(update_fields=("state", "next_revoke_retry_at", "updated_at"))
+    from apps.notifications.models import OperatorAuditEvent
+
+    OperatorAuditEvent.objects.create(
+        actor=actor,
+        action=f"CLAN_INVITE_RISK_{outcome}",
+        target_type="ClanInvite",
+        target_id=str(invite.pk),
+        reason=reason,
+        ticket_reference=ticket_reference,
+        before_state=before,
+        after_state={
+            "state": invite.state,
+            "unknown_credential_risk": invite.unknown_credential_risk,
+        },
+    )
+    return invite
 
 
 def require_policy(resolved: ResolvedGameConfig) -> ClanConfig:
@@ -505,12 +565,33 @@ def create_personal_invite(invite: ClanInvite) -> ClanInvite:
     if dispatch_revoke:
         _dispatch_revoke(locked.pk)
     elif locked.state == ClanInvite.State.ACTIVE:
-        dm = bot_api.send_message(
-            target.telegram_user_id, f"Your Dexo Clan invite: {locked.invite_link}"
+        from apps.notifications.models import DeliveryState, TelegramDelivery
+        from apps.notifications.services import emit_notification
+
+        notification, _ = emit_notification(
+            recipient=target,
+            event_key="CLAN_INVITE_READY",
+            source_domain="CLAN",
+            source_type="CLAN_INVITE",
+            source_id=str(locked.pk),
+            idempotency_key=f"clan-invite-ready:{locked.pk}",
+            payload={"invite_id": locked.pk},
         )
-        ClanInvite.objects.filter(pk=locked.pk).update(
-            delivery_state=ClanInvite.Delivery.SENT if dm.ok else ClanInvite.Delivery.FAILED,
-            delivery_error_category="" if dm.ok else (dm.category or "unknown"),
+        TelegramDelivery.objects.get_or_create(
+            notification=notification,
+            defaults={
+                "telegram_user_id": target.telegram_user_id,
+                "text_snapshot": locked.invite_link,
+                "state": (
+                    DeliveryState.PENDING
+                    if target.first_private_contact_at
+                    else DeliveryState.SKIPPED
+                ),
+                "error_category": (
+                    "" if target.first_private_contact_at else "private_contact_unavailable"
+                ),
+                "completed_at": None if target.first_private_contact_at else timezone.now(),
+            },
         )
     return ClanInvite.objects.get(pk=invite.pk)
 
@@ -889,6 +970,21 @@ def reconcile_telegram_membership(
                     },
                 )
             membership.save(update_fields=(*fields,))
+            if not present and old_access == ClanMembership.Access.ACTIVE:
+                from apps.notifications.services import emit_notification_safely
+
+                transaction.on_commit(
+                    lambda member=membership: emit_notification_safely(
+                        recipient=member.player,
+                        event_key="CLAN_ACCESS_LOST",
+                        source_domain="CLAN",
+                        source_type="CLAN_MEMBERSHIP",
+                        source_id=str(member.pk),
+                        idempotency_key=f"clan-access-lost:{member.pk}:{telegram_update_id}",
+                        payload={"membership_id": member.pk},
+                        telegram=True,
+                    )
+                )
         elif present:
             req = (
                 ClanJoinRequest.objects.filter(

@@ -127,6 +127,9 @@ def test_moderation_state_never_downgrades(clan_world, initial, action, expected
         reason="review",
         idempotency_key=f"{initial}:{action}",
         system_actor="test",
+        suspension_expires_at=(
+            timezone.now() + timedelta(days=1) if action == ModerationAction.Type.SUSPEND else None
+        ),
     )
     target.refresh_from_db()
     assert target.moderation_state == expected

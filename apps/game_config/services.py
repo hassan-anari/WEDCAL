@@ -1,18 +1,68 @@
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import structlog
-from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.contrib.auth.models import User
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import connection, transaction
 from django.utils import timezone
 
 from apps.game_config.models import GameConfigVersion
 
 logger = structlog.get_logger(__name__)
+
+
+def preview_safe_cutover(config: GameConfigVersion) -> tuple[str, ...]:
+    """Return fail-closed boundary violations for policy changes with in-flight state."""
+    previous = (
+        GameConfigVersion.objects.filter(
+            status=GameConfigVersion.Status.PUBLISHED, effective_at__lt=config.effective_at
+        )
+        .order_by("-effective_at", "-pk")
+        .first()
+    )
+    if previous is None:
+        return ()
+    old, new, at = previous.payload, config.payload, config.effective_at
+    issues: list[str] = []
+
+    daily_reset_fields = ("reset_timezone", "reset_hour", "reset_minute")
+    old_daily, new_daily = old.get("daily", {}), new.get("daily", {})
+    if any(old_daily.get(field) != new_daily.get(field) for field in daily_reset_fields):
+
+        def is_reset_boundary(policy: dict[str, Any]) -> bool:
+            zone = ZoneInfo(str(policy.get("reset_timezone", "UTC")))
+            local = at.astimezone(zone)
+            return (local.hour, local.minute, local.second, local.microsecond) == (
+                int(policy.get("reset_hour", 0)),
+                int(policy.get("reset_minute", 0)),
+                0,
+                0,
+            )
+
+        if not is_reset_boundary(old_daily) or not is_reset_boundary(new_daily):
+            issues.append("Daily reset-policy changes require the configured reset boundary")
+
+    if old.get("base_tap") != new.get("base_tap"):
+        utc = at.astimezone(ZoneInfo("UTC"))
+        if (utc.hour, utc.minute, utc.second, utc.microsecond) != (0, 0, 0, 0):
+            issues.append("Base Tap policy changes require 00:00 UTC")
+
+    if old.get("dlx_distribution") != new.get("dlx_distribution"):
+        from apps.seasons.models import Season
+
+        seasons = Season.objects.filter(status=Season.Status.ACTIVE)
+        if any(
+            at < season.starts_at
+            or (at - season.starts_at).total_seconds() % timedelta(days=7).total_seconds()
+            for season in seasons
+        ):
+            issues.append("DLX policy changes require an active Season economic-epoch boundary")
+    return tuple(issues)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1269,8 +1319,16 @@ def _parse_resolved(
 
 
 def publish_game_config(
-    config: GameConfigVersion, *, published_at: datetime | None = None
+    config: GameConfigVersion,
+    *,
+    published_at: datetime | None = None,
+    actor: Any | None = None,
+    reason: str = "",
 ) -> GameConfigVersion:
+    if actor is not None and (
+        not isinstance(actor, User) or not actor.has_perm("game_config.publish_game_config")
+    ):
+        raise PermissionDenied("GameConfig publication permission required")
     with transaction.atomic():
         config = GameConfigVersion.objects.select_for_update().get(pk=config.pk)
         if config.status != GameConfigVersion.Status.DRAFT:
@@ -1307,11 +1365,36 @@ def publish_game_config(
             raise ValidationError(
                 "Publishing would rewrite or ambiguate established config history"
             )
+        cutover_issues = preview_safe_cutover(config)
+        if cutover_issues:
+            raise ValidationError(list(cutover_issues))
         canonical = json.dumps(config.payload, sort_keys=True, separators=(",", ":")).encode()
         config.payload_checksum = hashlib.sha256(canonical).hexdigest()
         config.status = GameConfigVersion.Status.PUBLISHED
         config.published_at = publication_time
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT set_config('dexo.game_config_publish', 'on', true)")
         config.save(update_fields=["payload_checksum", "status", "published_at", "updated_at"])
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT set_config('dexo.game_config_publish', 'off', true)")
+        if actor is not None:
+            if not reason.strip():
+                raise ValidationError("Publication reason is required")
+            from apps.notifications.models import OperatorAuditEvent
+
+            OperatorAuditEvent.objects.create(
+                actor=actor,
+                action="GAME_CONFIG_PUBLISH",
+                target_type="GameConfigVersion",
+                target_id=str(config.pk),
+                reason=reason,
+                before_state={"status": "DRAFT"},
+                after_state={
+                    "status": "PUBLISHED",
+                    "checksum": config.payload_checksum,
+                    "effective_at": config.effective_at.isoformat(),
+                },
+            )
     logger.info("game_config_published", config_version=config.version)
     return config
 

@@ -145,6 +145,7 @@ def test_moderation_eligibility_is_historical(player_factory, phase4_config_fact
         previous_state={"moderation_state": "ACTIVE"},
         resulting_state={"moderation_state": "SUSPENDED"},
         idempotency_key="historical-mod",
+        suspension_expires_at=after + timedelta(days=30),
     )
     ModerationAction.objects.filter(pk=action.pk).update(created_at=after)
     target.moderation_state = Player.ModerationState.SUSPENDED
@@ -330,15 +331,17 @@ def test_creator_ownership_history_resolves_delayed_events(player_factory) -> No
 
 
 @pytest.mark.django_db
-def test_window_waits_for_maximum_qualification_horizon(clan_world) -> None:  # type: ignore[no-untyped-def]
+def test_window_waits_for_maximum_qualification_horizon(  # type: ignore[no-untyped-def]
+    clan_world, phase4_config_factory
+) -> None:
     now, _, _, _, _, clan = clan_world
-    config = clan_world[1]
-    payload = config.payload
-    payload["anti_fraud"]["clan"].update(
-        exact_duplicate_window_seconds=100, near_duplicate_window_seconds=900
+    config = phase4_config_factory(
+        effective_at=window_start_for(now + timedelta(days=1), 900) + timedelta(seconds=900),
+        version="phase8-horizon",
+        mutate=lambda payload: payload["anti_fraud"]["clan"].update(
+            exact_duplicate_window_seconds=100, near_duplicate_window_seconds=900
+        ),
     )
-    type(config).objects.filter(pk=config.pk).update(payload=payload)
-    config.refresh_from_db()
     cs = clan()
     cs.config_version = config
     cs.save()

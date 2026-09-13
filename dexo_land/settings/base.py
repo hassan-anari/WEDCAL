@@ -44,9 +44,11 @@ INSTALLED_APPS = [
     "apps.clans",
     "apps.moderation",
     "apps.arena",
+    "apps.notifications",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "apps.core.middleware.RequestContextMiddleware",
@@ -229,6 +231,22 @@ CELERY_BEAT_SCHEDULE.update(
             "task": "apps.arena.tasks.settle_epochs",
             "schedule": 60,
         },
+        "materialize-broadcasts": {
+            "task": "apps.notifications.tasks.materialize_broadcasts",
+            "schedule": 30,
+        },
+        "deliver-notifications": {
+            "task": "apps.notifications.tasks.deliver_notifications",
+            "schedule": 30,
+        },
+        "deliver-broadcasts": {
+            "task": "apps.notifications.tasks.deliver_broadcasts",
+            "schedule": 30,
+        },
+        "expire-temporary-suspensions": {
+            "task": "apps.moderation.tasks.expire_temporary_suspensions",
+            "schedule": 60,
+        },
     }
 )
 
@@ -242,7 +260,15 @@ LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
-STATIC_URL = "static/"
+STATIC_URL = "/static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+}
+NOTIFICATION_DELIVERY_LEASE_SECONDS = int(os.getenv("NOTIFICATION_DELIVERY_LEASE_SECONDS", "60"))
+NOTIFICATION_DELIVERY_BATCH_SIZE = int(os.getenv("NOTIFICATION_DELIVERY_BATCH_SIZE", "100"))
+NOTIFICATION_MAX_ATTEMPTS = int(os.getenv("NOTIFICATION_MAX_ATTEMPTS", "5"))
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")

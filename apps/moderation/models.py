@@ -1,5 +1,6 @@
 import uuid
 
+from django.conf import settings
 from django.db import models
 
 
@@ -47,6 +48,9 @@ class ModerationEvidence(models.Model):
     verified_server_observation = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        permissions = [("view_sensitive_evidence", "Can view sensitive moderation evidence")]
+
 
 class ModerationAction(models.Model):
     class Type(models.TextChoices):
@@ -65,6 +69,13 @@ class ModerationAction(models.Model):
         blank=True,
         related_name="moderation_actions_taken",
     )
+    staff_actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="moderation_actions_taken",
+    )
     system_actor = models.CharField(max_length=64, blank=True)
     target = models.ForeignKey(
         "players.Player", on_delete=models.PROTECT, related_name="moderation_actions_received"
@@ -74,4 +85,23 @@ class ModerationAction(models.Model):
     previous_state = models.JSONField(default=dict)
     resulting_state = models.JSONField(default=dict)
     idempotency_key = models.CharField(max_length=128, unique=True)
+    correlation_id = models.UUIDField(default=uuid.uuid4)
+    suspension_expires_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        permissions = [("apply_moderation_actions", "Can apply moderation actions")]
+        constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(action_type="SUSPEND")
+                | models.Q(suspension_expires_at__isnull=False),
+                name="moderation_suspend_has_expiry",
+            )
+        ]
+
+
+class ModerationEvidenceAccess(models.Model):
+    evidence = models.ForeignKey(ModerationEvidence, on_delete=models.PROTECT)
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    reason = models.CharField(max_length=1000)
+    viewed_at = models.DateTimeField(auto_now_add=True)
