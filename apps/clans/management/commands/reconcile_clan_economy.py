@@ -1,18 +1,18 @@
 import json
+from datetime import datetime
+from typing import Any
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
-from django.db.models import Sum
 
-from apps.clans.models import (
-    ClanContributionEntry,
-    ClanEconomicSettlement,
-    ClanHQXPEntry,
-    ClanSeason,
-    ClanTreasuryEntry,
-)
+from apps.clans.economy import canonical_clan_projection, rebuild_clan_projections
+from apps.clans.models import ClanSeason
 from apps.seasons.models import Season
+
+
+def _json_value(value: Any) -> Any:
+    return value.isoformat() if isinstance(value, datetime) else value
 
 
 class Command(BaseCommand):
@@ -36,42 +36,15 @@ class Command(BaseCommand):
         ]
         report = []
         for cs in rows:
-            treasury = (
-                ClanTreasuryEntry.objects.filter(clan_season=cs)
-                .values("direction")
-                .annotate(total=Sum("amount"))
-            )
-            values = {row["direction"]: int(row["total"] or 0) for row in treasury}
-            expected = {
-                "treasury_balance": values.get("CREDIT", 0) - values.get("DEBIT", 0),
-                "treasury_earned_total": values.get("CREDIT", 0),
-                "contribution_total": int(
-                    ClanContributionEntry.objects.filter(clan_season=cs).aggregate(
-                        value=Sum("amount")
-                    )["value"]
-                    or 0
-                ),
-                "hq_xp": int(
-                    ClanHQXPEntry.objects.filter(clan_season=cs).aggregate(value=Sum("amount"))[
-                        "value"
-                    ]
-                    or 0
-                ),
-                "competitive_score": int(
-                    ClanEconomicSettlement.objects.filter(clan_season=cs).aggregate(
-                        value=Sum("clan_score_amount")
-                    )["value"]
-                    or 0
-                ),
-            }
+            expected = canonical_clan_projection(cs)
             drift = {
-                key: {"projected": getattr(cs, key), "expected": value}
+                key: {"projected": _json_value(getattr(cs, key)), "expected": _json_value(value)}
                 for key, value in expected.items()
                 if getattr(cs, key) != value
             }
             if options["repair"] and drift:
                 with transaction.atomic():
-                    ClanSeason.objects.select_for_update().filter(pk=cs.pk).update(**expected)
+                    rebuilt = rebuild_clan_projections(cs)
                     from apps.notifications.models import OperatorAuditEvent
 
                     OperatorAuditEvent.objects.create(
@@ -81,7 +54,7 @@ class Command(BaseCommand):
                         target_id=str(cs.pk),
                         reason=options["reason"],
                         before_state={key: value["projected"] for key, value in drift.items()},
-                        after_state=expected,
+                        after_state={key: _json_value(getattr(rebuilt, key)) for key in expected},
                     )
             report.append(
                 {

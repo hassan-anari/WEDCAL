@@ -1232,7 +1232,7 @@ promotion to RESOLVED.
 | PH-038 | IMPLEMENTED_PENDING_VERIFICATION | Structural contract-gate expansion remains subject to hosted gate |
 | PH-039 | IMPLEMENTED_PENDING_VERIFICATION | Dependency/container report workflow added; findings not yet evaluated |
 | PH-043 | OPEN — OWNER PRODUCT DECISION REQUIRED BEFORE S1 LAUNCH | **PH-043 IMPLEMENTATION BLOCKED BY PRODUCT DECISION**; no server evidence exists |
-| PH-049 | IMPLEMENTED_PENDING_VERIFICATION | Bounded ledger/projection reconciliation interface; deliberate drift drill pending |
+| PH-049 | IMPLEMENTED_PENDING_VERIFICATION | Bounded canonical Clan rebuild covers Treasury, Contribution, HQ/capacity, score and tie provenance; deliberate Stage-2 drift drill pending |
 
 WATCH items PH-010/011/013/014/016/017/018/021/032/035 now have deterministic load manifests,
 query EXPLAIN, relation sizing, provider-lag and reconciliation measurement primitives. All measured
@@ -1247,3 +1247,7 @@ amount-based DLX adjustment totals, stored Mission config provenance, service-ba
 disposition, final-standing-only closed ranking rebuild, and explicit trusted-proxy throttle identity
 are `IMPLEMENTED_PENDING_VERIFICATION`. These corrections require Stage-2 PostgreSQL concurrency and
 failure evidence before any item is promoted to RESOLVED. PH-043 and PH-037 remain unchanged.
+
+The final Stage-1 correction additionally makes Player and Clan tie provenance a first-class
+reconciliation invariant and treats pre-cutoff Telegram dead letters as manual work with immutable,
+permissioned REQUEUE/DISPOSE evidence. Full concurrency and operational drills remain Stage 2.

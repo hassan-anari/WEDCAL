@@ -98,6 +98,21 @@ are truth. Workers use late ACK, worker-lost rejection, prefetch 1 and bounded t
 `run_beat_singleton` command holds a PostgreSQL advisory lock, mechanically preventing concurrent
 Beat schedulers.
 
+Telegram `DEAD_LETTER` ingress is manual close work, never a transient polling condition. Inspect
+the retained payload and failure evidence in the protected store, correct the underlying defect,
+then grant the operator `telegram.resolve_dead_letter` and run exactly one of:
+
+```bash
+python manage.py resolve_telegram_dead_letter ID REQUEUE --actor USER --reason REASON \
+  --evidence TICKET --idempotency-key KEY
+python manage.py resolve_telegram_dead_letter ID DISPOSE --actor USER --reason REASON \
+  --evidence TICKET --idempotency-key KEY
+```
+
+`DISPOSE` is permitted only after proving the update non-economic/non-applicable. Both outcomes
+append immutable evidence; requeue preserves `update_id` dedupe and prior failure evidence, starts
+a fresh bounded attempt cycle, and dispatches only after commit. Unknown impact remains blocked.
+
 ## Performance, queries, monitoring, and sizing
 
 Generate manifests only (not data):

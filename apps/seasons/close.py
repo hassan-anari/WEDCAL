@@ -10,14 +10,14 @@ import uuid
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import structlog
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection, models, transaction
-from django.db.models import Min, Sum
+from django.db.models import Max, Min, Sum
 from django.utils import timezone
 
 from apps.arena.models import (
@@ -127,10 +127,25 @@ def _evidence(
 
 @drain_provider("telegram_inbound")
 def _telegram(season: Season, cutoff: datetime) -> DrainEvidence:
-    qs = TelegramInboundUpdate.objects.filter(received_at__lt=cutoff).exclude(
-        state__in=("PROCESSED", "IGNORED")
+    relevant = TelegramInboundUpdate.objects.filter(received_at__lt=cutoff)
+    transient = relevant.filter(state__in=("PENDING", "PROCESSING", "FAILED"))
+    dead = relevant.filter(state=TelegramInboundUpdate.State.DEAD_LETTER)
+    oldest = relevant.filter(
+        models.Q(state__in=("PENDING", "PROCESSING", "FAILED"))
+        | models.Q(state=TelegramInboundUpdate.State.DEAD_LETTER)
+    ).aggregate(value=Min("received_at"))["value"]
+    transient_count = transient.count()
+    dead_count = dead.count()
+    return DrainEvidence(
+        "telegram_inbound",
+        transient_count + dead_count,
+        oldest.isoformat() if oldest else None,
+        max(int((timezone.now() - oldest).total_seconds()), 0) if oldest else None,
+        bool(transient_count or dead_count),
+        "MANUAL_REVIEW" if dead_count else ("PENDING" if transient_count else "EMPTY"),
+        dead_count,
+        {"transient_count": transient_count, "dead_letter_count": dead_count},
     )
-    return _evidence("telegram_inbound", qs, time_field="received_at")
 
 
 @drain_provider("network_activity")
@@ -294,39 +309,58 @@ def reconcile_season_points(
         .values_list("pk", flat=True)
         .distinct()[:limit]
     )
-    drifted = repaired = 0
+    numeric_drifted = tie_drifted = drifted = repaired = 0
     from apps.game_config.services import resolve_effective_game_config
 
     config = resolve_effective_game_config(timezone.now())
     for player_id in player_ids:
-        expected_season = int(
-            RewardLedger.objects.filter(season=season, player_id=player_id).aggregate(
-                value=Sum("player_amount")
-            )["value"]
-            or 0
+        season_source = RewardLedger.objects.filter(season=season, player_id=player_id).aggregate(
+            value=Sum("player_amount"), reached_at=Max("occurred_at")
         )
+        expected_season = int(season_source["value"] or 0)
+        expected_reached_at = season_source["reached_at"] if expected_season else None
         expected_lifetime = int(
             RewardLedger.objects.filter(player_id=player_id).aggregate(value=Sum("player_amount"))[
                 "value"
             ]
             or 0
         )
-        projected_season = (
+        projection = (
             PlayerSeason.objects.filter(season=season, player_id=player_id)
-            .values_list("season_points", flat=True)
+            .values("season_points", "score_reached_at")
             .first()
-            or 0
         )
+        projected_season = int(projection["season_points"]) if projection else 0
+        projected_reached_at = projection["score_reached_at"] if projection else None
         projected_lifetime = (
             PlayerProgression.objects.filter(player_id=player_id)
             .values_list("lifetime_points", flat=True)
             .first()
             or 0
         )
-        drift = expected_season != projected_season or expected_lifetime != projected_lifetime
+        numeric_drift = (
+            expected_season != projected_season or expected_lifetime != projected_lifetime
+        )
+        tie_drift = projected_reached_at != expected_reached_at
+        numeric_drifted += int(numeric_drift)
+        tie_drifted += int(tie_drift)
+        drift = numeric_drift or tie_drift
         drifted += int(drift)
         if repair and drift:
             rebuild_player_reward_projections(Player.objects.get(pk=player_id), config)
+            repaired_projection = (
+                PlayerSeason.objects.filter(season=season, player_id=player_id)
+                .values("season_points", "score_reached_at")
+                .first()
+            )
+            repaired_lifetime = PlayerProgression.objects.get(player_id=player_id).lifetime_points
+            if (
+                repaired_projection is None
+                or repaired_projection["season_points"] != expected_season
+                or repaired_projection["score_reached_at"] != expected_reached_at
+                or repaired_lifetime != expected_lifetime
+            ):
+                raise ValidationError("Canonical Player reward projection rebuild did not converge")
             repaired += 1
     return {
         "expected_season_points": int(
@@ -347,11 +381,45 @@ def reconcile_season_points(
         "projected_lifetime_points": int(
             PlayerProgression.objects.aggregate(value=Sum("lifetime_points"))["value"] or 0
         ),
+        "numeric_drifted_players": numeric_drifted,
+        "tie_provenance_drifted_players": tie_drifted,
         "drifted_players": drifted,
         "repaired_players": repaired,
         "processed_players": len(player_ids),
         "next_player_id": player_ids[-1] if player_ids else after_player_id,
         "complete": int(len(player_ids) < limit),
+    }
+
+
+def reconcile_clan_projections(
+    season: Season, *, repair: bool = False, after_clan_season_id: int = 0, limit: int = 500
+) -> dict[str, int]:
+    """Bounded verification through the canonical Clan projection calculator/rebuilder."""
+    from apps.clans.economy import canonical_clan_projection, rebuild_clan_projections
+
+    rows = list(
+        ClanSeason.objects.filter(season=season, pk__gt=after_clan_season_id).order_by("pk")[:limit]
+    )
+    drifted = tie_drifted = repaired = 0
+    for clan_season in rows:
+        expected = canonical_clan_projection(clan_season)
+        fields = tuple(expected)
+        drift = any(getattr(clan_season, field) != expected[field] for field in fields)
+        tie_drift = clan_season.score_reached_at != expected["score_reached_at"]
+        drifted += int(drift)
+        tie_drifted += int(tie_drift)
+        if repair and drift:
+            rebuilt = rebuild_clan_projections(clan_season)
+            if any(getattr(rebuilt, field) != expected[field] for field in fields):
+                raise ValidationError("Canonical Clan projection rebuild did not converge")
+            repaired += 1
+    return {
+        "drifted_clans": drifted,
+        "tie_provenance_drifted_clans": tie_drifted,
+        "repaired_clans": repaired,
+        "processed_clans": len(rows),
+        "next_clan_season_id": rows[-1].pk if rows else after_clan_season_id,
+        "complete": int(len(rows) < limit),
     }
 
 
@@ -535,6 +603,14 @@ def _settle_ready_missions(season: Season, limit: int) -> int:
 def freeze_standings(season: Season, *, batch_size: int = 1000) -> dict[str, int]:
     if RankingProjectionEvent.objects.filter(season=season, processed_at__isnull=True).exists():
         raise ValidationError("Ranking projection events remain pending")
+    if PlayerSeason.objects.filter(
+        season=season, season_points__gt=0, score_reached_at__isnull=True
+    ).exists():
+        raise ValidationError("Positive Player score lacks canonical tie provenance")
+    if ClanSeason.objects.filter(
+        season=season, competitive_score__gt=0, score_reached_at__isnull=True
+    ).exists():
+        raise ValidationError("Positive Clan score lacks canonical tie provenance")
     now = timezone.now()
     player_offset = PlayerSeasonFinalStanding.objects.filter(season=season).count()
     clan_offset = ClanSeasonFinalStanding.objects.filter(season=season).count()
@@ -557,7 +633,7 @@ def freeze_standings(season: Season, *, batch_size: int = 1000) -> dict[str, int
                 player_id=row.player_id,
                 final_rank=rank,
                 final_season_points=row.season_points,
-                score_reached_at=row.score_reached_at or season.starts_at,
+                score_reached_at=cast(datetime, row.score_reached_at),
                 ranking_generation=row.ranking_generation,
                 ranked_population=player_population,
                 provenance={"projection": "PlayerSeason", "projection_id": row.pk},
@@ -575,7 +651,7 @@ def freeze_standings(season: Season, *, batch_size: int = 1000) -> dict[str, int
                 clan_id=row.clan_id,
                 final_rank=rank,
                 final_competitive_score=row.competitive_score,
-                score_reached_at=row.score_reached_at or season.starts_at,
+                score_reached_at=cast(datetime, row.score_reached_at),
                 ranking_generation=row.ranking_generation,
                 ranked_population=clan_population,
                 provenance={"projection": "ClanSeason", "projection_id": row.pk},
@@ -726,6 +802,10 @@ def _advance_close_stage(run_id: int, *, batch_size: int) -> tuple[str, str]:
             xp = reconcile_season_points(
                 season, repair=True, after_player_id=projection_cursor, limit=batch_size
             )
+            clan_cursor = int(run.progress.get("clan_season_cursor", 0))
+            clan = reconcile_clan_projections(
+                season, repair=True, after_clan_season_id=clan_cursor, limit=batch_size
+            )
             run.progress = {
                 **run.progress,
                 "xp_player_cursor": xp["next_player_id"],
@@ -733,19 +813,42 @@ def _advance_close_stage(run_id: int, *, batch_size: int) -> tuple[str, str]:
                 + xp["drifted_players"],
                 "xp_repaired_players": int(run.progress.get("xp_repaired_players", 0))
                 + xp["repaired_players"],
+                "clan_season_cursor": clan["next_clan_season_id"],
+                "clan_drifted": int(run.progress.get("clan_drifted", 0)) + clan["drifted_clans"],
+                "clan_repaired": int(run.progress.get("clan_repaired", 0)) + clan["repaired_clans"],
             }
             dlx = reconcile_season_dlx(season, record_residuals=True)
-            run.reconciliation_evidence = {"xp": xp, "dlx": dlx}
+            run.reconciliation_evidence = {
+                "xp_batch": xp,
+                "clan_batch": clan,
+                "cumulative": {
+                    "xp_numeric_drifted": int(run.progress.get("xp_numeric_drifted", 0))
+                    + xp["numeric_drifted_players"],
+                    "xp_tie_drifted": int(run.progress.get("xp_tie_drifted", 0))
+                    + xp["tie_provenance_drifted_players"],
+                    "xp_repaired": run.progress["xp_repaired_players"],
+                    "clan_drifted": run.progress["clan_drifted"],
+                    "clan_tie_drifted": int(run.progress.get("clan_tie_drifted", 0))
+                    + clan["tie_provenance_drifted_clans"],
+                    "clan_repaired": run.progress["clan_repaired"],
+                },
+                "dlx": dlx,
+            }
+            run.progress = {
+                **run.progress,
+                "xp_numeric_drifted": run.reconciliation_evidence["cumulative"][
+                    "xp_numeric_drifted"
+                ],
+                "xp_tie_drifted": run.reconciliation_evidence["cumulative"]["xp_tie_drifted"],
+                "clan_tie_drifted": run.reconciliation_evidence["cumulative"]["clan_tie_drifted"],
+            }
             if xp["drifted_players"] and xp["repaired_players"] != xp["drifted_players"]:
                 raise ValidationError("XP reconciliation did not converge")
             if not dlx["reconciled"]:
                 raise ValidationError("DLX reconciliation did not converge")
-            if xp["complete"]:
-                final_xp = reconcile_season_points(season, repair=False, limit=batch_size)
-                if final_xp["expected_season_points"] != final_xp["projected_season_points"]:
-                    raise ValidationError("Season XP totals remain unreconciled")
-                if final_xp["expected_lifetime_points"] != final_xp["projected_lifetime_points"]:
-                    raise ValidationError("Lifetime XP totals remain unreconciled")
+            if clan["drifted_clans"] and clan["repaired_clans"] != clan["drifted_clans"]:
+                raise ValidationError("Clan reconciliation did not converge")
+            if xp["complete"] and clan["complete"]:
                 run.stage = SeasonCloseRun.Stage.FREEZING_RANKINGS
         elif run.stage == SeasonCloseRun.Stage.FREEZING_RANKINGS:
             standings = freeze_standings(season, batch_size=batch_size)
