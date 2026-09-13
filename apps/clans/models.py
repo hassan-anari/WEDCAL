@@ -358,6 +358,7 @@ class ClanInvite(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        permissions = [("resolve_invite_risk", "Can resolve unsafe Clan invite credentials")]
         constraints = [
             models.CheckConstraint(
                 condition=(

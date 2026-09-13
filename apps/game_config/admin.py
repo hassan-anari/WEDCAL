@@ -30,8 +30,14 @@ class GameConfigVersionAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
 
     @admin.action(description="Publish selected draft configuration")
     def publish_selected(self, request: HttpRequest, queryset: QuerySet[GameConfigVersion]) -> None:
+        if not request.user.has_perm("game_config.publish_game_config"):
+            raise PermissionError
         for config in queryset:
-            publish_game_config(config)
+            publish_game_config(
+                config,
+                actor=request.user,
+                reason="Django Admin validated publication",
+            )
         self.message_user(request, "Configuration published", messages.SUCCESS)
 
     def has_delete_permission(

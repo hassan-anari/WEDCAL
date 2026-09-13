@@ -11,7 +11,7 @@ from django.db.models import Q
 
 from apps.core.periods import resolve_daily_period
 from apps.game_config.models import GameConfigVersion
-from apps.game_config.services import resolve_effective_game_config
+from apps.game_config.services import ResolvedGameConfig, resolve_effective_game_config
 from apps.missions.models import MissionDefinition, PlayerMission
 from apps.players.models import Player
 from apps.rewards.services import settle_player_reward
@@ -52,6 +52,15 @@ def _definition(key: str, at: datetime) -> MissionDefinition:
     if definition is None:
         raise MissionUnavailable("Mission is unavailable")
     return definition
+
+
+def _require_policy_binding(definition: MissionDefinition, resolved: ResolvedGameConfig) -> None:
+    rule = resolved.missions.definition(definition.key)
+    if (
+        definition.verification_family != rule.verification
+        or definition.repeat_policy != rule.repeat
+    ):
+        raise MissionUnavailable("Mission definition does not match effective policy")
 
 
 def _eligibility(
@@ -110,6 +119,7 @@ def list_missions(player: Player, at: datetime) -> list[dict[str, object]]:
     result = []
     for definition in latest.values():
         rule = resolved.missions.definition(definition.key)
+        _require_policy_binding(definition, resolved)
         period = _eligibility(
             definition,
             at,
@@ -138,7 +148,7 @@ def start_mission(player: Player, key: str, at: datetime) -> MissionStart:
     if not resolved.missions.enabled:
         raise MissionUnavailable("Missions are unavailable in the effective configuration")
     definition = _definition(key, at)
-    resolved.missions.definition(key)
+    _require_policy_binding(definition, resolved)
     eligibility = _eligibility(
         definition,
         at,
@@ -191,6 +201,7 @@ def _mark_ready(player: Player, progress_id: int, at: datetime) -> PlayerMission
         if progress.status in (PlayerMission.Status.REWARD_READY, PlayerMission.Status.CLAIMED):
             return progress
         rule = resolved.missions.definition(progress.definition.key)
+        _require_policy_binding(progress.definition, resolved)
         progress.status = PlayerMission.Status.REWARD_READY
         progress.season, progress.config_version = (
             season,
@@ -216,6 +227,7 @@ def verify_mission(
 ) -> PlayerMission:
     resolved = resolve_effective_game_config(at)
     definition = _definition(key, at)
+    _require_policy_binding(definition, resolved)
     eligibility = _eligibility(
         definition,
         at,
@@ -312,6 +324,7 @@ def claim_mission(player: Player, key: str, at: datetime) -> tuple[PlayerMission
                 player=player, definition=definition, eligibility_period=eligibility
             )
         definition = progress.definition
+        _require_policy_binding(definition, resolved_now)
         eligibility = progress.eligibility_period
         if progress.status == PlayerMission.Status.CLAIMED:
             return progress, False

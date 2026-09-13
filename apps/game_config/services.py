@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import structlog
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils import timezone
 
 from apps.game_config.models import GameConfigVersion
@@ -1269,7 +1269,11 @@ def _parse_resolved(
 
 
 def publish_game_config(
-    config: GameConfigVersion, *, published_at: datetime | None = None
+    config: GameConfigVersion,
+    *,
+    published_at: datetime | None = None,
+    actor: Any | None = None,
+    reason: str = "",
 ) -> GameConfigVersion:
     with transaction.atomic():
         config = GameConfigVersion.objects.select_for_update().get(pk=config.pk)
@@ -1311,7 +1315,29 @@ def publish_game_config(
         config.payload_checksum = hashlib.sha256(canonical).hexdigest()
         config.status = GameConfigVersion.Status.PUBLISHED
         config.published_at = publication_time
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT set_config('dexo.game_config_publish', 'on', true)")
         config.save(update_fields=["payload_checksum", "status", "published_at", "updated_at"])
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT set_config('dexo.game_config_publish', 'off', true)")
+        if actor is not None:
+            if not reason.strip():
+                raise ValidationError("Publication reason is required")
+            from apps.notifications.models import OperatorAuditEvent
+
+            OperatorAuditEvent.objects.create(
+                actor=actor,
+                action="GAME_CONFIG_PUBLISH",
+                target_type="GameConfigVersion",
+                target_id=str(config.pk),
+                reason=reason,
+                before_state={"status": "DRAFT"},
+                after_state={
+                    "status": "PUBLISHED",
+                    "checksum": config.payload_checksum,
+                    "effective_at": config.effective_at.isoformat(),
+                },
+            )
     logger.info("game_config_published", config_version=config.version)
     return config
 

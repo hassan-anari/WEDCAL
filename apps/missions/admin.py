@@ -8,6 +8,11 @@ class MissionDefinitionAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     list_display = ("key", "version", "verification_family", "repeat_policy", "enabled")
     list_filter = ("enabled", "verification_family", "repeat_policy")
 
+    def get_readonly_fields(self, request, obj=None):  # type: ignore[no-untyped-def]
+        if obj:
+            return ("key", "version", "verification_family", "repeat_policy", "created_at")
+        return ("created_at",)
+
 
 @admin.register(PlayerMission)
 class PlayerMissionAdmin(admin.ModelAdmin):  # type: ignore[type-arg]

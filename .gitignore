@@ -226,3 +226,6 @@ __pycache__/
 *.log
 .idea/
 .vscode/
+
+# Django collected static output
+/staticfiles/

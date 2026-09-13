@@ -12,6 +12,7 @@ dependencies = [
     "redis>=6,<7",
     "structlog>=25,<26",
     "uvicorn>=0.35,<1",
+    "whitenoise>=6.9,<7",
 ]
 
 [dependency-groups]

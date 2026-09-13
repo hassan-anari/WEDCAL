@@ -1,3 +1,4 @@
+# mypy: disable-error-code="misc"
 from datetime import datetime, timedelta
 
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -8,7 +9,12 @@ from django.utils import timezone
 from apps.clans.governance import _close_membership
 from apps.clans.models import ClanMembership, ClanSeason
 from apps.game_config.services import resolve_effective_game_config, resolve_game_config_version
-from apps.moderation.models import ModerationAction, ModerationCase, ModerationEvidence
+from apps.moderation.models import (
+    ModerationAction,
+    ModerationCase,
+    ModerationEvidence,
+    ModerationEvidenceAccess,
+)
 from apps.network.models import NetworkActivity
 from apps.players.models import Player
 
@@ -106,11 +112,18 @@ def apply_action(
     idempotency_key: str,
     actor: Player | None = None,
     system_actor: str = "",
+    suspension_expires_at: datetime | None = None,
 ) -> ModerationAction:
     if actor is None and not system_actor:
         raise PermissionDenied("An actor is required")
     if action_type not in ModerationAction.Type.values or not reason.strip() or not idempotency_key:
         raise ValidationError("Invalid moderation action")
+    if (
+        action_type == ModerationAction.Type.SUSPEND
+        and actor is not None
+        and (suspension_expires_at is None or suspension_expires_at <= timezone.now())
+    ):
+        raise ValidationError("A future suspension expiry is required")
     with transaction.atomic():
         # Serialize the globally unique key before any case/player row locks.
         with connection.cursor() as cursor:
@@ -189,7 +202,7 @@ def apply_action(
                 "ended_at": membership.ended_at.isoformat() if membership.ended_at else None,
                 "end_reason": membership.end_reason,
             }
-        return ModerationAction.objects.create(
+        action = ModerationAction.objects.create(
             case=case,
             actor=actor,
             system_actor=system_actor,
@@ -200,6 +213,78 @@ def apply_action(
             resulting_state=resulting,
             idempotency_key=idempotency_key,
         )
+        if desired == Player.ModerationState.SUSPENDED and target.moderation_state == desired:
+            target.suspension_expires_at = suspension_expires_at
+            target.suspension_action = action
+            target.save(update_fields=("suspension_expires_at", "suspension_action", "updated_at"))
+        if action_type in {
+            ModerationAction.Type.WARN,
+            ModerationAction.Type.SUSPEND,
+            ModerationAction.Type.BAN,
+        }:
+            from apps.notifications.services import emit_notification
+
+            transaction.on_commit(
+                lambda recipient=target, created_action=action: emit_notification(
+                    recipient=recipient,
+                    event_key=f"MODERATION_{created_action.action_type}",
+                    source_domain="MODERATION",
+                    source_type="MODERATION_ACTION",
+                    source_id=str(created_action.pk),
+                    idempotency_key=f"moderation-action:{created_action.pk}",
+                    telegram=True,
+                )
+            )
+        return action
+
+
+def expire_suspensions(*, now: datetime | None = None, limit: int = 100) -> int:
+    now = now or timezone.now()
+    expired = 0
+    ids = list(
+        Player.objects.filter(
+            moderation_state=Player.ModerationState.SUSPENDED, suspension_expires_at__lte=now
+        )
+        .order_by("suspension_expires_at")
+        .values_list("id", flat=True)[:limit]
+    )
+    for player_id in ids:
+        with transaction.atomic():
+            player = Player.objects.select_for_update().get(pk=player_id)
+            if (
+                player.moderation_state != Player.ModerationState.SUSPENDED
+                or player.suspension_expires_at is None
+                or player.suspension_expires_at > now
+            ):
+                continue
+            source = player.suspension_action
+            player.moderation_state = Player.ModerationState.ACTIVE
+            player.suspension_expires_at = None
+            player.suspension_action = None
+            player.save(
+                update_fields=(
+                    "moderation_state",
+                    "suspension_expires_at",
+                    "suspension_action",
+                    "updated_at",
+                )
+            )
+            if source:
+                ModerationAction.objects.create(
+                    case=source.case,
+                    system_actor="suspension-expiry",
+                    target=player,
+                    action_type=ModerationAction.Type.DISMISS,
+                    reason="Temporary suspension expired",
+                    previous_state={
+                        "moderation_state": "SUSPENDED",
+                        "suspension_action_id": source.pk,
+                    },
+                    resulting_state={"moderation_state": "ACTIVE"},
+                    idempotency_key=f"suspension-expiry:{source.pk}",
+                )
+            expired += 1
+    return expired
 
 
 def close_case(case: ModerationCase, *, now: datetime | None = None) -> ModerationCase:
@@ -225,3 +310,45 @@ def protected_network_activity_ids(now: datetime | None = None):  # type: ignore
         .filter(Q(case__status=ModerationCase.Status.OPEN) | Q(case__evidence_retain_until__gt=now))
         .values_list("object_id", flat=True)
     )
+
+
+def view_sensitive_evidence(
+    *, evidence_id: int, actor: object, reason: str = "case review", now: datetime | None = None
+) -> dict[str, object]:
+    """Resolve only explicitly supported evidence kinds and audit every successful read."""
+    if not getattr(actor, "has_perm", lambda _permission: False)(
+        "moderation.view_sensitive_evidence"
+    ):
+        raise PermissionDenied("Sensitive evidence permission required")
+    if not reason.strip():
+        raise ValidationError("Evidence access reason is required")
+    now = now or timezone.now()
+    with transaction.atomic():
+        evidence = ModerationEvidence.objects.select_related("case").get(pk=evidence_id)
+        case = evidence.case
+        if case.status == ModerationCase.Status.CLOSED and (
+            case.evidence_retain_until is None or case.evidence_retain_until <= now
+        ):
+            result: dict[str, object] = {"available": False, "reason": "retention_expired"}
+        elif evidence.kind == ModerationEvidence.Kind.MANUAL_NOTE:
+            result = {"available": True, "kind": evidence.kind, "content": evidence.manual_note}
+        elif evidence.kind == ModerationEvidence.Kind.NETWORK_ACTIVITY:
+            activity = NetworkActivity.objects.filter(pk=evidence.object_id).first()
+            result = (
+                {"available": False, "reason": "purged"}
+                if activity is None or not activity.text
+                else {"available": True, "kind": evidence.kind, "content": activity.text}
+            )
+        else:
+            # Membership/risk evidence is intentionally metadata-only in this viewer.
+            result = {
+                "available": evidence.object_id is not None,
+                "kind": evidence.kind,
+                "object_id": evidence.object_id,
+            }
+        ModerationEvidenceAccess.objects.create(
+            evidence=evidence,
+            actor=actor,
+            reason=reason,
+        )
+        return result

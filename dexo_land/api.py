@@ -7,6 +7,7 @@ from apps.daily.api import router as daily_router
 from apps.missions.api import router as missions_router
 from apps.moderation.api import router as moderation_router
 from apps.network.api import router as network_router
+from apps.notifications.api import router as notifications_router
 from apps.profile_collection.api import router as profile_router
 from apps.referrals.api import router as referrals_router
 from apps.rewards.api import bootstrap_router, rewards_router
@@ -28,3 +29,4 @@ api.add_router("/profile", profile_router)
 api.add_router("/clans", clans_router)
 api.add_router("/moderation", moderation_router)
 api.add_router("/arena", arena_router)
+api.add_router("/notifications", notifications_router)

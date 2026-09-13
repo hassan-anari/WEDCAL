@@ -332,7 +332,7 @@ tests prove inserts remain valid and both mutation forms fail; projection rebuil
 ## PH-005 — Anti-Sybil / qualified-player decision is not yet an authoritative subsystem
 
 **Origin:** Phase 5 Referral + new DLX growth contract
-**State:** `VERIFYING` — final corrected hosted CI required
+**State:** `RESOLVED` — accepted Phase-9 hosted CI on merged HEAD
 **Gate:** `PHASE-BLOCKER` before Phase 9
 **Evidence:** the canonical contract says anti-fraud is a real S1 subsystem and referral/growth eligibility must not be raw account creation. `ReferralConfig` still exposes `anti_sybil_pass_required`, but current `referral_activation_is_safe()` evaluates progression, account age and moderation; it does not consume a durable anti-Sybil decision. The growth-unlock config has a `qualified_player_predicate`, but no final evaluator/snapshot engine exists yet.
 
@@ -362,7 +362,7 @@ row into immutable epoch snapshots, and reject qualification history UPDATE/DELE
 ## PH-006 — Weekly epoch attribution and queue watermark
 
 **Origin:** Economy Sync + Base Tap, cross-phase
-**State:** `VERIFYING` — final corrected hosted CI required
+**State:** `RESOLVED` — accepted Phase-9 hosted CI on merged HEAD
 **Gate:** `PHASE-BLOCKER` in Phase 9
 
 **Why this matters:** weekly DLX distribution is based on the user's performance **inside each specific epoch**. A settlement must not accidentally classify work by processing time.
@@ -399,7 +399,7 @@ same source, so neither batching nor post-freeze processing can reinterpret or d
 ## PH-007 — Weekly DLX settlement engine invariants
 
 **Origin:** Economy Sync; implementation intentionally assigned to Phase 9 after Clan inputs exist
-**State:** `VERIFYING` — final corrected hosted CI required
+**State:** `RESOLVED` — accepted Phase-9 hosted CI on merged HEAD
 **Gate:** `PHASE-BLOCKER` in Phase 9
 
 **Required architecture/acceptance:**
@@ -933,7 +933,7 @@ The S1 backend correctly uses an off-chain DLX allocation amount and intentional
 
 ## PH-042 — Fraud adjustment / forfeiture ledger
 
-**State:** `VERIFYING` — final corrected hosted CI required
+**State:** `RESOLVED` — accepted Phase-9 hosted CI on merged HEAD
 **Gate:** `PHASE-BLOCKER` in Phase 9
 
 Confirmed settlement history should not be edited in place when later fraud is proven.
@@ -1159,3 +1159,21 @@ A future agent must therefore ask two questions for every discovered problem:
 
 2. Is the current design correct but capacity/latency/operations are uncertain until realistic scale exists?
    → Record/measure here and promote at its trigger.
+
+
+# Phase 10 Hardening Backlog Delta (implementation review)
+
+**Canonical reviewed baseline:** Phase-9 merge `4ca42b1c2be8bc815648f031a7bd7a8b1c226a36` (PR #13: 489/489 hosted tests, Phase 0, Foundation, PostgreSQL/Redis/RabbitMQ, migration drift, and Docker runtime green). The stale Phase-9 PH-005/006/007/042 verification states above are accepted as resolved.
+
+**Phase-10 implementation evidence pending hosted PR gate:**
+
+- PH-002: PostgreSQL publication trigger plus transaction-local service authorization; direct ORM/queryset/SQL publication is fail-closed. Final state remains subject to hosted PostgreSQL tests.
+- PH-004: mission start/list/verify/claim now fail closed when DB verification/repeat policy diverges from the effective configured MissionRule; policy-bearing Admin fields are read-only after creation.
+- PH-009: typed evidence resolution, explicit permission, deterministic purged/expired results, and durable per-view access audit were added.
+- PH-026: publication chronology remains fail-closed. Domain-specific boundary preview enforcement needs final hosted evidence before this item can be marked resolved.
+- PH-027: settlement-control events now retain actor/service actor, reason, ticket, correlation identity and before/after epochs; a PostgreSQL guard rejects direct field mutation.
+- PH-028: WhiteNoise compressed manifest storage, STATIC_ROOT, image-build collectstatic, and DEBUG-independent production serving were added. Resolution requires hosted Docker/Admin asset smoke.
+- PH-034: durable notification and broadcast recipient states provide rebuildable pending/processing/sent/retry/failed/uncertain/skipped metrics. Full SLO/alert/runbook work remains Phase 11.
+- PH-045: an audited, locked manual-review operation supports confirmed revocation, still-unsafe retention, or safe known-credential revocation retry. Broader historical PH-045 questions remain open.
+
+No Phase-11 backup, scale, final SLO, worker-sizing, season-close, or launch-hardening work was started.

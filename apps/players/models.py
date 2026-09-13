@@ -30,6 +30,14 @@ class Player(models.Model):
     moderation_state = models.CharField(
         max_length=16, choices=ModerationState.choices, default=ModerationState.ACTIVE
     )
+    suspension_expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    suspension_action = models.ForeignKey(
+        "moderation.ModerationAction",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="active_suspensions",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 from django.db.models import Q
 
@@ -63,6 +64,12 @@ class SeasonSettlementControlEvent(models.Model):
     previous_start_epoch = models.PositiveSmallIntegerField()
     new_start_epoch = models.PositiveSmallIntegerField()
     changed_at = models.DateTimeField(auto_now_add=True)
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.PROTECT)
+    service_actor = models.CharField(max_length=80, blank=True)
+    reason = models.CharField(max_length=1000, default="legacy-service-change")
+    ticket_reference = models.CharField(max_length=128, blank=True)
+    correlation_id = models.UUIDField(null=True)
 
     class Meta:
         indexes = [models.Index(fields=("season", "changed_at", "id"))]
+        permissions = [("change_settlement_control", "Can change settlement control")]

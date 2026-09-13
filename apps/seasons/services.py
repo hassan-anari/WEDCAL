@@ -1,8 +1,10 @@
+import uuid
 from datetime import datetime, timedelta
+from typing import Any
 
 import structlog
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import connection, transaction
 
 from apps.game_config.models import GameConfigVersion
 from apps.game_config.services import resolve_game_config_version
@@ -101,12 +103,25 @@ def activate_season(season: Season) -> Season:
         ):
             raise ValidationError("An active season already exists")
         season.status = Season.Status.ACTIVE
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT set_config('dexo.settlement_control', 'on', true)")
         season.save(update_fields=["status", "settlement_start_epoch", "updated_at"])
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT set_config('dexo.settlement_control', 'off', true)")
     logger.info("season_activated", season_id=season.pk, season_code=season.code)
     return season
 
 
-def set_settlement_start_epoch(season: Season, epoch: int) -> Season:
+def set_settlement_start_epoch(
+    season: Season,
+    epoch: int,
+    *,
+    actor: Any | None = None,
+    service_actor: str = "legacy-service",
+    reason: str = "legacy service change",
+    ticket_reference: str = "",
+    correlation_id: uuid.UUID | None = None,
+) -> Season:
     """Change the audited operational gate only before any settlement has begun."""
     with transaction.atomic():
         season = Season.objects.select_for_update().get(pk=season.pk)
@@ -124,9 +139,22 @@ def set_settlement_start_epoch(season: Season, epoch: int) -> Season:
         if previous is None:
             previous = distribution.default_settlement_start_epoch
         season.settlement_start_epoch = epoch
+        if not reason.strip() or (actor is None and not service_actor.strip()):
+            raise ValidationError("Settlement control actor and reason are required")
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT set_config('dexo.settlement_control', 'on', true)")
         season.save(update_fields=("settlement_start_epoch", "updated_at"))
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT set_config('dexo.settlement_control', 'off', true)")
         SeasonSettlementControlEvent.objects.create(
-            season=season, previous_start_epoch=previous, new_start_epoch=epoch
+            season=season,
+            previous_start_epoch=previous,
+            new_start_epoch=epoch,
+            actor=actor,
+            service_actor=service_actor if actor is None else "",
+            reason=reason,
+            ticket_reference=ticket_reference,
+            correlation_id=correlation_id or uuid.uuid4(),
         )
     logger.info("settlement_start_epoch_changed", season_id=season.pk, epoch=epoch)
     return season

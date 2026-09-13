@@ -1,4 +1,6 @@
 import logging
+
+# mypy: disable-error-code="misc"
 from datetime import datetime, timedelta
 
 from django.core.exceptions import PermissionDenied
@@ -429,8 +431,21 @@ def sweep_inactivity(*, now: datetime | None = None, limit: int = 100) -> int:
                 )
                 if age >= timedelta(days=warning_days) and m.inactivity_warned_at is None:
                     m.inactivity_warned_at = now
-                    ClanMembershipEvent.objects.create(
+                    warning_event = ClanMembershipEvent.objects.create(
                         membership=m, kind="INACTIVITY_WARNING", occurred_at=now
+                    )
+                    from apps.notifications.services import emit_notification
+
+                    transaction.on_commit(
+                        lambda player=m.player, event=warning_event: emit_notification(
+                            recipient=player,
+                            event_key="CLAN_INACTIVITY_WARNING",
+                            source_domain="CLAN",
+                            source_type="CLAN_MEMBERSHIP_EVENT",
+                            source_id=str(event.pk),
+                            idempotency_key=f"clan-inactivity-warning:{event.pk}",
+                            telegram=True,
+                        )
                     )
                 if m.role == ClanRole.SOLDIER and age >= timedelta(
                     days=policy.soldier_removal_days
@@ -521,6 +536,21 @@ def observe_bot_admin_state(
                 observed_at,
                 source_type="TELEGRAM",
                 source_id=str(int(observed_at.timestamp())),
+            )
+            from apps.notifications.services import emit_notification
+
+            transaction.on_commit(
+                lambda captain=cs.captain, clan_season=cs: emit_notification(
+                    recipient=captain,
+                    event_key="CLAN_BOT_ADMIN_LOST",
+                    source_domain="CLAN",
+                    source_type="CLAN_SEASON",
+                    source_id=str(clan_season.pk),
+                    idempotency_key=(
+                        f"clan-bot-admin-lost:{clan_season.pk}:{int(observed_at.timestamp())}"
+                    ),
+                    telegram=True,
+                )
             )
         elif is_admin and cs.bot_admin_lost_at is not None:
             cs.bot_admin_lost_at = cs.bot_admin_restore_deadline = None

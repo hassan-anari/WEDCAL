@@ -16,6 +16,8 @@ RUN groupadd --system app \
 WORKDIR /app
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 COPY --chown=app:app . .
+RUN DJANGO_SETTINGS_MODULE=dexo_land.settings.test POSTGRES_HOST=localhost \
+    python manage.py collectstatic --noinput
 USER app
 EXPOSE 8000
 CMD ["uvicorn", "dexo_land.asgi:application", "--host", "0.0.0.0", "--port", "8000"]
