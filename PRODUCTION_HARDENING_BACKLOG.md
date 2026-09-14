@@ -1263,3 +1263,23 @@ PH-008, PH-031, PH-032, PH-033, PH-034, PH-039, and PH-049 remain
 `IMPLEMENTED_PENDING_VERIFICATION`: their complete end-to-end, PostgreSQL 17, hosted, container,
 economic restore, loss-matrix, or scale acceptance evidence was not available. PH-037 remains
 `OWNER_ACTION_REQUIRED`. PH-043 remains `OWNER PRODUCT DECISION REQUIRED BEFORE S1 LAUNCH`.
+
+## Phase 11 final correction delta
+
+Owner-supplied hosted evidence establishes PostgreSQL 17.11 migration, Contract Gate, Foundation
+quality/test/Docker runtime/Admin/static success, and 534 hosted tests at correction baseline
+`43eedff187394dce3ff767224d8795136d6e2977`. The final correction adds a complete six-epoch
+close/failure/resume/barrier campaign, real DLX allocation/carry/residual/hold evidence,
+CLOSED/ARCHIVED immutable Redis rebuild checks, worker before/after-commit duplicate-delivery checks,
+and a complete PH-049 projection-column drift test. PH-008 and PH-049 are `VERIFYING` pending the new
+hosted correction run rather than being prematurely marked RESOLVED.
+
+PH-039 remains `VERIFYING`: the broken Trivy action reference is corrected from `0.28.0` to the valid
+upstream `0.36.0`, but the resulting hosted SARIF artifact must be inspected before resolution.
+PH-031 is `VERIFYING`: a representative complete economic database backup/restore matched counts and
+checksums across rewards, projections, Clan ledgers, six epochs, DLX allocations/adjustments/residuals,
+final standings, medals, and Telegram disposition evidence. PH-033 remains
+`IMPLEMENTED_PENDING_VERIFICATION` for its remaining hosted notification process-kill matrix, while
+economic before/after-commit, duplicate delivery, stale lease, RabbitMQ redrive, and Beat singleton
+evidence pass. PH-037 remains `OWNER_ACTION_REQUIRED`; PH-043 remains
+`OWNER PRODUCT DECISION REQUIRED BEFORE S1 LAUNCH`.

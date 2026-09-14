@@ -111,14 +111,36 @@ def test_clan_score_and_tie_are_rebuilt_from_canonical_sources(clan_world) -> No
         idempotency_key="p11-clan-rebuild",
         occurred_at=now,
     )
+    clan_season.treasury_balance = 99
+    clan_season.treasury_earned_total = 99
+    clan_season.contribution_total = 99
+    clan_season.hq_xp = 99
+    clan_season.hq_level = 99
+    clan_season.base_capacity = 99
+    clan_season.capacity_bonus = 99
     clan_season.competitive_score = 99
     clan_season.score_reached_at = now - timedelta(days=1)
-    clan_season.save(update_fields=("competitive_score", "score_reached_at"))
+    clan_season.ranking_generation = 40
+    clan_season.save(
+        update_fields=(
+            "treasury_balance",
+            "treasury_earned_total",
+            "contribution_total",
+            "hq_xp",
+            "hq_level",
+            "base_capacity",
+            "capacity_bonus",
+            "competitive_score",
+            "score_reached_at",
+            "ranking_generation",
+        )
+    )
     report = reconcile_clan_projections(season, repair=True)
     clan_season.refresh_from_db()
     assert report["drifted_clans"] == report["repaired_clans"] == 1
     assert clan_season.competitive_score == 7
     assert clan_season.score_reached_at == now
+    assert clan_season.ranking_generation == 41
     assert all(
         getattr(clan_season, key) == value
         for key, value in canonical_clan_projection(clan_season).items()

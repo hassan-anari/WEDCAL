@@ -327,8 +327,11 @@ def _build_performance_snapshots(epoch: EconomicEpoch, policy: DlxDistributionCo
         decision = decisions[player_id]
         assert decision is not None
         all_rewards = [value for (pid, _), value in reward_rows.items() if pid == player_id]
+        clan_raw = dict(clan_rows.get(player_id, {}))
+        if isinstance(clan_raw.get("latest_source_at"), datetime):
+            clan_raw["latest_source_at"] = cast(datetime, clan_raw["latest_source_at"]).isoformat()
         raw_by_category: dict[str, dict[str, object]] = {
-            "CLAN_PERFORMANCE": clan_rows.get(player_id, {}),
+            "CLAN_PERFORMANCE": clan_raw,
             "CORE_GAMEPLAY": {
                 **_combine_reward_rows(all_rewards),
                 "durable_source_amount": (durable_core.get(player_id) or {}).get("amount", 0),

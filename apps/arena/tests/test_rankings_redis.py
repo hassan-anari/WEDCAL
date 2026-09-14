@@ -1,6 +1,8 @@
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
+from django.contrib.auth.models import Permission, User
 from django.core.cache import cache
 from django.test import Client
 from django.utils import timezone
@@ -18,7 +20,13 @@ from apps.arena.services import (
     release_rebuild_lock,
     renew_rebuild_lock,
 )
-from apps.seasons.models import PlayerSeason
+from apps.seasons.models import (
+    ClanSeasonFinalStanding,
+    PlayerSeason,
+    PlayerSeasonFinalStanding,
+    SeasonCloseRun,
+)
+from apps.seasons.services import archive_closed_season
 
 AT = datetime(2026, 1, 2, tzinfo=UTC)
 
@@ -167,6 +175,124 @@ def test_redis_loss_is_fail_safe_then_rebuilds(  # type: ignore[no-untyped-def]
         ).own_rank
         == 1
     )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("archived", [False, True])
+def test_closed_and_archived_redis_rebuild_uses_only_immutable_final_standings(
+    phase4_config_factory: Any,
+    season_factory: Any,
+    player_factory: Any,
+    close_season_for_test: Any,
+    archived: bool,
+) -> None:
+    season = season_factory(phase4_config_factory())
+    players = [player_factory(12800 + index) for index in range(2)]
+    reached = [AT, AT + timedelta(seconds=1)]
+    for index, player in enumerate(players):
+        PlayerSeason.objects.create(
+            player=player,
+            season=season,
+            season_points=1000 if index == 0 else 1,
+            score_reached_at=reached[index],
+            ranking_generation=99,
+        )
+        PlayerSeasonFinalStanding.objects.create(
+            season=season,
+            player=player,
+            final_rank=index + 1,
+            final_season_points=10,
+            score_reached_at=reached[index],
+            ranking_generation=index + 1,
+            ranked_population=2,
+            finalized_at=timezone.now(),
+        )
+    close_season_for_test(season)
+    if archived:
+        SeasonCloseRun.objects.create(
+            season=season,
+            idempotency_key=f"closed-redis:{season.pk}",
+            stage=SeasonCloseRun.Stage.COMPLETED,
+            cutoff_at=timezone.now(),
+            service_actor="test",
+            reason="closed Redis verification",
+            completed_at=timezone.now(),
+        )
+        actor = User.objects.create_user(f"archive-{season.pk}")
+        actor.user_permissions.add(Permission.objects.get(codename="close_season"))
+        season = archive_closed_season(season, actor=actor, reason="archive Redis test")
+    late = RankingProjectionEvent.objects.create(
+        season=season,
+        entity_type=RankingProjectionEvent.Entity.PLAYER,
+        entity_id=players[1].pk,
+        score=9999,
+        score_reached_at=AT - timedelta(days=1),
+        operation=RankingProjectionEvent.Operation.UPSERT,
+        source_id=f"late-closed:{season.pk}",
+        generation=100,
+    )
+    cache.clear()
+    assert rebuild_ranking(season, RankingProjectionEvent.Entity.PLAYER)
+    result = read_ranking_slice(
+        season_id=season.pk,
+        entity_type=RankingProjectionEvent.Entity.PLAYER,
+        offset=0,
+        limit=10,
+        own_entity_id=players[1].pk,
+    )
+    assert result.ranked_ids == ((players[0].pk, 1), (players[1].pk, 2))
+    assert result.own_rank == 2
+    late.refresh_from_db()
+    assert late.processed_at is None
+
+
+@pytest.mark.django_db
+def test_closed_clan_redis_rebuild_uses_immutable_final_standings_only(
+    clan_world: Any, close_season_for_test: Any
+) -> None:
+    _, _, season, _, _, clan = clan_world
+    clans = [clan(), clan()]
+    reached = [AT, AT + timedelta(seconds=1)]
+    for index, clan_season in enumerate(clans):
+        clan_season.competitive_score = 1000 if index == 0 else 1
+        clan_season.score_reached_at = reached[index]
+        clan_season.ranking_generation = 99
+        clan_season.save(
+            update_fields=("competitive_score", "score_reached_at", "ranking_generation")
+        )
+        ClanSeasonFinalStanding.objects.create(
+            season=season,
+            clan_season=clan_season,
+            clan=clan_season.clan,
+            final_rank=index + 1,
+            final_competitive_score=10,
+            score_reached_at=reached[index],
+            ranking_generation=index + 1,
+            ranked_population=2,
+            finalized_at=timezone.now(),
+        )
+    close_season_for_test(season)
+    RankingProjectionEvent.objects.create(
+        season=season,
+        entity_type=RankingProjectionEvent.Entity.CLAN,
+        entity_id=clans[1].pk,
+        score=9999,
+        score_reached_at=AT - timedelta(days=1),
+        operation=RankingProjectionEvent.Operation.UPSERT,
+        source_id=f"late-closed-clan:{season.pk}",
+        generation=100,
+    )
+    cache.clear()
+    assert rebuild_ranking(season, RankingProjectionEvent.Entity.CLAN)
+    result = read_ranking_slice(
+        season_id=season.pk,
+        entity_type=RankingProjectionEvent.Entity.CLAN,
+        offset=0,
+        limit=10,
+        own_entity_id=clans[1].pk,
+    )
+    assert result.ranked_ids == ((clans[0].pk, 1), (clans[1].pk, 2))
+    assert result.own_rank == 2
 
 
 @pytest.mark.django_db
