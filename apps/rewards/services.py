@@ -4,7 +4,7 @@ from typing import Any
 
 import structlog
 from django.db import IntegrityError, transaction
-from django.db.models import Max, Sum
+from django.db.models import F, Max, Sum
 from django.utils import timezone
 
 from apps.game_config.models import GameConfigVersion
@@ -125,9 +125,28 @@ def settle_reward(
     if gross_amount != player_amount + clan_treasury_amount:
         raise InvalidReward("Reward split must reconcile to gross amount")
     with transaction.atomic():
-        locked_player = Player.objects.select_for_update().get(pk=player.pk)
+        from apps.seasons.barrier import acquire_economic_write_barrier
+
         season = source_season or resolve_current_season(at=occurred_at)
         assert season is not None
+        existing = RewardLedger.objects.filter(idempotency_key=idempotency_key).first()
+        if existing:
+            if not _matches(
+                existing,
+                player=player,
+                season_id=season.pk,
+                source_type=source_type,
+                source_id=source_id,
+                context=context,
+                gross_amount=gross_amount,
+                player_amount=player_amount,
+                clan_treasury_amount=clan_treasury_amount,
+                config_id=resolved_config.id,
+            ):
+                raise IdempotencyConflict("Idempotency key belongs to another reward")
+            return existing, False
+        acquire_economic_write_barrier(season.pk)
+        locked_player = Player.objects.select_for_update().get(pk=player.pk)
         if season.status != Season.Status.ACTIVE and not (
             allow_closed_source_season and season.status == Season.Status.CLOSED
         ):
@@ -316,8 +335,12 @@ def rebuild_player_reward_projections(
                 current.ranking_generation += 1
             current.save()
             seen.add(season_id)
-        PlayerSeason.objects.filter(player=player).exclude(season_id__in=seen).update(
-            season_points=0
+        PlayerSeason.objects.filter(player=player).exclude(season_id__in=seen).exclude(
+            season_points=0, score_reached_at__isnull=True
+        ).update(
+            season_points=0,
+            score_reached_at=None,
+            ranking_generation=F("ranking_generation") + 1,
         )
     logger.info("reward_projection_rebuilt", player_id=player.pk)
     return projection

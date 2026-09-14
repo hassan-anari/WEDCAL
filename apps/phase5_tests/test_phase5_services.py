@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
@@ -752,7 +753,7 @@ def test_late_activity_is_explicit_after_grace_finalization(world) -> None:  # t
 
 
 @pytest.mark.django_db
-def test_closed_season_window_has_durable_deferred_outcome(world) -> None:  # type: ignore[no-untyped-def]
+def test_closed_season_window_has_durable_deferred_outcome(world, close_season_for_test) -> None:  # type: ignore[no-untyped-def]
     config, season, player = world
     creator, speaker = player(1201), player(1202)
     group = TelegramGroup.objects.create(
@@ -776,7 +777,7 @@ def test_closed_season_window_has_durable_deferred_outcome(world) -> None:  # ty
         text="d" * 200,
         observed_at=AT,
     )
-    Season.objects.filter(pk=season.pk).update(status=Season.Status.CLOSED)
+    close_season_for_test(season)
     assert settle_completed_windows(now=AT + timedelta(minutes=26)) == 1
     settlement = CreatorWindowSettlement.objects.get(
         registration=registration, season=season, config_version=config
@@ -887,12 +888,12 @@ def test_future_speaker_reward_is_deterministic_and_referral_ineligible(world) -
 
 
 @pytest.mark.django_db
-def test_referral_sweeper_advances_during_season_gap(world) -> None:  # type: ignore[no-untyped-def]
+def test_referral_sweeper_advances_during_season_gap(world, close_season_for_test) -> None:  # type: ignore[no-untyped-def]
     _, season, player = world
     inviter, invitee = player(1601), player(1602)
     relation = attribute_start(invitee, get_or_create_code(inviter).code, at=AT)
     assert relation
-    Season.objects.filter(pk=season.pk).update(status=Season.Status.CLOSED)
+    close_season_for_test(season)
     assert activate_relation(relation.pk, at=AT) is False
     relation.refresh_from_db()
     assert relation.next_evaluation_at == AT + timedelta(hours=1)
@@ -918,11 +919,16 @@ def test_transient_creator_verification_persists_retry_schedule(world, monkeypat
         verify_registration(registration.pk)
     registration.refresh_from_db()
     assert registration.last_verification_error == "timeout"
-    assert registration.next_verification_at == AT + timedelta(minutes=5)
+    expected_delay = settings.TELEGRAM_API_DEFAULT_RETRY_SECONDS + (
+        registration.pk % max(settings.TELEGRAM_API_RETRY_JITTER_SECONDS, 1)
+    )
+    assert registration.next_verification_at == AT + timedelta(seconds=expected_delay)
 
 
 @pytest.mark.django_db
-def test_delayed_closed_season_activity_preserves_historical_season(world) -> None:  # type: ignore[no-untyped-def]
+def test_delayed_closed_season_activity_preserves_historical_season(
+    world: Any, close_season_for_test: Any
+) -> None:
     config, season, player = world
     creator, speaker = player(1801), player(1802)
     group = TelegramGroup.objects.create(
@@ -938,7 +944,7 @@ def test_delayed_closed_season_activity_preserves_historical_season(world) -> No
         state=CreatorGroupRegistration.State.ACTIVE,
         reward_eligible_since=AT - timedelta(days=1),
     )
-    Season.objects.filter(pk=season.pk).update(status=Season.Status.CLOSED)
+    close_season_for_test(season)
     activity = record_activity(
         registration=registration,
         sender=speaker,

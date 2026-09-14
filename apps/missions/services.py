@@ -75,6 +75,19 @@ def _eligibility(
     return "definition"
 
 
+def _mission_period(
+    definition: MissionDefinition, at: datetime, resolved: ResolvedGameConfig
+) -> str:
+    timezone_name = (
+        resolved.typing.reset_timezone
+        if definition.key == "typing-session"
+        else resolved.daily.reset_timezone
+    )
+    return _eligibility(
+        definition, at, timezone_name, resolved.daily.reset_hour, resolved.daily.reset_minute
+    )
+
+
 def _open_token(progress: PlayerMission) -> str:
     identity = (
         f"{progress.player_id}:{progress.definition_id}:{progress.eligibility_period}".encode()
@@ -100,13 +113,7 @@ def list_missions(player: Player, at: datetime) -> list[dict[str, object]]:
     identities = [
         (
             row.pk,
-            _eligibility(
-                row,
-                at,
-                resolved.daily.reset_timezone,
-                resolved.daily.reset_hour,
-                resolved.daily.reset_minute,
-            ),
+            _mission_period(row, at, resolved),
         )
         for row in latest.values()
     ]
@@ -120,13 +127,7 @@ def list_missions(player: Player, at: datetime) -> list[dict[str, object]]:
     for definition in latest.values():
         rule = resolved.missions.definition(definition.key)
         _require_policy_binding(definition, resolved)
-        period = _eligibility(
-            definition,
-            at,
-            resolved.daily.reset_timezone,
-            resolved.daily.reset_hour,
-            resolved.daily.reset_minute,
-        )
+        period = _mission_period(definition, at, resolved)
         row = progress.get((definition.pk, period))
         result.append(
             {
@@ -149,13 +150,7 @@ def start_mission(player: Player, key: str, at: datetime) -> MissionStart:
         raise MissionUnavailable("Missions are unavailable in the effective configuration")
     definition = _definition(key, at)
     _require_policy_binding(definition, resolved)
-    eligibility = _eligibility(
-        definition,
-        at,
-        resolved.daily.reset_timezone,
-        resolved.daily.reset_hour,
-        resolved.daily.reset_minute,
-    )
+    eligibility = _mission_period(definition, at, resolved)
     with transaction.atomic():
         player = Player.objects.select_for_update().get(pk=player.pk)
         progress, created = PlayerMission.objects.get_or_create(
@@ -192,6 +187,9 @@ def _mark_ready(player: Player, progress_id: int, at: datetime) -> PlayerMission
     assert season is not None
     require_reward_earning_time(season, at)
     with transaction.atomic():
+        from apps.seasons.barrier import acquire_economic_write_barrier
+
+        acquire_economic_write_barrier(season.pk)
         player = Player.objects.select_for_update().get(pk=player.pk)
         progress = (
             PlayerMission.objects.select_for_update()
@@ -228,13 +226,7 @@ def verify_mission(
     resolved = resolve_effective_game_config(at)
     definition = _definition(key, at)
     _require_policy_binding(definition, resolved)
-    eligibility = _eligibility(
-        definition,
-        at,
-        resolved.daily.reset_timezone,
-        resolved.daily.reset_hour,
-        resolved.daily.reset_minute,
-    )
+    eligibility = _mission_period(definition, at, resolved)
     progress = (
         PlayerMission.objects.select_related("definition")
         .filter(player=player, definition=definition, eligibility_period=eligibility)
@@ -299,13 +291,7 @@ def verify_mission(
 def claim_mission(player: Player, key: str, at: datetime) -> tuple[PlayerMission, bool]:
     resolved_now = resolve_effective_game_config(at)
     definition = _definition(key, at)
-    eligibility = _eligibility(
-        definition,
-        at,
-        resolved_now.daily.reset_timezone,
-        resolved_now.daily.reset_hour,
-        resolved_now.daily.reset_minute,
-    )
+    eligibility = _mission_period(definition, at, resolved_now)
     with transaction.atomic():
         player = Player.objects.select_for_update().get(pk=player.pk)
         progress = (

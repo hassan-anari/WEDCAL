@@ -55,51 +55,63 @@ def effective_capacity(clan_season: ClanSeason, policy: ClanConfig) -> int:
     )
 
 
+def canonical_clan_projection(clan_season: ClanSeason) -> dict[str, Any]:
+    """Calculate every ClanSeason projection owned by the canonical rebuild service."""
+    credits = (
+        clan_season.treasury_entries.filter(direction="CREDIT").aggregate(v=models.Sum("amount"))[
+            "v"
+        ]
+        or 0
+    )
+    debits = (
+        clan_season.treasury_entries.filter(direction="DEBIT").aggregate(v=models.Sum("amount"))[
+            "v"
+        ]
+        or 0
+    )
+    contribution = clan_season.contribution_entries.aggregate(v=models.Sum("amount"))["v"] or 0
+    hq_xp = clan_season.hq_xp_entries.aggregate(v=models.Sum("amount"))["v"] or 0
+    score_source = clan_season.economic_settlements.filter(clan_score_amount__gt=0).aggregate(
+        v=models.Sum("clan_score_amount"), reached_at=models.Max("occurred_at")
+    )
+    score = score_source["v"] or 0
+    policy = resolve_game_config_version(clan_season.config_version_id).clan
+    if policy is None or debits > credits:
+        raise ValidationError("Clan durable sources cannot produce a valid projection")
+    capacity_bonus = 0
+    for use in clan_season.item_uses.select_related("config_version"):
+        use_policy = resolve_game_config_version(use.config_version_id).clan
+        if use_policy is None:
+            continue
+        item = use_policy.item(use.item_id)
+        capacity_bonus += sum(e.value for e in item.effects if e.category == "SEASON_CAPACITY_ADD")
+    rule = hq_rule(policy, hq_xp)
+    return {
+        "treasury_balance": credits - debits,
+        "treasury_earned_total": credits,
+        "contribution_total": contribution,
+        "hq_xp": hq_xp,
+        "competitive_score": score,
+        "score_reached_at": score_source["reached_at"] if score else None,
+        "capacity_bonus": capacity_bonus,
+        "hq_level": rule.level,
+        "base_capacity": rule.base_capacity,
+    }
+
+
 def rebuild_clan_projections(clan_season: ClanSeason) -> ClanSeason:
     """Rebuild derived Phase 8 totals exclusively from durable source rows."""
     with transaction.atomic():
         cs = ClanSeason.objects.select_for_update().get(pk=clan_season.pk)
-        credits = (
-            cs.treasury_entries.filter(direction="CREDIT").aggregate(v=models.Sum("amount"))["v"]
-            or 0
-        )
-        debits = (
-            cs.treasury_entries.filter(direction="DEBIT").aggregate(v=models.Sum("amount"))["v"]
-            or 0
-        )
-        contribution = cs.contribution_entries.aggregate(v=models.Sum("amount"))["v"] or 0
-        hq_xp = cs.hq_xp_entries.aggregate(v=models.Sum("amount"))["v"] or 0
-        score_source = cs.economic_settlements.aggregate(
-            v=models.Sum("clan_score_amount"), reached_at=models.Max("occurred_at")
-        )
-        score = score_source["v"] or 0
-        policy = resolve_game_config_version(cs.config_version_id).clan
-        if policy is None or debits > credits:
-            raise ValidationError("Clan durable sources cannot produce a valid projection")
-        capacity_bonus = 0
-        for use in cs.item_uses.select_related("config_version"):
-            use_policy = resolve_game_config_version(use.config_version_id).clan
-            if use_policy is None:
-                continue
-            item = use_policy.item(use.item_id)
-            capacity_bonus += sum(
-                e.value for e in item.effects if e.category == "SEASON_CAPACITY_ADD"
-            )
-        cs.treasury_balance = credits - debits
-        cs.treasury_earned_total = credits
-        cs.contribution_total = contribution
-        cs.hq_xp = hq_xp
+        expected = canonical_clan_projection(cs)
         score_changed = (
-            cs.competitive_score != score or cs.score_reached_at != score_source["reached_at"]
+            cs.competitive_score != expected["competitive_score"]
+            or cs.score_reached_at != expected["score_reached_at"]
         )
-        cs.competitive_score = score
-        cs.score_reached_at = score_source["reached_at"] if score else None
+        for field, value in expected.items():
+            setattr(cs, field, value)
         if score_changed:
             cs.ranking_generation += 1
-        cs.capacity_bonus = capacity_bonus
-        rule = hq_rule(policy, hq_xp)
-        cs.hq_level = rule.level
-        cs.base_capacity = rule.base_capacity
         cs.save()
         return cs
 
@@ -217,6 +229,9 @@ def settle_clan_reward(
     metadata: dict[str, Any] | None = None,
     source_facts_verified: bool = False,
 ) -> tuple[ClanEconomicSettlement, bool]:
+    from apps.seasons.barrier import acquire_economic_write_barrier
+
+    acquire_economic_write_barrier(membership.season_id)
     _validate_key(idempotency_key)
     if (
         source_type not in {"CLAN_ACTIVITY", "CLAN_MISSION"}

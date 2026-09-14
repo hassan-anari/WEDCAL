@@ -138,6 +138,9 @@ def record_clan_activity(
     )
     try:
         with transaction.atomic():
+            from apps.seasons.barrier import acquire_economic_write_barrier
+
+            acquire_economic_write_barrier(season.pk)
             # Qualification horizons cross aggregation and config boundaries.
             # Always take this broader lock before the narrower window lock.
             lock_activity_qualification(clan_season.pk, sender.pk)

@@ -10,8 +10,19 @@ from apps.rewards.models import RewardSettlementOutbox
 
 
 def consume_outbox(outbox_id: int) -> bool:
+    season_id = RewardSettlementOutbox.objects.values_list("reward__season_id", flat=True).get(
+        pk=outbox_id
+    )
+    from apps.seasons.barrier import economic_write_session_barrier
+
+    with economic_write_session_barrier(season_id):
+        return _consume_outbox(outbox_id)
+
+
+def _consume_outbox(outbox_id: int) -> bool:
     now = timezone.now()
     lease_until = now + timedelta(seconds=settings.REWARD_OUTBOX_LEASE_SECONDS)
+
     with transaction.atomic():
         item = (
             RewardSettlementOutbox.objects.select_for_update()

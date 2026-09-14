@@ -72,7 +72,7 @@ services:
     depends_on: *dependencies
   beat:
     <<: *app
-    command: ["celery", "-A", "dexo_land", "beat", "--loglevel=INFO", "--schedule=/app/run/celerybeat-schedule"]
+    command: ["python", "manage.py", "run_beat_singleton"]
     depends_on: *dependencies
 
 volumes:

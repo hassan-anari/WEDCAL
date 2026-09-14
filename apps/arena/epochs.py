@@ -147,6 +147,9 @@ def drain_blockers(epoch: EconomicEpoch) -> list[DrainBlocker]:
 
 def begin_draining(epoch: EconomicEpoch, *, at: datetime) -> EconomicEpoch:
     with transaction.atomic():
+        from apps.seasons.barrier import acquire_economic_write_barrier
+
+        acquire_economic_write_barrier(epoch.season_id)
         row = EconomicEpoch.objects.select_for_update().get(pk=epoch.pk)
         if row.state == EconomicEpoch.State.OPEN:
             if at < row.ends_at:
@@ -176,6 +179,9 @@ def freeze_epoch(epoch: EconomicEpoch, *, at: datetime | None = None) -> Economi
         )
         raise EpochBlocked(",".join(f"{x.provider}:{x.count}" for x in blockers))
     with transaction.atomic():
+        from apps.seasons.barrier import acquire_economic_write_barrier
+
+        acquire_economic_write_barrier(row.season_id)
         row = EconomicEpoch.objects.select_for_update().get(pk=row.pk)
         blockers = drain_blockers(row)
         if blockers:
@@ -321,8 +327,11 @@ def _build_performance_snapshots(epoch: EconomicEpoch, policy: DlxDistributionCo
         decision = decisions[player_id]
         assert decision is not None
         all_rewards = [value for (pid, _), value in reward_rows.items() if pid == player_id]
+        clan_raw = dict(clan_rows.get(player_id, {}))
+        if isinstance(clan_raw.get("latest_source_at"), datetime):
+            clan_raw["latest_source_at"] = cast(datetime, clan_raw["latest_source_at"]).isoformat()
         raw_by_category: dict[str, dict[str, object]] = {
-            "CLAN_PERFORMANCE": clan_rows.get(player_id, {}),
+            "CLAN_PERFORMANCE": clan_raw,
             "CORE_GAMEPLAY": {
                 **_combine_reward_rows(all_rewards),
                 "durable_source_amount": (durable_core.get(player_id) or {}).get("amount", 0),
@@ -428,6 +437,9 @@ def settle_epoch(
     strategies: dict[str, AllocationStrategy] | None = None,
     at: datetime | None = None,
 ) -> EconomicEpoch:
+    from apps.seasons.barrier import acquire_economic_write_barrier
+
+    acquire_economic_write_barrier(epoch.season_id)
     season = Season.objects.select_for_update().get(pk=epoch.season_id)
     row = EconomicEpoch.objects.select_for_update().get(pk=epoch.pk)
     if row.state == EconomicEpoch.State.SETTLED:
@@ -542,6 +554,9 @@ def reconcile_epoch(epoch: EconomicEpoch) -> dict[str, bool]:
 
 @transaction.atomic
 def evaluate_growth_unlocks(season: Season) -> list[GrowthUnlockEvent]:
+    from apps.seasons.barrier import acquire_economic_write_barrier
+
+    acquire_economic_write_barrier(season.pk)
     locked = Season.objects.select_for_update().get(pk=season.pk)
     policy = resolve_game_config_version(locked.baseline_config_id).dlx_distribution
     if policy is None or not policy.growth_milestones:

@@ -30,6 +30,43 @@ class TelegramInboundUpdate(models.Model):
         indexes = [models.Index(fields=("state", "received_at"))]
 
 
+class TelegramDeadLetterDisposition(models.Model):
+    """Append-only operator evidence for a terminal Telegram ingress decision."""
+
+    class Outcome(models.TextChoices):
+        REQUEUE = "REQUEUE", "Requeue"
+        DISPOSE = "DISPOSE", "Ignore as non-economic/non-applicable"
+
+    inbound_update = models.ForeignKey(
+        TelegramInboundUpdate, on_delete=models.PROTECT, related_name="dead_letter_dispositions"
+    )
+    outcome = models.CharField(max_length=16, choices=Outcome.choices)
+    actor = models.ForeignKey("auth.User", null=True, on_delete=models.PROTECT)
+    service_actor = models.CharField(max_length=80, blank=True)
+    reason = models.CharField(max_length=1000)
+    evidence_reference = models.CharField(max_length=255)
+    idempotency_key = models.CharField(max_length=200, unique=True)
+    failure_category = models.CharField(max_length=100, blank=True)
+    processing_attempts = models.PositiveIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        permissions = [("resolve_dead_letter", "Can resolve Telegram dead letters")]
+        indexes = [models.Index(fields=("inbound_update", "created_at"))]
+
+    def save(self, *args: object, **kwargs: object) -> None:
+        if self.pk:
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError("Dead-letter dispositions are immutable")
+        super().save(*args, **kwargs)  # type: ignore[arg-type]
+
+    def delete(self, *args: object, **kwargs: object) -> tuple[int, dict[str, int]]:
+        from django.core.exceptions import ValidationError
+
+        raise ValidationError("Dead-letter dispositions are immutable")
+
+
 class TelegramGroup(models.Model):
     class ChatType(models.TextChoices):
         GROUP = "group", "Group"

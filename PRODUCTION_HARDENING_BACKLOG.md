@@ -9,8 +9,9 @@
 **Phase 9 correction review base:** PR #13 `5233ed302f8ae515a91a2c9aa9682ebbec9ffb6f`
 **Phase 9 merged baseline:** `4ca42b1c2be8bc815648f031a7bd7a8b1c226a36`
 **Phase 10 reviewed hosted HEAD:** `d049af43a3c9d18d4221e883413834d82125ae78`
+**Phase 11 final reviewed hosted HEAD:** `eb6b293b472bacb273d69c8681406cc15af58c96`
 **Initial review date:** 2026-09-10
-**Last reviewed:** 2026-09-13 (Phase 10 PR #14 final correction; hosted baseline 503/505 tests)
+**Last reviewed:** 2026-09-14 (Phase 11 PR #16 final hosted verification; 542/542 tests)
 **Owner:** repository/product owner
 
 ---
@@ -114,7 +115,7 @@ Until functional MVP is complete:
 | PH-005 | Authoritative anti-Sybil / qualified-player eligibility | RESOLVED | PHASE-BLOCKER | Accepted in merged Phase 9 | High |
 | PH-006 | Weekly epoch attribution + source-event watermark | RESOLVED | PHASE-BLOCKER | Accepted in merged Phase 9 | High |
 | PH-007 | Weekly DLX settlement engine invariants | RESOLVED | PHASE-BLOCKER | Accepted in merged Phase 9 | High |
-| PH-008 | Season-close drain/finalization of valid pending work | OPEN | PHASE-BLOCKER | Phase 11 | High |
+| PH-008 | Season-close drain/finalization of valid pending work | RESOLVED | PHASE-BLOCKER | Phase 11 final hosted verification | High |
 | PH-009 | Moderation evidence retention/access audit | VERIFYING | PHASE-BLOCKER | Phase 7/10 when moderation/admin flows are implemented | High |
 | PH-010 | Base Tap recovery throughput | WATCH | MEASURE-BEFORE-LAUNCH | Phase 11 load test; promote if backlog SLA fails | High at scale |
 | PH-011 | Base Tap receipt cleanup/table growth | WATCH | MEASURE-BEFORE-LAUNCH | Phase 11 load test; promote if creation > cleanup sustainably | High at scale |
@@ -146,13 +147,13 @@ Until functional MVP is complete:
 | PH-045 | Unresolved Clan lifecycle product decisions | OPEN | PHASE-BLOCKER | Phase 7B dissolution/recovery design | Medium/High |
 | PH-046 | Multi-Season Clan identity/state isolation | OPEN | SEASON-2-BLOCKER | Before a persistent Clan enters Season 2 | High |
 | PH-047 | Accepted JOIN reservation and credential liveness | RESOLVED | CLOSED | Phase 8 correctness pass | High |
-| PH-037 | Main-branch protection / ruleset enforcement | OPEN | LAUNCH-BLOCKER | Before multiple operators/agents or production release flow | Medium/High process |
+| PH-037 | Main-branch protection / ruleset enforcement | OWNER_ACTION_REQUIRED | LAUNCH-BLOCKER | Before multiple operators/agents or production release flow | Medium/High process |
 | PH-038 | Contract-gate robustness beyond prose substring checks | OPEN | POLISH / GOVERNANCE | Before production governance freeze | Medium |
-| PH-039 | Dependency/container vulnerability review | OPEN | LAUNCH-BLOCKER | Phase 11 | Medium/High |
+| PH-039 | Dependency/container vulnerability review | RESOLVED | LAUNCH-BLOCKER | Phase 11 PR #16 hosted release scans | Medium/High |
 | PH-040 | Season 2 REFERENCE/LIVE price source semantics | OPEN | PHASE-BLOCKER | Season 2 price integration, not S1 | High financial UI |
 | PH-041 | DLX native precision / off-chain → chain conversion | OPEN | PHASE-BLOCKER | Before any on-chain claim/transfer | Critical financial |
 | PH-042 | Fraud forfeiture/adjustment ledger + appeal/audit path | RESOLVED | PHASE-BLOCKER | Accepted in merged Phase 9; Phase-10 operations retained | High |
-| PH-043 | `read-season-brief` authoritative INTERNAL evidence | OPEN | LAUNCH-BLOCKER | Does not block Phase 6/7 MVP development; final S1 mission/launch gate | High functional |
+| PH-043 | `read-season-brief` authoritative INTERNAL evidence | OWNER PRODUCT DECISION REQUIRED BEFORE S1 LAUNCH | LAUNCH-BLOCKER | Final S1 mission/launch gate | High functional |
 | PH-044 | Repeated same-key multi-season medal provenance | WATCH | SEASON-2-BLOCKER | Before Season 2 Profile/Collection integration | Medium product/API |
 
 ---
@@ -437,10 +438,21 @@ ledger rows. Delayed carry, drift, immutable-history and PostgreSQL contention t
 ## PH-008 — Season-close drain and finalization barrier
 
 **Origin:** Phase 4/5 + Economy Sync
-**State:** `OPEN`
+**State:** `RESOLVED — Phase 11 final hosted verification`
 **Gate:** `PHASE-BLOCKER` in Phase 11
 
-Current central reward guard correctly prevents new S1 economic events during days 43–45, but valid work from before the Day-42 cutoff can still be pending asynchronously.
+**Resolution evidence:** PR #16 exercised the complete six-epoch Season-close workflow from
+`PREPARING` through `COMPLETED`, including durable failure/resume and PostgreSQL advisory-barrier
+ordering. Eligible pre-cutoff work committed before the barrier was included; writers starting after
+barrier establishment failed closed. Player and Clan projections reconciled before immutable final
+standings and honors. DLX allocations, chronological carry, adjustments and explicit residuals
+reconciled across epochs 1–6 with no seventh epoch. CLOSED/ARCHIVED Redis rankings rebuilt from final
+PostgreSQL standings, worker-loss/redrive remained idempotent, and the representative economic
+backup restored with matching durable counts/checksums. Final hosted HEAD
+`eb6b293b472bacb273d69c8681406cc15af58c96` passed 542/542 tests.
+
+The original risk was valid pre-Day-42 work remaining pending asynchronously after new earning had
+closed. Phase 11 now handles that work through the durable drain and finalization barrier.
 
 Examples requiring explicit close handling:
 
@@ -450,8 +462,6 @@ Examples requiring explicit close handling:
 - Base Tap accumulators with valid pre-cutoff accepted XP.
 - mission rows already `REWARD_READY` but not claimed.
 - Typing wallet credits earned before cutoff but not yet claimed.
-
-**Important:** current Typing config validates options such as `auto_settle_at_season_close` / source-Season preservation, but these policy flags are not all represented in the runtime typed config or close workflow yet.
 
 **Required acceptance:**
 
@@ -638,7 +648,7 @@ Current `/bootstrap` returns `dict[str, Any]`. As Profile, Clan, Arena and notif
 The enabled Season 1 `read-season-brief` mission has no approved server-owned fact or verifier.
 The existing INTERNAL verifier therefore fails closed rather than accepting a client assertion.
 
-**Status:** OPEN
+**Status:** OWNER PRODUCT DECISION REQUIRED BEFORE S1 LAUNCH
 **Gate:** LAUNCH-BLOCKER
 **Target / Promotion Trigger:** This does not block Phase 6/7 MVP feature development today, but
 must be resolved before the final Season 1 mission/launch gate, once the authoritative
@@ -882,6 +892,8 @@ This is an **ongoing agent requirement** once table volume becomes material.
 
 ## PH-037 — Main branch protection / repository ruleset
 
+**State:** `OWNER_ACTION_REQUIRED`
+
 At the initial review point, GitHub reports `main` as unprotected even though `AGENTS.md` defines a strict PR/green-check/owner-approval gate.
 
 **Risk:** process is currently enforced by discipline, not repository controls; accidental direct push or merge can bypass CI/review.
@@ -902,7 +914,17 @@ Do not turn this into a documentation parser project unless a real gap is demons
 
 ## PH-039 — Dependency and container vulnerability review
 
-Current CI covers lint/type/tests/migrations/Docker smoke. Final release should also know whether runtime dependencies/base images carry known critical vulnerabilities.
+**State:** `RESOLVED — Phase 11 PR #16 hosted release scans`
+
+**Resolution evidence:** Final hosted HEAD `eb6b293b472bacb273d69c8681406cc15af58c96`
+passed the dependency audit, Trivy SARIF scan, Trivy JSON scan, and actionable-vulnerability policy.
+The final image has 0 CRITICAL findings, 0 fixable HIGH findings, and 0 fixable CRITICAL findings.
+Its 8 remaining unique HIGH/CRITICAL IDs have no upstream `FixedVersion` and each has an explicit
+runtime applicability/risk disposition in `docs/PHASE11_CONTAINER_SECURITY.md`. The retained scan
+artifacts are machine-readable and no blanket ignore or vulnerability suppression was introduced.
+
+Final PR #16 CI covers dependency and final-runtime image vulnerability scanning in addition to its
+lint/type/test/migration/Docker gates, and retains the scan artifacts used for the accepted review.
 
 **Acceptance:** dependency/container scan in release CI or documented release process; block only on actionable critical/high findings according to an owner-approved policy. Pin/update deliberately and rerun full regression tests.
 
@@ -1202,3 +1224,109 @@ PH-002, PH-004, PH-009, PH-026, PH-027 and PH-028 remain `VERIFYING` until the f
 - Broadcast Admin authorization now treats `notifications.manage_broadcasts` as authoritative for direct view/add/change URLs and keeps deletion disabled.
 - New PostgreSQL threaded evidence covers Broadcast claim/cancel/lease/finalization races, suspension expiry vs BAN, and invite-risk resolution vs operators/revocation lifecycle.
 - PH-002, PH-004, PH-009, PH-026, PH-027, and PH-028 remain VERIFYING until the final hosted correction HEAD is green. PH-034 remains OPEN overall; only its Phase-10 durable delivery metrics slice is implemented. PH-045 remains OPEN overall; its Phase-10 operational sub-requirement is under final hosted verification.
+
+
+# Phase 11 Stage-1 hardening delta
+
+**Canonical accepted baseline:** merge `0d1906c10ad2b94d6029f831937d79aba2cb192a`;
+the final hosted Phase-10 suite passed **519 / 519**. PH-002, PH-004, PH-009, PH-026, PH-027 and
+PH-028 are accepted as resolved by that merge and are not reopened without regression evidence.
+
+**State vocabulary for this delta:** `IMPLEMENTED_PENDING_VERIFICATION` means code/tooling exists,
+but Stage 2 must provide PostgreSQL, concurrency, drill, load, scan, or hosted-CI evidence before
+promotion to RESOLVED.
+
+| Item | Stage-1 state | Implementation / remaining evidence |
+|---|---|---|
+| PH-008 | IMPLEMENTED_PENDING_VERIFICATION | Durable provider registry, readiness report and persisted drain evidence; full close drill pending |
+| PH-012 | IMPLEMENTED_PENDING_VERIFICATION | Configured Redis request-cost throttling before mutation DB work; benchmark pending |
+| PH-015 | IMPLEMENTED_PENDING_VERIFICATION | Reward outbox counts, lag, retry and error-category metrics |
+| PH-019 | IMPLEMENTED_PENDING_VERIFICATION | Global/method Bot API budget, retry-after scheduling and jitter; burst drill pending |
+| PH-020 | VERIFYING | Typing errors typed; bootstrap query budget remains Stage-2 measurement |
+| PH-022 | IMPLEMENTED_PENDING_VERIFICATION | Unsupported S1 lifecycle flag values rejected at publication |
+| PH-023 | IMPLEMENTED_PENDING_VERIFICATION | Typing mission uses Typing reset timezone |
+| PH-024 | IMPLEMENTED_PENDING_VERIFICATION | Stable expected Typing 409/429 responses and OpenAPI declarations |
+| PH-025 | IMPLEMENTED_PENDING_VERIFICATION | Missed Daily period exposes effective reset streak without deleting history |
+| PH-029 / PH-030 | IMPLEMENTED_PENDING_VERIFICATION | Production security injection and rotation runbook; security execution pending |
+| PH-031 | IMPLEMENTED_PENDING_VERIFICATION | Guarded backup/restore and reconciliation commands; actual restore pending |
+| PH-033 / PH-034 | IMPLEMENTED_PENDING_VERIFICATION | Operational snapshot and Stage-2 SLO worksheet; alert thresholds pending measurement |
+| PH-037 | OWNER_ACTION_REQUIRED | Configure required GitHub ruleset; not changed by application code |
+| PH-038 | IMPLEMENTED_PENDING_VERIFICATION | Structural contract-gate expansion remains subject to hosted gate |
+| PH-039 | IMPLEMENTED_PENDING_VERIFICATION | Dependency/container report workflow added; findings not yet evaluated |
+| PH-043 | OPEN — OWNER PRODUCT DECISION REQUIRED BEFORE S1 LAUNCH | **PH-043 IMPLEMENTATION BLOCKED BY PRODUCT DECISION**; no server evidence exists |
+| PH-049 | IMPLEMENTED_PENDING_VERIFICATION | Bounded canonical Clan rebuild covers Treasury, Contribution, HQ/capacity, score and tie provenance; deliberate Stage-2 drift drill pending |
+
+WATCH items PH-010/011/013/014/016/017/018/021/032/035 now have deterministic load manifests,
+query EXPLAIN, relation sizing, provider-lag and reconciliation measurement primitives. All measured
+capacity outcomes remain **MEASUREMENT REQUIRED IN STAGE 2**. No S1 launch item is promoted merely
+because Stage-1 code exists.
+
+## Phase 11 Stage-1 implementation-review correction
+
+The finalization barrier, durable FAILED write, transient/manual drain scheduling, canonical bounded
+RewardLedger projection rebuild, Season-scoped referral drain, append-only anomaly resolution,
+amount-based DLX adjustment totals, stored Mission config provenance, service-backed Clan credential
+disposition, final-standing-only closed ranking rebuild, and explicit trusted-proxy throttle identity
+are `IMPLEMENTED_PENDING_VERIFICATION`. These corrections require Stage-2 PostgreSQL concurrency and
+failure evidence before any item is promoted to RESOLVED. PH-043 and PH-037 remain unchanged.
+
+The final Stage-1 correction additionally makes Player and Clan tie provenance a first-class
+reconciliation invariant and treats pre-cutoff Telegram dead letters as manual work with immutable,
+permissioned REQUEUE/DISPOSE evidence. Full concurrency and operational drills remain Stage 2.
+
+## Phase 11 Stage-2 local verification delta — 2026-09-14
+
+The PostgreSQL/Redis/RabbitMQ regression suite and focused barrier/dead-letter/security checks pass
+locally. Real active-ranking Redis flush/rebuild, Telegram broker outage/redrive, Beat singleton,
+production HTTP/static, dependency audit, narrow 50K Player load, and isolated 50K Player restore
+evidence are recorded in `docs/PHASE11_STAGE2_EVIDENCE.md`.
+
+At that intermediate checkpoint, PH-008, PH-031, PH-032, PH-033, PH-034, PH-039, and PH-049 were
+`IMPLEMENTED_PENDING_VERIFICATION` because their complete end-to-end, PostgreSQL 17, hosted,
+container, economic restore, loss-matrix, or scale acceptance evidence was not yet available. PH-037 remained
+`OWNER_ACTION_REQUIRED`. PH-043 remains `OWNER PRODUCT DECISION REQUIRED BEFORE S1 LAUNCH`.
+
+## Phase 11 final correction delta
+
+Owner-supplied hosted evidence establishes PostgreSQL 17.11 migration, Contract Gate, Foundation
+quality/test/Docker runtime/Admin/static success, and 534 hosted tests at correction baseline
+`43eedff187394dce3ff767224d8795136d6e2977`. The final correction adds a complete six-epoch
+close/failure/resume/barrier campaign, real DLX allocation/carry/residual/hold evidence,
+CLOSED/ARCHIVED immutable Redis rebuild checks, worker before/after-commit duplicate-delivery checks,
+and a complete PH-049 projection-column drift test. At that correction checkpoint, PH-008 and PH-049
+were `VERIFYING` pending the new hosted correction run rather than being prematurely marked resolved.
+
+PH-039 was then `VERIFYING`: the broken Trivy action reference was corrected from `0.28.0` to the
+valid upstream `0.36.0`, but its hosted SARIF artifact had not yet been inspected. PH-031 was then
+`VERIFYING`: a representative complete economic database backup/restore matched counts and
+checksums across rewards, projections, Clan ledgers, six epochs, DLX allocations/adjustments/residuals,
+final standings, medals, and Telegram disposition evidence. PH-033 was then
+`IMPLEMENTED_PENDING_VERIFICATION` for its remaining hosted notification process-kill matrix, while
+economic before/after-commit, duplicate delivery, stale lease, RabbitMQ redrive, and Beat singleton
+evidence pass. PH-037 remains `OWNER_ACTION_REQUIRED`; PH-043 remains
+`OWNER PRODUCT DECISION REQUIRED BEFORE S1 LAUNCH`.
+
+## Phase 11 final container-security remediation delta
+
+The final PR #16 hosted HEAD `eb6b293b472bacb273d69c8681406cc15af58c96` is green for Contract
+Gate, Foundation, Phase-11 Release Scans, PostgreSQL 17.11 migrations/no drift, Redis 8, RabbitMQ 4.3,
+Docker runtime/Admin/static smoke, and 542 tests. The original retained container SARIF established 181 total
+results, three CRITICAL instances, 55 HIGH instances, and 22 unique HIGH/CRITICAL IDs; 14 unique IDs
+had an upstream fix and eight did not.
+
+The final two Python findings were reproduced from pip's filesystem CycloneDX inventory at
+`/usr/local/lib/python3.13/site-packages/pip/_vendor/bom.cdx.json`, which represents genuinely present
+vendored msgpack/pkg-resources installer code rather than installed application distributions,
+`/app/.venv`, or stale OCI-attestation metadata. Since production dependency installation is
+builder-only, the final image now removes runtime pip and its unused vendored code/inventory. Debian
+security upgrades, the non-root user, and cache cleanup remain intact. Trivy is pinned to the
+immutable v0.36.0 action commit. Release Scans verify the final Python inventory and retain SARIF,
+raw JSON, and a policy report; the policy fails on any HIGH/CRITICAL with an available fixed version.
+No blanket ignore or vulnerability suppression was introduced.
+
+PH-039 is `RESOLVED`: final PR #16 hosted scans retained SARIF/JSON/policy evidence with 0 CRITICAL,
+0 fixable HIGH, 0 fixable CRITICAL, and 8 individually reviewed no-fix IDs as documented in
+`docs/PHASE11_CONTAINER_SECURITY.md`. PH-037 remains `OWNER_ACTION_REQUIRED`. PH-043 remains
+`OWNER PRODUCT DECISION REQUIRED BEFORE S1 LAUNCH`. The accepted hosted 542-test result closes the
+Phase-11 application verification campaign; measurement-only WATCH items retain their measured or
+WATCH state and are not converted into artificial correctness blockers by this security-only pass.

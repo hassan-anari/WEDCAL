@@ -47,11 +47,11 @@ def get_daily_state(
             current.claimed_at,
         )
     consecutive = previous is not None and previous.period_start == period.previous_start
-    streak = previous.streak_count_after_claim + 1 if consecutive and previous else 1
-    cycle = ((streak - 1) % len(policy.reward_cycle_points)) + 1
+    next_streak = previous.streak_count_after_claim + 1 if consecutive and previous else 1
+    cycle = ((next_streak - 1) % len(policy.reward_cycle_points)) + 1
     return DailyState(
         True,
-        previous.streak_count_after_claim if previous else 0,
+        previous.streak_count_after_claim if consecutive and previous else 0,
         cycle,
         policy.reward_cycle_points[cycle - 1],
         period.start,

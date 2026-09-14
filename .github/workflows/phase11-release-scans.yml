@@ -1,0 +1,64 @@
+name: Phase 11 Release Scans
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ["pyproject.toml", "uv.lock", "Dockerfile", ".github/workflows/phase11-release-scans.yml"]
+jobs:
+  dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv export --no-dev --format requirements-txt > requirements.scan.txt
+      - run: uvx pip-audit -r requirements.scan.txt --format json --output dependency-audit.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: dependency-audit, path: dependency-audit.json}
+  container-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t dexo-land:phase11 .
+      - name: Verify final Python inventory
+        run: |
+          docker run --rm --entrypoint sh dexo-land:phase11 -ec '
+            system_site=$(/usr/local/bin/python -c "import sysconfig; print(sysconfig.get_paths().get(\"purelib\"))")
+            echo "System Python site-packages:"
+            echo "$system_site"
+            echo "Potential pip-owned inventories:"
+            if test -d "$system_site"; then
+              find "$system_site" \( -path "*/pip/*" -o -path "*/pip-*.dist-info/*" \) \( -name "bom.cdx.json" -o -name "METADATA" \) -print
+            fi
+            /usr/local/bin/python -c "import importlib.util; assert importlib.util.find_spec(\"pip\") is None"
+            /app/.venv/bin/python -c "import importlib.util; assert importlib.util.find_spec(\"pip\") is None; assert importlib.util.find_spec(\"msgpack\") is None; assert importlib.util.find_spec(\"setuptools\") is None"
+            test ! -d "$system_site/pip"
+            if test -d "$system_site"; then
+              test -z "$(find "$system_site" -maxdepth 1 -type d -name "pip-*.dist-info" -print -quit)"
+              test -z "$(find "$system_site" -path "*/pip/_vendor/bom.cdx.json" -print -quit)"
+              test -z "$(find "$system_site" -path "*/pip-*.dist-info/*" -name "bom.cdx.json" -print -quit)"
+            fi
+          '
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: dexo-land:phase11
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: dexo-land:phase11
+          format: json
+          output: trivy-results.json
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+      - name: Enforce actionable vulnerability policy
+        run: python scripts/validate_trivy_report.py trivy-results.json --output trivy-policy.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: container-scan
+          path: |
+            trivy-results.sarif
+            trivy-results.json
+            trivy-policy.json

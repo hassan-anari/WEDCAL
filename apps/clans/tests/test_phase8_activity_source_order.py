@@ -300,6 +300,8 @@ def test_late_prior_window_event_never_changes_next_window(clan_world) -> None: 
     activate(member, now)
     boundary = now.replace(microsecond=0) + timedelta(minutes=15)
     boundary -= timedelta(seconds=int(boundary.timestamp()) % 900)
+    if boundary - now < timedelta(minutes=1):
+        boundary += timedelta(minutes=15)
     for index, offset in enumerate((-20, -10)):
         assert record_clan_activity(
             clan_season=cs,
