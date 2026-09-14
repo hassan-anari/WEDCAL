@@ -1,9 +1,9 @@
 # Phase 11 Stage-2 verification evidence
 
 Evidence date: 2026-09-14 UTC. Canonical base: `0d1906c10ad2b94d6029f831937d79aba2cb192a`.
-The final PR #16 security-correction baseline is `0cdf6e4551a33b73784e4f0b98863e6957948050`.
+The final reviewed PR #16 HEAD is `eb6b293b472bacb273d69c8681406cc15af58c96`.
 Owner-supplied hosted evidence proves PostgreSQL 17.11 migrations, Redis 8, RabbitMQ 4.3, no
-migration drift, 540 passing tests, quality, Docker build/runtime, Admin/static smoke, and green
+migration drift, 542 passing tests, quality, Docker build/runtime, Admin/static smoke, and green
 Contract Gate, Foundation, and Phase-11 Release Scans. The baseline Release Scans retained real
 dependency-audit and container SARIF artifacts.
 
@@ -14,8 +14,7 @@ dependency-audit and container SARIF artifacts.
   Season-transition failures. Tests now use a narrowly scoped fixture exercising the same
   transaction-local `dexo.season_transition` capability as production. The final regression result
   is recorded in the PR handoff; no production guard was weakened.
-- After final corrections, the complete local suite is **540 passed, 1 pre-existing Ninja
-  deprecation warning**.
+- Final hosted regression is **542 passed**.
 - Real advisory-lock concurrency proved an exclusive close lock waits for an existing shared writer,
   the barrier marker commits afterward, subsequent writers fail closed, and Season lock keys do not
   cross-block.
@@ -72,9 +71,10 @@ dependency-audit and container SARIF artifacts.
   `/app/.venv`; runtime pip is now removed after builder-only dependency installation. Trivy is
   commit-pinned and emits SARIF plus raw JSON; CI rejects every HIGH/CRITICAL with an available fix
   and retains the policy report.
-- Final post-remediation totals and individual no-fix dispositions remain a hosted artifact gate and
-  are documented in `docs/PHASE11_CONTAINER_SECURITY.md`. They must not be inferred or marked passed
-  before the rebuilt image artifact exists.
+- Final hosted Release Scans passed and retained Trivy SARIF, raw JSON, and policy artifacts. The
+  result contains 44 HIGH/CRITICAL instances, 0 CRITICAL, 0 fixable HIGH, 0 fixable CRITICAL, and 8
+  unique no-fix IDs. Each remaining ID has an accepted individual runtime disposition in
+  `docs/PHASE11_CONTAINER_SECURITY.md`; PH-039 is accepted.
 
 ## Explicitly incomplete / owner action required
 
@@ -85,5 +85,5 @@ dependency-audit and container SARIF artifacts.
   force pushes and deletion; keep emergency bypass time-limited and audited.
 - PH-043 remains **OWNER PRODUCT DECISION REQUIRED**.
 
-The remaining items are explicit blockers or owner actions. This document does not conceal
-unexecuted post-remediation security evidence.
+All application-controlled Phase-11 verification is complete. PH-037 and PH-043 remain explicit
+repository-owner and product-owner launch actions.

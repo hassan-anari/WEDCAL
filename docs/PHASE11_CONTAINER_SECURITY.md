@@ -50,26 +50,30 @@ Python HIGH/CRITICAL finding. Hosted CI additionally asserts that neither interp
 msgpack, or setuptools and that no matching metadata remains. Debian updates and the permanent
 unprivileged `app` user are preserved.
 
-## Final-artifact review gate
+## Final hosted result
 
-The next hosted `container-scan` artifact must be used to populate this table. Do not infer a final
-disposition from the pre-remediation artifact because scanner metadata and installed packages may
-change during rebuild.
+Final reviewed hosted HEAD: `eb6b293b472bacb273d69c8681406cc15af58c96`.
 
-| ID | Package/path | Final status | Runtime prerequisite and disposition |
-|---|---|---|---|
-| _from final `trivy-results.json`_ | _from artifact_ | `BLOCKING` until reviewed | Record exact executable/library path, exploit prerequisites, application reachability, upstream status, owner, and next review condition. |
+- HIGH/CRITICAL finding instances: **44**
+- CRITICAL findings: **0**
+- Fixable HIGH findings: **0**
+- Fixable CRITICAL findings: **0**
+- Unique remaining HIGH/CRITICAL IDs: **8**
+- Actionable policy: **`passed: true`**
+- Retained evidence: final Trivy SARIF, raw JSON, and policy result
 
-PH-039 remains `VERIFYING` until the hosted policy passes, the final raw JSON/SARIF artifacts are
-retained, and every row in `unfixed_requiring_review` receives a concrete disposition. A no-fix
-finding is not implicitly accepted because the process is containerized or non-root.
+All eight remaining IDs have no upstream `FixedVersion` and received the individual runtime
+applicability/risk dispositions below. No finding was accepted merely because the process is
+containerized, and no blanket suppression or ignore entry was introduced.
 
-## Current no-fix review candidates
+**PH-039 is RESOLVED.**
 
-These eight IDs came from the current Trivy database during the filesystem control scan. The final
-hosted JSON must reconfirm them before the dispositions become acceptance evidence.
+## Final no-fix review
 
-| ID | Affected installed package(s) | Runtime analysis | Provisional classification |
+The final hosted JSON reconfirmed these eight unique IDs without an upstream fixed version. These
+rows are the accepted Phase-11 dispositions.
+
+| ID | Affected installed package(s) | Runtime analysis | Classification |
 |---|---|---|---|
 | CVE-2025-69720 | `libncursesw6`, `libtinfo6`, `ncurses-base`, `ncurses-bin` | Vulnerable code is the `infocmp` CLI. It is present but neither the Django/Celery runtime nor externally influenced input invokes it. Exploitation requires invoking it on attacker-crafted terminfo. | `NOT_REACHABLE_IN_RUNTIME` |
 | CVE-2026-16742 | `libsystemd0`, `libudev1` | The affected `systemd-homed` service/executable is absent; the container has no init system, homed user records, or local login facility. | `NOT_APPLICABLE_TO_CONTAINER_THREAT_MODEL` |
