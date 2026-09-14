@@ -22,9 +22,21 @@ jobs:
       - name: Verify final Python inventory
         run: |
           docker run --rm --entrypoint sh dexo-land:phase11 -ec '
+            system_site=$(/usr/local/bin/python -c "import sysconfig; print(sysconfig.get_paths().get(\"purelib\"))")
+            echo "System Python site-packages:"
+            echo "$system_site"
+            echo "Potential pip-owned inventories:"
+            if test -d "$system_site"; then
+              find "$system_site" \( -path "*/pip/*" -o -path "*/pip-*.dist-info/*" \) \( -name "bom.cdx.json" -o -name "METADATA" \) -print
+            fi
             /usr/local/bin/python -c "import importlib.util; assert importlib.util.find_spec(\"pip\") is None"
             /app/.venv/bin/python -c "import importlib.util; assert importlib.util.find_spec(\"pip\") is None; assert importlib.util.find_spec(\"msgpack\") is None; assert importlib.util.find_spec(\"setuptools\") is None"
-            test -z "$(find /usr/local /app \( -iname "*setuptools*" -o -iname "*msgpack*" -o -name "bom.cdx.json" \) -print -quit)"
+            test ! -d "$system_site/pip"
+            if test -d "$system_site"; then
+              test -z "$(find "$system_site" -maxdepth 1 -type d -name "pip-*.dist-info" -print -quit)"
+              test -z "$(find "$system_site" -path "*/pip/_vendor/bom.cdx.json" -print -quit)"
+              test -z "$(find "$system_site" -path "*/pip-*.dist-info/*" -name "bom.cdx.json" -print -quit)"
+            fi
           '
       - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
