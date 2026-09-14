@@ -5,7 +5,7 @@ from typing import Any
 
 import structlog
 from django.conf import settings
-from django.core.exceptions import ObjectDoesNotExist
+from django.core.exceptions import ObjectDoesNotExist, PermissionDenied, ValidationError
 from django.db import IntegrityError, models, transaction
 from django.db.models import F
 from django.utils import timezone
@@ -19,6 +19,7 @@ from apps.telegram.events import (
     UserMembershipChanged,
 )
 from apps.telegram.models import (
+    TelegramDeadLetterDisposition,
     TelegramGroup,
     TelegramGroupCandidate,
     TelegramInboundUpdate,
@@ -33,6 +34,73 @@ TERMINAL_INGRESS_STATES = {
     TelegramInboundUpdate.State.IGNORED,
     TelegramInboundUpdate.State.DEAD_LETTER,
 }
+
+
+def resolve_dead_letter(
+    inbound_id: int,
+    *,
+    outcome: str,
+    actor: Any | None,
+    service_actor: str = "",
+    reason: str,
+    evidence_reference: str,
+    idempotency_key: str,
+) -> TelegramDeadLetterDisposition:
+    """Disposition one poison ingress row without changing its identity or failure history."""
+    if actor is not None and not actor.has_perm("telegram.resolve_dead_letter"):
+        raise PermissionDenied("Telegram dead-letter permission required")
+    if actor is None and not service_actor.strip():
+        raise PermissionDenied("A service actor is required")
+    if not reason.strip() or not evidence_reference.strip() or not idempotency_key.strip():
+        raise ValidationError("Reason, evidence reference, and idempotency key are required")
+    with transaction.atomic():
+        inbound = TelegramInboundUpdate.objects.select_for_update().get(pk=inbound_id)
+        existing = TelegramDeadLetterDisposition.objects.filter(
+            idempotency_key=idempotency_key
+        ).first()
+        if existing:
+            expected_actor_id = actor.pk if actor is not None else None
+            expected_service_actor = service_actor if actor is None else ""
+            if (
+                existing.inbound_update_id != inbound_id
+                or existing.outcome != outcome
+                or existing.actor_id != expected_actor_id
+                or existing.service_actor != expected_service_actor
+                or existing.reason != reason
+                or existing.evidence_reference != evidence_reference
+            ):
+                raise ValidationError("Dead-letter idempotency key conflict")
+            return existing
+        if inbound.state != TelegramInboundUpdate.State.DEAD_LETTER:
+            raise ValidationError("Only a DEAD_LETTER update can be dispositioned")
+        disposition = TelegramDeadLetterDisposition.objects.create(
+            inbound_update=inbound,
+            outcome=outcome,
+            actor=actor,
+            service_actor=service_actor if actor is None else "",
+            reason=reason,
+            evidence_reference=evidence_reference,
+            idempotency_key=idempotency_key,
+            failure_category=inbound.last_error_category,
+            processing_attempts=inbound.processing_attempts,
+        )
+        inbound.claimed_at = None
+        inbound.processing_token = None
+        inbound.next_retry_at = None
+        if outcome == TelegramDeadLetterDisposition.Outcome.REQUEUE:
+            inbound.state = TelegramInboundUpdate.State.PENDING
+            # Immutable disposition evidence retains the prior attempt count/category.
+            # A requeue begins a fresh bounded retry cycle instead of immediately dead-lettering.
+            inbound.processing_attempts = 0
+            inbound.save()
+            transaction.on_commit(lambda: dispatch_inbound_update(inbound))
+        elif outcome == TelegramDeadLetterDisposition.Outcome.DISPOSE:
+            inbound.state = TelegramInboundUpdate.State.IGNORED
+            inbound.processed_at = timezone.now()
+            inbound.save()
+        else:
+            raise ValidationError("Unsupported dead-letter outcome")
+        return disposition
 
 
 def membership_semantics(status: str, is_member: bool | None = None) -> tuple[bool, bool, bool]:

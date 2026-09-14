@@ -15,7 +15,7 @@ from apps.base_tap.services import (
 from apps.progression.models import PlayerProgression
 from apps.referrals.models import ReferralShareOutcome
 from apps.rewards.models import RewardLedger, RewardSettlementOutbox
-from apps.seasons.models import PlayerSeason, Season
+from apps.seasons.models import PlayerSeason
 
 
 def no_rate_limit(payload: dict[str, Any]) -> None:
@@ -200,7 +200,10 @@ def test_recovery_continues_after_poison_item(
 
 @pytest.mark.django_db
 def test_historical_recovery_preserves_source_without_regressing_progression(
-    phase4_config_factory: Any, season_factory: Any, player_factory: Any
+    phase4_config_factory: Any,
+    season_factory: Any,
+    player_factory: Any,
+    close_season_for_test: Any,
 ) -> None:
     s1_at = datetime(2026, 1, 2, tzinfo=UTC)
     s1_config = phase4_config_factory(
@@ -210,8 +213,7 @@ def test_historical_recovery_preserves_source_without_regressing_progression(
     player = player_factory()
     submit_tap_batch(player, tap_count=25, idempotency_key="historical", at=s1_at)
     accumulator = BaseTapDailyAccumulator.objects.get()
-    s1.status = Season.Status.CLOSED
-    s1.save(update_fields=("status",))
+    s1 = close_season_for_test(s1)
 
     s2_at = s1.ends_at + timedelta(days=1)
 

@@ -273,7 +273,7 @@ def test_reward_rejects_invalid_amount_season_window_and_config() -> None:
 
 
 @pytest.mark.django_db
-def test_multiseason_and_reconciliation() -> None:
+def test_multiseason_and_reconciliation(close_season_for_test) -> None:  # type: ignore[no-untyped-def]
     config = published()
     resolved = resolve_effective_game_config(timezone.now())
     person = player()
@@ -290,8 +290,7 @@ def test_multiseason_and_reconciliation() -> None:
             resolved_config=resolved,
         )
         if index < 3:
-            season.status = Season.Status.CLOSED
-            season.save(update_fields=["status"])
+            close_season_for_test(season)
     assert PlayerProgression.objects.get(player=person).lifetime_points == 23_000
     assert list(
         PlayerSeason.objects.filter(player=person)

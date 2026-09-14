@@ -9,13 +9,25 @@ from ninja.errors import HttpError
 from apps.players.models import Player
 from apps.telegram.mini_app_auth import mini_app_auth
 from apps.typing_game.models import TypingAttempt
-from apps.typing_game.services import claim_wallet, get_typing_state, start_attempt, submit_attempt
+from apps.typing_game.services import (
+    TypingQuotaExceeded,
+    TypingUnavailable,
+    claim_wallet,
+    get_typing_state,
+    start_attempt,
+    submit_attempt,
+)
 
 router = Router(tags=["typing"], auth=mini_app_auth)
 
 
 class Submission(Schema):
     typed_text: str
+
+
+class ErrorResponse(Schema):
+    detail: str
+    code: str
 
 
 def _player(request: HttpRequest) -> Player:
@@ -39,11 +51,18 @@ def state(request: HttpRequest) -> dict[str, Any]:
     }
 
 
-@router.post("/attempts/start", response=dict[str, Any])
-def start(request: HttpRequest) -> dict[str, Any]:
-    attempt, created = start_attempt(
-        _player(request), request.headers.get("Idempotency-Key", ""), timezone.now()
-    )
+@router.post(
+    "/attempts/start", response={200: dict[str, Any], 409: ErrorResponse, 429: ErrorResponse}
+)
+def start(request: HttpRequest) -> Any:
+    try:
+        attempt, created = start_attempt(
+            _player(request), request.headers.get("Idempotency-Key", ""), timezone.now()
+        )
+    except TypingQuotaExceeded:
+        return 429, {"detail": "Typing attempt quota exhausted", "code": "QUOTA_EXHAUSTED"}
+    except TypingUnavailable:
+        return 409, {"detail": "Typing is unavailable", "code": "TYPING_UNAVAILABLE"}
     return {
         "created": created,
         "attempt_id": attempt.public_id,
@@ -76,9 +95,12 @@ def submit(request: HttpRequest, attempt_id: UUID, payload: Submission) -> dict[
     }
 
 
-@router.post("/claim", response=dict[str, Any])
-def claim(request: HttpRequest) -> dict[str, Any]:
-    row, created = claim_wallet(
-        _player(request), request.headers.get("Idempotency-Key", ""), timezone.now()
-    )
+@router.post("/claim", response={200: dict[str, Any], 409: ErrorResponse})
+def claim(request: HttpRequest) -> Any:
+    try:
+        row, created = claim_wallet(
+            _player(request), request.headers.get("Idempotency-Key", ""), timezone.now()
+        )
+    except (TypingUnavailable, ValueError):
+        return 409, {"detail": "Typing claim is unavailable", "code": "CLAIM_UNAVAILABLE"}
     return {"created": created, "amount": row.amount, "claimed_at": row.claimed_at}

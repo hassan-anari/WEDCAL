@@ -1,0 +1,45 @@
+name: Phase 11 Release Scans
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ["pyproject.toml", "uv.lock", "Dockerfile", ".github/workflows/phase11-release-scans.yml"]
+jobs:
+  dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv export --no-dev --format requirements-txt > requirements.scan.txt
+      - run: uvx pip-audit -r requirements.scan.txt --format json --output dependency-audit.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: dependency-audit, path: dependency-audit.json}
+  container-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t dexo-land:phase11 .
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: dexo-land:phase11
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: dexo-land:phase11
+          format: json
+          output: trivy-results.json
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+      - name: Enforce actionable vulnerability policy
+        run: python scripts/validate_trivy_report.py trivy-results.json --output trivy-policy.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: container-scan
+          path: |
+            trivy-results.sarif
+            trivy-results.json
+            trivy-policy.json

@@ -21,6 +21,7 @@ from apps.clans.models import (
     ClanMembershipIncident,
     ClanRole,
     ClanSeason,
+    ClanSeasonEvent,
     PlayerSeasonClanState,
 )
 from apps.game_config.models import GameConfigVersion
@@ -1107,3 +1108,104 @@ def _revoke_after_leave(invite_id: int) -> Callable[[], None]:
         queue_invite_revoke(invite_id, terminal=ClanInvite.State.REVOKED)
 
     return callback
+
+
+def close_season_clan_work(season_id: int, *, limit: int = 200) -> dict[str, int]:
+    """Advance S1 credentials through existing cancellation/revocation state machines."""
+    request_ids = list(
+        ClanJoinRequest.objects.filter(
+            clan_season__season_id=season_id,
+            state__in=(ClanJoinRequest.State.PENDING, ClanJoinRequest.State.ACCEPTED),
+        )
+        .order_by("pk")
+        .values_list("pk", flat=True)[:limit]
+    )
+    for request_id in request_ids:
+        request = ClanJoinRequest.objects.select_related("applicant", "clan_season").get(
+            pk=request_id
+        )
+        cancel_request(request.applicant, request_id)
+        ClanSeasonEvent.objects.get_or_create(
+            clan_season=request.clan_season,
+            kind="SEASON_CLOSE_REQUEST_DISPOSITION",
+            source_type="JOIN_REQUEST",
+            source_id=str(request.pk),
+            defaults={"occurred_at": timezone.now(), "metadata": {"prior_state": request.state}},
+        )
+    invite_ids = list(
+        ClanInvite.objects.filter(
+            models.Q(join_request__clan_season__season_id=season_id)
+            | models.Q(membership__season_id=season_id),
+            state__in=(
+                ClanInvite.State.PENDING,
+                ClanInvite.State.CREATING,
+                ClanInvite.State.ACTIVE,
+                ClanInvite.State.FAILED,
+                ClanInvite.State.REVOKE_FAILED,
+            ),
+        )
+        .order_by("pk")
+        .values_list("pk", flat=True)[:limit]
+    )
+    for invite_id in invite_ids:
+        invite = ClanInvite.objects.select_related(
+            "join_request__clan_season", "membership__clan_season"
+        ).get(pk=invite_id)
+        queue_invite_revoke(invite_id, terminal=ClanInvite.State.REVOKED)
+        if invite.join_request_id:
+            assert invite.join_request is not None
+            clan_season = invite.join_request.clan_season
+        else:
+            assert invite.membership is not None
+            clan_season = invite.membership.clan_season
+        ClanSeasonEvent.objects.get_or_create(
+            clan_season=clan_season,
+            kind="SEASON_CLOSE_INVITE_DISPOSITION",
+            source_type="CLAN_INVITE",
+            source_id=str(invite.pk),
+            defaults={"occurred_at": timezone.now(), "metadata": {"prior_state": invite.state}},
+        )
+    unresolved = ClanInvite.objects.filter(
+        models.Q(join_request__clan_season__season_id=season_id)
+        | models.Q(membership__season_id=season_id),
+        state__in=(
+            ClanInvite.State.PENDING,
+            ClanInvite.State.CREATING,
+            ClanInvite.State.ACTIVE,
+            ClanInvite.State.FAILED,
+            ClanInvite.State.UNCERTAIN,
+            ClanInvite.State.REVOKE_PENDING,
+            ClanInvite.State.REVOKE_FAILED,
+            ClanInvite.State.MANUAL_REVIEW,
+        ),
+    ).count()
+    ended = 0
+    if (
+        not unresolved
+        and not ClanJoinRequest.objects.filter(
+            clan_season__season_id=season_id,
+            state__in=(ClanJoinRequest.State.PENDING, ClanJoinRequest.State.ACCEPTED),
+        ).exists()
+    ):
+        for clan_season in ClanSeason.objects.filter(season_id=season_id).exclude(
+            state=ClanSeason.State.ENDED
+        ):
+            with transaction.atomic():
+                locked = ClanSeason.objects.select_for_update().get(pk=clan_season.pk)
+                locked.state = ClanSeason.State.ENDED
+                locked.accepting_members = False
+                locked.save(update_fields=("state", "accepting_members", "updated_at"))
+                ClanSeasonEvent.objects.get_or_create(
+                    clan_season=locked,
+                    kind="SEASON_CLOSE_ENDED",
+                    source_type="SEASON_CLOSE",
+                    source_id=str(season_id),
+                    defaults={"occurred_at": timezone.now()},
+                )
+                ended += 1
+    return {
+        "requests_visited": len(request_ids),
+        "invites_visited": len(invite_ids),
+        "unresolved": unresolved,
+        "ended": ended,
+    }

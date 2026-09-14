@@ -19,6 +19,9 @@ def record_adjustment(
     evidence_reference: str = "",
     metadata: dict[str, object] | None = None,
 ) -> tuple[DlxAdjustment, bool]:
+    from apps.seasons.barrier import acquire_economic_write_barrier
+
+    acquire_economic_write_barrier(allocation.season_id)
     if kind not in DlxAdjustment.Kind.values or amount <= 0:
         raise ValueError("Invalid DLX adjustment")
     with connection.cursor() as cursor:
@@ -92,3 +95,24 @@ def adjustment_totals(player: Player, season: Season) -> dict[str, int]:
     held = values.get("HOLD", 0) - values.get("RELEASE_HOLD", 0)
     forfeited = values.get("FORFEIT", 0) - values.get("REVERSAL", 0)
     return {"held": held, "forfeited": forfeited}
+
+
+def season_adjustment_totals(season: Season) -> dict[str, int]:
+    rows = (
+        DlxAdjustment.objects.filter(allocation__season=season)
+        .values("kind")
+        .annotate(v=Sum("amount"))
+    )
+    values = {row["kind"]: int(row["v"] or 0) for row in rows}
+    holds = values.get(DlxAdjustment.Kind.HOLD, 0)
+    released = values.get(DlxAdjustment.Kind.RELEASE_HOLD, 0)
+    forfeits = values.get(DlxAdjustment.Kind.FORFEIT, 0)
+    reversed_amount = values.get(DlxAdjustment.Kind.REVERSAL, 0)
+    return {
+        "held": holds - released,
+        "hold_recorded": holds,
+        "released": released,
+        "forfeited": forfeits - reversed_amount,
+        "forfeit_recorded": forfeits,
+        "reversed": reversed_amount,
+    }

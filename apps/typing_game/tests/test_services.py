@@ -10,7 +10,7 @@ from django.db import close_old_connections
 from apps.core.periods import resolve_daily_period
 from apps.progression.models import PlayerProgression
 from apps.rewards.models import RewardLedger
-from apps.seasons.models import PlayerSeason, Season
+from apps.seasons.models import PlayerSeason
 from apps.typing_game.models import (
     TypingAttempt,
     TypingClaim,
@@ -450,15 +450,14 @@ def test_claim_groups_original_config_versions_without_repricing(
 
 @pytest.mark.django_db
 def test_old_season_credit_is_not_moved_to_new_season(
-    phase4_config_factory, player_factory, season_factory
+    phase4_config_factory, player_factory, season_factory, close_season_for_test
 ) -> None:
     config = phase4_config_factory()
     old = season_factory(config, starts_at=BASE, ends_at=BASE + timedelta(days=45))
     player = player_factory()
     phrase()
     attempt = valid_attempt(player, "old", BASE)
-    old.status = Season.Status.CLOSED
-    old.save(update_fields=["status"])
+    old = close_season_for_test(old)
     season_factory(config, starts_at=BASE + timedelta(days=46), ends_at=BASE + timedelta(days=91))
     new_claim, _ = claim_wallet(player, "new-season", BASE + timedelta(days=47))
     assert new_claim.amount == 0

@@ -25,11 +25,13 @@ for model in (
     models.QualificationDecision,
     models.EconomicEpoch,
     models.EpochAnomaly,
+    models.EpochAnomalyResolution,
     models.EpochPerformanceSnapshot,
     models.EpochCategoryBudget,
     models.GrowthUnlockEvent,
     models.AllocationBatch,
     models.DlxAllocation,
     models.DlxAdjustment,
+    models.SeasonDlxResidualEvent,
 ):
     admin.site.register(model, ReadOnlyEconomicAdmin)

@@ -819,6 +819,16 @@ def parse_typing(payload: dict[str, Any]) -> TypingConfig:
             "claim_preserves_source_season",
         ):
             _boolean(raw[name], f"typing.{name}")
+        canonical_flags = {
+            "completed_invalid_attempt_consumes_quota": True,
+            "technical_failure_consumes_quota": False,
+            "claimable_wallet_enabled": True,
+            "claim_anytime": True,
+            "auto_settle_at_season_close": True,
+            "claim_preserves_source_season": True,
+        }
+        if any(raw[name] is not expected for name, expected in canonical_flags.items()):
+            raise ValidationError("Unsupported Season-1 Typing lifecycle flags")
         for name in (
             "replayed_attempt_rejected",
             "impossible_timing_rejected",

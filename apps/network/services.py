@@ -137,9 +137,12 @@ def verify_registration(registration_id: int) -> str:
     )
     if not bot.ok or not creator.ok:
         category = bot.category if not bot.ok else creator.category
+        retry_after = bot.retry_after if not bot.ok else creator.retry_after
+        jitter = registration_id % max(settings.TELEGRAM_API_RETRY_JITTER_SECONDS, 1)
+        delay = max(retry_after or settings.TELEGRAM_API_DEFAULT_RETRY_SECONDS, 1) + jitter
         CreatorGroupRegistration.objects.filter(pk=registration_id).update(
             last_verification_error=category or "verification_error",
-            next_verification_at=timezone.now() + timedelta(minutes=5),
+            next_verification_at=timezone.now() + timedelta(seconds=delay),
         )
         if category in {
             "timeout",
@@ -147,6 +150,7 @@ def verify_registration(registration_id: int) -> str:
             "connection_error",
             "non_json_response",
             "telegram_not_ok",
+            "local_rate_limited",
         }:
             raise RuntimeError(category)
         state = CreatorGroupRegistration.State.ADMIN_REQUIRED
@@ -282,6 +286,10 @@ def record_activity(
     season = resolve_historical_season(at=observed_at, required=False)
     start = window_start_for(observed_at, config.network.window_seconds)
     with transaction.atomic():
+        if season is not None:
+            from apps.seasons.barrier import acquire_economic_write_barrier
+
+            acquire_economic_write_barrier(season.pk)
         _lock_window(registration.pk, season.pk if season else None, config.id, start)
         return _record_activity_locked(
             registration=registration,
@@ -433,6 +441,9 @@ def settle_window(
     registration_id: int, window_start: datetime, config_id: int, season_id: int
 ) -> CreatorWindowSettlement:
     with transaction.atomic():
+        from apps.seasons.barrier import acquire_economic_write_barrier
+
+        acquire_economic_write_barrier(season_id)
         _lock_window(registration_id, season_id, config_id, window_start)
         return _settle_window_locked(registration_id, window_start, config_id, season_id)
 
