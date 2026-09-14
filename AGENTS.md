@@ -19,6 +19,11 @@ The legacy Dalexio backend may be consulted for implementation patterns only. It
 
 Do not code from memory of earlier conversations.
 
+For Phase 12 tasks only:
+- `DEXO_LAND_PHASE12_PRODUCT_INTELLIGENCE_AND_TRUST_SOURCE_OF_TRUTH_EN.md`
+
+Phase 12 is deferred and must not be implemented unless the repository owner explicitly authorizes Phase 12.
+
 ---
 
 ## 2. Source-of-truth rule
