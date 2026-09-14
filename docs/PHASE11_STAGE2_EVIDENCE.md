@@ -1,7 +1,7 @@
 # Phase 11 Stage-2 verification evidence
 
 Evidence date: 2026-09-14 UTC. Canonical base: `0d1906c10ad2b94d6029f831937d79aba2cb192a`.
-The final security-pass baseline is `e087e09ded0f30efb09360174111b93a603ff710`.
+The final PR #16 security-correction baseline is `0cdf6e4551a33b73784e4f0b98863e6957948050`.
 Owner-supplied hosted evidence proves PostgreSQL 17.11 migrations, Redis 8, RabbitMQ 4.3, no
 migration drift, 540 passing tests, quality, Docker build/runtime, Admin/static smoke, and green
 Contract Gate, Foundation, and Phase-11 Release Scans. The baseline Release Scans retained real
@@ -67,9 +67,11 @@ dependency-audit and container SARIF artifacts.
 
 - The baseline SARIF contained 181 results, including three CRITICAL and 55 HIGH instances across 22
   unique HIGH/CRITICAL IDs. Fourteen IDs had upstream fixes; eight did not. The runtime now applies
-  available Debian security updates and removes non-runtime `setuptools` and `msgpack` bootstrap
-  installations. Trivy is commit-pinned and emits SARIF plus raw JSON; CI rejects every HIGH/CRITICAL
-  with an available fix and retains the policy report.
+  available Debian security updates. The final two Python findings were traced to pip's vendored
+  CycloneDX inventory and vendored code in the official Python base, not installed distributions or
+  `/app/.venv`; runtime pip is now removed after builder-only dependency installation. Trivy is
+  commit-pinned and emits SARIF plus raw JSON; CI rejects every HIGH/CRITICAL with an available fix
+  and retains the policy report.
 - Final post-remediation totals and individual no-fix dispositions remain a hosted artifact gate and
   are documented in `docs/PHASE11_CONTAINER_SECURITY.md`. They must not be inferred or marked passed
   before the rebuilt image artifact exists.

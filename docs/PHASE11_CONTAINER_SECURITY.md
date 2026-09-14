@@ -32,10 +32,23 @@ The actionable findings reported by that artifact were:
 | `msgpack` | GHSA-6v7p-g79w-8964 | `1.2.1` |
 
 `setuptools` and `msgpack` are absent from the application dependency graph and synchronized
-application virtual environment. They are bootstrap/base-image packages, not runtime requirements;
-the final stage removes them rather than adding artificial direct project dependencies. The runtime
-stage upgrades packages from the configured Debian repository, clears apt/pip caches, adds no build
-toolchain, and continues permanently as the unprivileged `app` user.
+application virtual environment. Filesystem and raw-Trivy reproduction identified their exact source
+as `/usr/local/lib/python3.13/site-packages/pip/_vendor/bom.cdx.json` in the official Python image.
+That third-party CycloneDX inventory describes pip's genuinely present vendored installer code:
+`pip/_vendor/msgpack` and `pip/_vendor/pkg_resources` (setuptools provenance); they are not standalone
+installed distributions and do not come from `/app/.venv`. The Trivy records consequently had target
+`Python`, class `lang-pkgs`, type `python-pkg`, PURLs `pkg:pypi/msgpack@1.1.2` and
+`pkg:pypi/setuptools@70.3.0`, and no `PkgPath` or layer field because the CycloneDX components omit
+those fields. This is not stale OCI-attestation metadata: it is an SBOM file in the final filesystem.
+
+The application never installs dependencies at runtime, so pip and its vendored package-management
+code are unnecessary after the builder creates `/app/.venv`. The runtime stage removes pip itself,
+which removes both the vendored implementations and their CycloneDX inventory, rather than adding
+artificial application dependencies. A local Trivy rootfs control scan detected both findings before
+removal and neither afterward; adding the synchronized application virtualenv back still produced no
+Python HIGH/CRITICAL finding. Hosted CI additionally asserts that neither interpreter exposes pip,
+msgpack, or setuptools and that no matching metadata remains. Debian updates and the permanent
+unprivileged `app` user are preserved.
 
 ## Final-artifact review gate
 
@@ -50,3 +63,19 @@ change during rebuild.
 PH-039 remains `VERIFYING` until the hosted policy passes, the final raw JSON/SARIF artifacts are
 retained, and every row in `unfixed_requiring_review` receives a concrete disposition. A no-fix
 finding is not implicitly accepted because the process is containerized or non-root.
+
+## Current no-fix review candidates
+
+These eight IDs came from the current Trivy database during the filesystem control scan. The final
+hosted JSON must reconfirm them before the dispositions become acceptance evidence.
+
+| ID | Affected installed package(s) | Runtime analysis | Provisional classification |
+|---|---|---|---|
+| CVE-2025-69720 | `libncursesw6`, `libtinfo6`, `ncurses-base`, `ncurses-bin` | Vulnerable code is the `infocmp` CLI. It is present but neither the Django/Celery runtime nor externally influenced input invokes it. Exploitation requires invoking it on attacker-crafted terminfo. | `NOT_REACHABLE_IN_RUNTIME` |
+| CVE-2026-16742 | `libsystemd0`, `libudev1` | The affected `systemd-homed` service/executable is absent; the container has no init system, homed user records, or local login facility. | `NOT_APPLICABLE_TO_CONTAINER_THREAT_MODEL` |
+| CVE-2026-54369 | `libacl1` | The library is present, but `setfacl` is absent and the application performs no privileged ACL pathname operations. Runtime is non-root. | `NOT_REACHABLE_IN_RUNTIME` |
+| CVE-2026-76642 | util-linux binary/library package family | Requires a privileged/SUID mount helper plus attacker-controlled mount hooks/filesystems. The app user has no mount capability and the application never invokes `mount`. | `NOT_APPLICABLE_TO_CONTAINER_THREAT_MODEL` |
+| CVE-2026-78408 | util-linux binary/library package family | Requires a privileged operator to run `nsenter --join-cgroup` against an attacker-controlled target. The application never invokes `nsenter` and runs without host cgroup authority. | `NOT_APPLICABLE_TO_CONTAINER_THREAT_MODEL` |
+| CVE-2026-78409 | util-linux binary/library package family | Requires a local unprivileged user with an fstab-authorized `X-mount.subdir` entry and privileged mount execution. The image has no such application path or writable host fstab contract. | `NOT_APPLICABLE_TO_CONTAINER_THREAT_MODEL` |
+| CVE-2026-78410 | util-linux binary/library package family | Requires a SUID restricted bind mount, attacker-replaceable authorized source, and X-mount ownership/mode hooks. The non-root application does not mount filesystems. | `NOT_APPLICABLE_TO_CONTAINER_THREAT_MODEL` |
+| CVE-2026-9538 | `perl-base` | The vulnerable `Archive::Tar` module is absent from the filesystem; neither application interpreter nor task path invokes Perl archive handling. | `NOT_REACHABLE_IN_RUNTIME` |

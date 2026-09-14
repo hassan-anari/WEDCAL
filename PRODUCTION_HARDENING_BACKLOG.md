@@ -1286,17 +1286,21 @@ evidence pass. PH-037 remains `OWNER_ACTION_REQUIRED`; PH-043 remains
 
 ## Phase 11 final container-security remediation delta
 
-The accepted hosted baseline `e087e09ded0f30efb09360174111b93a603ff710` is green for Contract
+The canonical PR #16 hosted baseline `0cdf6e4551a33b73784e4f0b98863e6957948050` is green for Contract
 Gate, Foundation, Phase-11 Release Scans, PostgreSQL 17.11 migrations/no drift, Redis 8, RabbitMQ 4.3,
 Docker runtime/Admin/static smoke, and 540 tests. Its retained container SARIF establishes 181 total
 results, three CRITICAL instances, 55 HIGH instances, and 22 unique HIGH/CRITICAL IDs; 14 unique IDs
 had an upstream fix and eight did not.
 
-The final runtime image now applies available Debian repository security upgrades, removes the
-non-application `setuptools` and `msgpack` bootstrap packages, retains its non-root user, and clears
-package-manager caches. Trivy is pinned to the immutable v0.36.0 action commit. Release Scans retain
-SARIF, raw JSON, and a policy report; the policy fails on any HIGH/CRITICAL with an available fixed
-version. No blanket ignore or vulnerability suppression was introduced.
+The final two Python findings were reproduced from pip's filesystem CycloneDX inventory at
+`/usr/local/lib/python3.13/site-packages/pip/_vendor/bom.cdx.json`, which represents genuinely present
+vendored msgpack/pkg-resources installer code rather than installed application distributions,
+`/app/.venv`, or stale OCI-attestation metadata. Since production dependency installation is
+builder-only, the final image now removes runtime pip and its unused vendored code/inventory. Debian
+security upgrades, the non-root user, and cache cleanup remain intact. Trivy is pinned to the
+immutable v0.36.0 action commit. Release Scans verify the final Python inventory and retain SARIF,
+raw JSON, and a policy report; the policy fails on any HIGH/CRITICAL with an available fixed version.
+No blanket ignore or vulnerability suppression was introduced.
 
 PH-039 remains `VERIFYING`, not `RESOLVED`, until the rebuilt hosted artifact proves zero fixable
 HIGH/CRITICAL findings and every remaining no-fix finding is individually classified as required by

@@ -19,6 +19,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t dexo-land:phase11 .
+      - name: Verify final Python inventory
+        run: |
+          docker run --rm --entrypoint sh dexo-land:phase11 -ec '
+            /usr/local/bin/python -c "import importlib.util; assert importlib.util.find_spec(\"pip\") is None"
+            /app/.venv/bin/python -c "import importlib.util; assert importlib.util.find_spec(\"pip\") is None; assert importlib.util.find_spec(\"msgpack\") is None; assert importlib.util.find_spec(\"setuptools\") is None"
+            test -z "$(find /usr/local /app \( -iname "*setuptools*" -o -iname "*msgpack*" -o -name "bom.cdx.json" \) -print -quit)"
+          '
       - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: dexo-land:phase11
