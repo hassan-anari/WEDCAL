@@ -1251,3 +1251,15 @@ failure evidence before any item is promoted to RESOLVED. PH-043 and PH-037 rema
 The final Stage-1 correction additionally makes Player and Clan tie provenance a first-class
 reconciliation invariant and treats pre-cutoff Telegram dead letters as manual work with immutable,
 permissioned REQUEUE/DISPOSE evidence. Full concurrency and operational drills remain Stage 2.
+
+## Phase 11 Stage-2 local verification delta — 2026-09-14
+
+The PostgreSQL/Redis/RabbitMQ regression suite and focused barrier/dead-letter/security checks pass
+locally. Real active-ranking Redis flush/rebuild, Telegram broker outage/redrive, Beat singleton,
+production HTTP/static, dependency audit, narrow 50K Player load, and isolated 50K Player restore
+evidence are recorded in `docs/PHASE11_STAGE2_EVIDENCE.md`.
+
+PH-008, PH-031, PH-032, PH-033, PH-034, PH-039, and PH-049 remain
+`IMPLEMENTED_PENDING_VERIFICATION`: their complete end-to-end, PostgreSQL 17, hosted, container,
+economic restore, loss-matrix, or scale acceptance evidence was not available. PH-037 remains
+`OWNER_ACTION_REQUIRED`. PH-043 remains `OWNER PRODUCT DECISION REQUIRED BEFORE S1 LAUNCH`.

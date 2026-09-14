@@ -59,7 +59,16 @@ def resolve_dead_letter(
             idempotency_key=idempotency_key
         ).first()
         if existing:
-            if existing.inbound_update_id != inbound_id or existing.outcome != outcome:
+            expected_actor_id = actor.pk if actor is not None else None
+            expected_service_actor = service_actor if actor is None else ""
+            if (
+                existing.inbound_update_id != inbound_id
+                or existing.outcome != outcome
+                or existing.actor_id != expected_actor_id
+                or existing.service_actor != expected_service_actor
+                or existing.reason != reason
+                or existing.evidence_reference != evidence_reference
+            ):
                 raise ValidationError("Dead-letter idempotency key conflict")
             return existing
         if inbound.state != TelegramInboundUpdate.State.DEAD_LETTER:

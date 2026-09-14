@@ -132,7 +132,7 @@ def test_invite_polling_before_retry_time_does_not_repeat_telegram_create(
 
 @pytest.mark.django_db
 def test_clan_api_normal_missing_state_errors_are_safe(
-    clan_world: Any, init_data_factory: Any, settings: Any
+    clan_world: Any, init_data_factory: Any, settings: Any, close_season_for_test: Any
 ) -> None:
     _, _, season, _, player, _ = clan_world
     soldier = player()
@@ -150,8 +150,7 @@ def test_clan_api_normal_missing_state_errors_are_safe(
     )
     assert missing.status_code == 404
     assert client.post("/api/v1/clans/leave", headers=headers).status_code == 204
-    season.status = "CLOSED"
-    season.save(update_fields=("status",))
+    close_season_for_test(season)
     unavailable = client.get("/api/v1/clans/", headers=headers)
     assert unavailable.status_code == 409
     assert unavailable.json() == {"detail": "No current Clan Season is available"}

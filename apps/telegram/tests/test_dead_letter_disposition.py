@@ -4,8 +4,8 @@ from typing import Any
 
 import pytest
 from django.contrib.auth.models import Permission, User
-from django.core.exceptions import PermissionDenied
-from django.db import close_old_connections
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import DatabaseError, close_old_connections
 from django.utils import timezone
 
 from apps.seasons.close import _telegram
@@ -39,7 +39,9 @@ def test_pre_cutoff_dead_letter_is_manual_not_transient(
 
 
 @pytest.mark.django_db
-def test_authorized_requeue_is_audited_idempotent_and_dispatches_once(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def test_authorized_requeue_is_audited_idempotent_and_dispatches_once(
+    monkeypatch: Any, django_capture_on_commit_callbacks: Any
+) -> None:
     row = dead_letter()
     actor = User.objects.create_user("operator")
     actor.user_permissions.add(Permission.objects.get(codename="resolve_dead_letter"))
@@ -59,8 +61,9 @@ def test_authorized_requeue_is_audited_idempotent_and_dispatches_once(monkeypatc
             idempotency_key="dead-letter:99001:requeue:1",
         )
 
-    first = resolve()
-    second = resolve()
+    with django_capture_on_commit_callbacks(execute=True):
+        first = resolve()
+        second = resolve()
     row.refresh_from_db()
     assert first.pk == second.pk
     assert TelegramDeadLetterDisposition.objects.count() == 1
@@ -82,6 +85,48 @@ def test_unauthorized_dead_letter_disposition_fails_closed() -> None:
             evidence_reference="OPS-12",
             idempotency_key="dead-letter:99001:dispose:1",
         )
+
+
+@pytest.mark.django_db
+def test_same_idempotency_key_rejects_conflicting_audit_semantics() -> None:
+    row = dead_letter()
+    actor = User.objects.create_user("semantic-operator")
+    actor.user_permissions.add(Permission.objects.get(codename="resolve_dead_letter"))
+    resolve_dead_letter(
+        row.pk,
+        outcome=TelegramDeadLetterDisposition.Outcome.DISPOSE,
+        actor=actor,
+        reason="proven irrelevant",
+        evidence_reference="OPS-14",
+        idempotency_key="dead-letter:99001:dispose:semantic",
+    )
+    with pytest.raises(ValidationError, match="idempotency key conflict"):
+        resolve_dead_letter(
+            row.pk,
+            outcome=TelegramDeadLetterDisposition.Outcome.DISPOSE,
+            actor=actor,
+            reason="different reason",
+            evidence_reference="OPS-14",
+            idempotency_key="dead-letter:99001:dispose:semantic",
+        )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_dead_letter_disposition_database_evidence_is_immutable() -> None:
+    row = dead_letter()
+    disposition = resolve_dead_letter(
+        row.pk,
+        outcome=TelegramDeadLetterDisposition.Outcome.DISPOSE,
+        actor=None,
+        service_actor="stage2-drill",
+        reason="proven irrelevant",
+        evidence_reference="OPS-15",
+        idempotency_key="dead-letter:99001:dispose:immutable",
+    )
+    with pytest.raises(DatabaseError, match="immutable"):
+        TelegramDeadLetterDisposition.objects.filter(pk=disposition.pk).update(reason="rewrite")
+    with pytest.raises(DatabaseError, match="immutable"):
+        TelegramDeadLetterDisposition.objects.filter(pk=disposition.pk).delete()
 
 
 @pytest.mark.django_db(transaction=True)

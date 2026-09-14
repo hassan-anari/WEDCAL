@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Barrier
+from typing import Any
 
 import pytest
 from django.db import close_old_connections
@@ -316,7 +317,9 @@ def test_activity_insert_serializes_with_window_finalization(monkeypatch) -> Non
 
 
 @pytest.mark.django_db(transaction=True)
-def test_closed_season_activity_race_is_included_or_explicitly_late(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def test_closed_season_activity_race_is_included_or_explicitly_late(
+    monkeypatch: Any, close_season_for_test: Any
+) -> None:
     from apps.network.models import CreatorGroupRegistration, NetworkActivity
     from apps.network.services import record_activity, settle_window
     from apps.seasons.models import Season
@@ -348,7 +351,7 @@ def test_closed_season_activity_race_is_included_or_explicitly_late(monkeypatch)
         state=CreatorGroupRegistration.State.ACTIVE,
         reward_eligible_since=AT - timedelta(days=1),
     )
-    Season.objects.filter(pk=season.pk).update(status=Season.Status.CLOSED)
+    close_season_for_test(season)
     run_parallel(
         [
             lambda: record_activity(
