@@ -104,9 +104,9 @@ jobs:
           sleep 10
           test "$(docker compose ps --status running --services | grep -Ec '^(api|worker|beat)$')" -eq 3
           docker compose exec -T beat test -w /app/run
-          curl --fail --silent --show-error http://localhost:8000/health/live
-          curl --fail --silent --show-error http://localhost:8000/health/ready
-          curl --fail --silent --show-error http://localhost:8000/admin/login/ > /tmp/admin-login.html
+          curl --fail --silent --show-error http://127.0.0.1:8000/health/live
+          curl --fail --silent --show-error http://127.0.0.1:8000/health/ready
+          curl --fail --silent --show-error http://127.0.0.1:8000/admin/login/ > /tmp/admin-login.html
           admin_asset="$(grep -oE '/static/admin/(css|js)/[^\" ]+' /tmp/admin-login.html | head -1)"
           test -n "$admin_asset"
-          curl --fail --silent --show-error "http://localhost:8000${admin_asset}" > /dev/null
+          curl --fail --silent --show-error "http://127.0.0.1:8000${admin_asset}" > /dev/null
