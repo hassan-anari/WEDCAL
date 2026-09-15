@@ -59,7 +59,7 @@ services:
   api:
     <<: *app
     command: ["uvicorn", "dexo_land.asgi:application", "--host", "0.0.0.0", "--port", "8000"]
-    ports: ["8000:8000"]
+    ports: ["127.0.0.1:8000:8000"]
     depends_on: *dependencies
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"]

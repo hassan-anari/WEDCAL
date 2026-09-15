@@ -1,0 +1,81 @@
+name: Deploy Production
+
+on:
+  workflow_run:
+    workflows: ["Phase 1 Foundation"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the Foundation-tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "${{ secrets.PROD_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -p "${{ secrets.PROD_SSH_PORT }}" \
+            -H "${{ secrets.PROD_HOST }}" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Synchronize repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          rsync -az --delete \
+            --exclude '.env' \
+            --exclude '.git' \
+            -e "ssh -i ~/.ssh/id_ed25519 -p ${{ secrets.PROD_SSH_PORT }}" \
+            ./ "${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }}:/opt/dalexio/app/"
+
+      - name: Deploy and verify local readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/id_ed25519 \
+            -p "${{ secrets.PROD_SSH_PORT }}" \
+            "${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }}" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /opt/dalexio/app
+          test -f .env
+          docker compose config --quiet
+          docker compose up -d --build --remove-orphans
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error \
+              http://127.0.0.1:8000/health/ready > /dev/null; then
+              exit 0
+            fi
+            echo "Readiness attempt ${attempt}/30 failed; retrying in 5 seconds."
+            sleep 5
+          done
+
+          docker compose ps
+          docker compose logs --tail=150 api
+          docker compose logs --tail=100 worker
+          docker compose logs --tail=100 beat
+          exit 1
+          REMOTE
+
+      - name: Verify public readiness
+        shell: bash
+        run: curl --fail --silent --show-error https://api.dalexio.com/health/ready
