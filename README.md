@@ -58,6 +58,23 @@ docker compose exec api python manage.py createsuperuser
 Stop the stack with `docker compose down`. Add `--volumes` only when local PostgreSQL,
 Redis, and RabbitMQ state should also be discarded.
 
+### Production integration deployment
+
+A successful `Phase 1 Foundation` workflow triggered by a push or merge to `main`
+automatically deploys the exact commit SHA tested by that workflow. The repository is synchronized
+to `/opt/dalexio/app`, while the production `.env` remains server-owned and is excluded from both
+synchronization and deletion. The deployment requires only these GitHub Secrets:
+
+- `PROD_HOST`
+- `PROD_USER`
+- `PROD_SSH_PORT`
+- `PROD_SSH_KEY`
+
+The runner collects the SSH host key dynamically with `ssh-keyscan`; no host-key secret is
+required. On the server, Docker Compose builds and starts the application without removing its
+PostgreSQL, Redis, or RabbitMQ data volumes. Nginx serves `https://api.dalexio.com` and proxies the
+API to the host-local Django/Uvicorn origin at `127.0.0.1:8000`.
+
 ### Local quality and test commands
 
 Dependencies are locked in `uv.lock`; installs must remain frozen:
