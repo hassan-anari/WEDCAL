@@ -26,7 +26,25 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
 
+      - name: Verify tested commit is still current main
+        id: freshness
+        shell: bash
+        env:
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          current_main_sha="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+
+          if [ "$current_main_sha" != "$TESTED_SHA" ]; then
+            echo "Skipping stale deployment: tested SHA $TESTED_SHA is no longer current main ($current_main_sha)."
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Configure SSH
+        if: steps.freshness.outputs.deploy == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -38,6 +56,7 @@ jobs:
           chmod 600 ~/.ssh/known_hosts
 
       - name: Synchronize repository
+        if: steps.freshness.outputs.deploy == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -48,6 +67,7 @@ jobs:
             ./ "${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }}:/opt/dalexio/app/"
 
       - name: Deploy and verify local readiness
+        if: steps.freshness.outputs.deploy == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -77,5 +97,6 @@ jobs:
           REMOTE
 
       - name: Verify public readiness
+        if: steps.freshness.outputs.deploy == 'true'
         shell: bash
         run: curl --fail --silent --show-error https://api.dalexio.com/health/ready
