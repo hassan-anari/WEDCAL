@@ -63,7 +63,7 @@ jobs:
           rsync -az --delete \
             --exclude '.env' \
             --exclude '.git' \
-            -e "ssh -i ~/.ssh/id_ed25519 -p ${{ secrets.PROD_SSH_PORT }}" \
+            -e "ssh -o IdentitiesOnly=yes -o BatchMode=yes -i ~/.ssh/id_ed25519 -p ${{ secrets.PROD_SSH_PORT }}" \
             ./ "${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }}:/opt/dalexio/app/"
 
       - name: Deploy and verify local readiness
@@ -71,8 +71,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/id_ed25519 \
-            -p "${{ secrets.PROD_SSH_PORT }}" \
+          ssh \
+          -o IdentitiesOnly=yes \
+          -o BatchMode=yes \
+          -i ~/.ssh/id_ed25519 \
+          -p "${{ secrets.PROD_SSH_PORT }}" \
             "${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }}" 'bash -se' <<'REMOTE'
           set -euo pipefail
           cd /opt/dalexio/app
