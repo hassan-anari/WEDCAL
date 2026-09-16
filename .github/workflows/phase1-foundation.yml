@@ -101,12 +101,29 @@ jobs:
           set -euo pipefail
           trap 'docker compose logs; docker compose down --volumes' EXIT
           docker compose up --build --detach --wait
-          sleep 10
+          ready=0
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:8000/health/ready > /dev/null; then
+              ready=1
+              break
+            fi
+            if [ "$attempt" -lt 30 ]; then
+              sleep 2
+            fi
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "Application did not become ready within 60 seconds."
+            docker compose ps
+            docker compose logs --no-color api
+            docker compose logs --no-color worker
+            docker compose logs --no-color beat
+            exit 1
+          fi
           test "$(docker compose ps --status running --services | grep -Ec '^(api|worker|beat)$')" -eq 3
           docker compose exec -T beat test -w /app/run
-          curl --fail --silent --show-error http://localhost:8000/health/live
-          curl --fail --silent --show-error http://localhost:8000/health/ready
-          curl --fail --silent --show-error http://localhost:8000/admin/login/ > /tmp/admin-login.html
+          curl --fail --silent --show-error http://127.0.0.1:8000/health/live
+          curl --fail --silent --show-error http://127.0.0.1:8000/health/ready
+          curl --fail --silent --show-error http://127.0.0.1:8000/admin/login/ > /tmp/admin-login.html
           admin_asset="$(grep -oE '/static/admin/(css|js)/[^\" ]+' /tmp/admin-login.html | head -1)"
           test -n "$admin_asset"
-          curl --fail --silent --show-error "http://localhost:8000${admin_asset}" > /dev/null
+          curl --fail --silent --show-error "http://127.0.0.1:8000${admin_asset}" > /dev/null
