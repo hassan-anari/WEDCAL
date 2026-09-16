@@ -14,14 +14,7 @@ class Command(BaseCommand):
                 raise CommandError("Another Beat owns the production singleton lock")
             try:
                 completed = subprocess.run(  # noqa: S603
-                    [
-                        "celery",
-                        "-A",
-                        "dexo_land",
-                        "beat",
-                        "--loglevel=INFO",
-                        "--schedule=/app/run/celerybeat-schedule",
-                    ], check=False
+                    ["celery", "-A", "dexo_land", "beat", "--loglevel=INFO", "--schedule=/app/run/celerybeat-schedule"], check=False
                 )
                 if completed.returncode:
                     raise CommandError(f"Celery Beat exited {completed.returncode}")
