@@ -42,7 +42,9 @@ services:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-dexo_land}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-dexo_land_local}
     ports: ["127.0.0.1:5672:5672", "127.0.0.1:15672:15672"]
-    volumes: ["rabbitmq-data:/var/lib/rabbitmq"]
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+      - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 5s
