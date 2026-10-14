@@ -35,6 +35,7 @@ def cache_world(settings: Any, monkeypatch: Any, player_factory: Any) -> Any:
     settings.AVATAR_PUBLIC_API_ORIGIN = "https://api.example.com"
     storage = MemoryStorage()
     monkeypatch.setattr(avatars, "get_storage", lambda: storage)
+    monkeypatch.setattr(avatars, "reserve_bot_api_budget", lambda *args, **kwargs: None)
     player = player_factory()
     player.photo_url = "https://t.me/i/userpic/320/test.jpg"
     player.save()
@@ -106,9 +107,11 @@ def test_cache_failure_privacy_and_photo_removal(
     assert "SECRET" not in caplog.text
     assert avatars.avatar_url(player) == player.photo_url
     monkeypatch.setattr(avatars, "retrieve_photo", lambda *args: photo())
+    PlayerAvatar.objects.filter(player=player).update(refresh_after=timezone.now())
     avatars.refresh_player_avatar(player.pk)
     assert storage.objects
     monkeypatch.setattr(avatars, "retrieve_photo", lambda *args: None)
+    PlayerAvatar.objects.filter(player=player).update(refresh_after=timezone.now())
     avatars.refresh_player_avatar(player.pk)
     assert not storage.objects
 

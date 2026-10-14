@@ -523,6 +523,11 @@
             "title": "Reward Per Tap",
             "type": "integer"
           },
+          "cooldown_seconds": {
+            "minimum": 1,
+            "title": "Cooldown Seconds",
+            "type": "integer"
+          },
           "max_taps_per_batch": {
             "title": "Max Taps Per Batch",
             "type": "integer"
@@ -559,6 +564,7 @@
           "generation",
           "authorized_allowance",
           "reward_per_tap",
+          "cooldown_seconds",
           "max_taps_per_batch",
           "min_batch_interval_ms",
           "expires_at",
@@ -811,6 +817,9 @@
           },
           "snapshot": {
             "$ref": "#/components/schemas/TapStateOutput"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/TapReceiptOutput"
           }
         },
         "required": [
@@ -820,9 +829,92 @@
           "earned_points",
           "receipt_id",
           "sequence_through",
-          "snapshot"
+          "snapshot",
+          "receipt"
         ],
         "title": "BatchOutput",
+        "type": "object"
+      },
+      "TapReceiptOutput": {
+        "description": "Immutable ledger evidence; independent of the response's current snapshot.",
+        "properties": {
+          "receipt_id": {
+            "title": "Receipt Id",
+            "type": "integer"
+          },
+          "idempotency_key": {
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "lease_id": {
+            "format": "uuid",
+            "title": "Lease Id",
+            "type": "string"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "generation": {
+            "title": "Generation",
+            "type": "integer"
+          },
+          "sequence_start": {
+            "title": "Sequence Start",
+            "type": "integer"
+          },
+          "requested_taps": {
+            "title": "Requested Taps",
+            "type": "integer"
+          },
+          "sequence_through": {
+            "title": "Sequence Through",
+            "type": "integer"
+          },
+          "accepted_taps": {
+            "title": "Accepted Taps",
+            "type": "integer"
+          },
+          "rejected_taps": {
+            "title": "Rejected Taps",
+            "type": "integer"
+          },
+          "earned_points": {
+            "title": "Earned Points",
+            "type": "integer"
+          },
+          "accepted_at": {
+            "format": "date-time",
+            "title": "Accepted At",
+            "type": "string"
+          },
+          "season_id": {
+            "title": "Season Id",
+            "type": "string"
+          },
+          "config_version": {
+            "title": "Config Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "receipt_id",
+          "idempotency_key",
+          "lease_id",
+          "session_id",
+          "generation",
+          "sequence_start",
+          "requested_taps",
+          "sequence_through",
+          "accepted_taps",
+          "rejected_taps",
+          "earned_points",
+          "accepted_at",
+          "season_id",
+          "config_version"
+        ],
+        "title": "TapReceiptOutput",
         "type": "object"
       },
       "BatchInput": {

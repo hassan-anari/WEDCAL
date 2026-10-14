@@ -118,6 +118,7 @@ def _snapshot(
             "generation": lease.generation,
             "authorized_allowance": lease.allowance,
             "reward_per_tap": bound.base_tap.points_per_rewarded_tap,
+            "cooldown_seconds": bound.base_tap.cooldown_seconds,
             "max_taps_per_batch": bound.base_tap.max_taps_per_batch,
             "min_batch_interval_ms": bound.base_tap.min_batch_interval_ms,
             "expires_at": lease.expires_at,
@@ -296,13 +297,34 @@ def _request_identity(payload: BatchInput) -> dict[str, Any]:
     return payload.model_dump(mode="json", exclude={"idempotency_key"})
 
 
+def _receipt_evidence(ledger: RewardLedger) -> dict[str, Any]:
+    request = ledger.metadata["tap_request"]
+    return {
+        "receipt_id": ledger.pk,
+        "idempotency_key": ledger.idempotency_key.removeprefix(f"tap-v2:{ledger.player_id}:"),
+        "lease_id": request["lease_id"],
+        "session_id": request["session_id"],
+        "generation": request["generation"],
+        "sequence_start": request["sequence_start"],
+        "requested_taps": request["tap_count"],
+        **ledger.metadata["tap_receipt"],
+        "accepted_at": ledger.occurred_at,
+        "season_id": ledger.season.code,
+        "config_version": ledger.config_version.version,
+    }
+
+
 def submit_batch(player: Player, payload: BatchInput, *, at: datetime) -> dict[str, Any]:
     started = perf_counter()
     throttle(player, payload.session_id, at)
     key = f"tap-v2:{player.pk}:{payload.idempotency_key}"
     with transaction.atomic():
         # Look up durable receipt before expiry/rollover/moderation; settled value always survives.
-        existing = RewardLedger.objects.filter(idempotency_key=key).first()
+        existing = (
+            RewardLedger.objects.select_related("season", "config_version")
+            .filter(idempotency_key=key)
+            .first()
+        )
         lease = (
             TapLease.objects.select_related("season")
             .filter(pk=payload.lease_id, player=player)
@@ -321,7 +343,11 @@ def submit_batch(player: Player, payload: BatchInput, *, at: datetime) -> dict[s
         player = Player.objects.select_for_update().get(pk=player.pk)
         lock_ms = (perf_counter() - lock_started) * 1000
         state = TapBurstState.objects.filter(player=player).first()
-        existing = RewardLedger.objects.filter(idempotency_key=key).first()
+        existing = (
+            RewardLedger.objects.select_related("season", "config_version")
+            .filter(idempotency_key=key)
+            .first()
+        )
         current = resolve_effective_game_config(at)
         current_season = resolve_current_season(at=at, required=False)
         if existing:
@@ -332,6 +358,7 @@ def submit_batch(player: Player, payload: BatchInput, *, at: datetime) -> dict[s
                 **receipt,
                 "duplicate": True,
                 "receipt_id": existing.pk,
+                "receipt": _receipt_evidence(existing),
                 "snapshot": _snapshot(
                     player, current, current_season, state, at, payload.session_id
                 ),
@@ -428,6 +455,7 @@ def submit_batch(player: Player, payload: BatchInput, *, at: datetime) -> dict[s
             **receipt,
             "duplicate": False,
             "receipt_id": ledger.pk,
+            "receipt": _receipt_evidence(ledger),
             "snapshot": _snapshot(player, current, current_season, state, at, payload.session_id),
         }
     logger.info(

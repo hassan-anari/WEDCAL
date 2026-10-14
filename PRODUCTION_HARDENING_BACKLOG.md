@@ -11,7 +11,7 @@
 **Phase 10 reviewed hosted HEAD:** `d049af43a3c9d18d4221e883413834d82125ae78`
 **Phase 11 final reviewed hosted HEAD:** `eb6b293b472bacb273d69c8681406cc15af58c96`
 **Initial review date:** 2026-09-10
-**Last reviewed:** 2026-10-14 (B2 backend draft based on main `95f8458`; see committed B2 evidence and PR CI)
+**Last reviewed:** 2026-10-15 (B2 backend draft based on main `95f8458`; see committed B2 evidence and PR CI)
 **Owner:** repository/product owner
 
 ---
@@ -1343,3 +1343,10 @@ Verified base: `95f8458e3058112e12053d090f54a10e0aedd599`; implementation/CI hea
 - **PH-B2-002 NEW/OPERATIONAL PREREQUISITE:** Avatar cache default disabled. Private S3 credentials/bucket/lifecycle/API-origin configuration and filtered-network delivery test are required; code tests do not prove VPN-off operation.
 
 No unrelated hardening items were closed. PH-037 and PH-043 remain owner launch gates.
+
+
+### B2 compatibility review follow-up — 2026-10-15
+
+Same unmerged Draft #27; no deployment/config activation. Typed `lease.cooldown_seconds` now exposes immutable burst policy. Ledger-derived `receipt` binds retries to exact original request/counts; the existing all-source `(receipt_cursor, revision)` ordering remains valid after Daily/Missions settlements. Contract/OpenAPI/JSON fixtures and semantic/transport regression enforce the frontend handoff. No schema migration or ledger/config rewrite.
+
+**PH-B2-002 code correction:** Avatar `getUserProfilePhotos`, `getFile` and file download requests share the existing global/method Telegram admission budget and atomically extended bot-wide 429 pause. Avatars fail closed on budget storage loss. PostgreSQL advisory slots bound refresh concurrency across workers; persistent due-time/jitter retries honor Telegram delays and survive Bootstrap/profile changes. Cache remains disabled; private storage configuration and filtered-network origin tests remain operational prerequisites. All workers must share one Redis budget namespace and the same slot setting; use direct/session-pooled PostgreSQL connections. Existing critical Bot API calls retain their pre-existing fail-open behavior on Redis loss (an availability tradeoff, not an avatar bypass).

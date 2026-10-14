@@ -249,14 +249,20 @@ def test_config_pinned_burst_then_new_policy(world: Any, phase4_config_factory: 
         payload.update(copy.deepcopy(SAMPLE))
         payload["base_tap"]["points_per_rewarded_tap"] = 2
         payload["base_tap"]["rewarded_taps_per_burst"] = 60
+        payload["base_tap"]["cooldown_seconds"] = 23
 
     new = phase4_config_factory(
         effective_at=AT + timedelta(seconds=1), mutate=mutate, version="v2-cutover"
     )
+    assert state["lease"]["cooldown_seconds"] == 10
+    pinned = issue_lease(player, session=session, at=AT + timedelta(seconds=2))
+    assert pinned["lease"]["cooldown_seconds"] == 10
     result = submit_batch(player, batch(state, count=50), at=AT + timedelta(seconds=2))
     assert result["earned_points"] == 50
     assert RewardLedger.objects.get().config_version == config
     next_state = issue_lease(player, session=session, at=AT + timedelta(seconds=12))
+    assert result["snapshot"]["cooldown_until"] == AT + timedelta(seconds=12)
+    assert next_state["lease"]["cooldown_seconds"] == 23
     assert next_state["lease"]["reward_per_tap"] == 2
     assert next_state["burst_remaining"] == 60
     assert next_state["config_version"] == new.version
@@ -564,10 +570,18 @@ def test_committed_frontend_fixtures_validate() -> None:
         (Path(__file__).resolve().parents[3] / "docs/fixtures/tap-v2.json").read_text()
     )
     LeaseInput.model_validate(fixture["lease_request"])
-    BatchInput.model_validate(fixture["batch_request"])
-    TapStateOutput.model_validate(fixture["initial_state"])
-    BatchOutput.model_validate(fixture["batch_response"])
-    BatchOutput.model_validate(fixture["duplicate_response"])
+    for key in ("batch_request", "partial_request"):
+        BatchInput.model_validate(fixture[key])
+    for key in ("initial_state", "state_after_daily_reward"):
+        TapStateOutput.model_validate(fixture[key])
+    for key in (
+        "batch_response",
+        "duplicate_response",
+        "partial_response",
+        "recovered_previous_lease_response",
+        "partial_recovery_response",
+    ):
+        BatchOutput.model_validate(fixture[key])
     for response in fixture["errors"]:
         TapErrorOutput.model_validate(response)
 

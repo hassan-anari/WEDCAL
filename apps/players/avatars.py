@@ -2,10 +2,12 @@ import hashlib
 import io
 import ipaddress
 import json
+import random
 import re
 import socket
 import urllib.error
 import urllib.request
+from contextlib import suppress
 from datetime import datetime, timedelta
 from time import monotonic
 from typing import Any
@@ -19,8 +21,10 @@ from django.http import HttpResponse
 from django.utils import timezone
 from PIL import Image
 
+from apps.players.avatar_budget import avatar_refresh_slot
 from apps.players.avatar_storage import get_storage
 from apps.players.models import Player, PlayerAvatar
+from apps.telegram.budget import defer_bot_api, reserve_bot_api_budget, retry_after_from_payload
 
 logger = structlog.get_logger(__name__)
 FILE_PATH = re.compile(r"^photos/[A-Za-z0-9_/-]+\.(?:jpg|jpeg|png|webp)$")
@@ -31,6 +35,7 @@ def configured() -> bool:
     endpoint = urlsplit(settings.AVATAR_S3_ENDPOINT_URL)
     return bool(
         settings.AVATAR_CACHE_ENABLED
+        and 1 <= settings.AVATAR_CACHE_MAX_CONCURRENT_REFRESHES <= 16
         and 1 <= settings.AVATAR_CACHE_TTL_SECONDS <= 2592000
         and 1 <= settings.AVATAR_CACHE_MAX_BYTES <= 5242880
         and 1 <= settings.AVATAR_CACHE_MAX_PIXELS <= 16000000
@@ -60,7 +65,11 @@ def avatar_url(player: Player) -> str:
             player=player,
             defaults={"source_fingerprint": fingerprint(player), "refresh_after": now},
         )
-    elif row.source_fingerprint != fingerprint(player) and row.refresh_token is None:
+    elif (
+        row.source_fingerprint != fingerprint(player)
+        and row.refresh_token is None
+        and not (row.last_error_category and row.refresh_after > now)
+    ):
         PlayerAvatar.objects.filter(pk=row.pk, refresh_token__isnull=True).update(refresh_after=now)
     # Beat discovers due metadata; no broker or network call can delay Bootstrap.
     if (
@@ -82,6 +91,19 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+class AvatarRetry(Exception):
+    def __init__(self, category: str, retry_after: int) -> None:
+        self.category = category
+        self.retry_after = retry_after
+        super().__init__(category)
+
+
+def _rate_limit(retry_after: int | None) -> AvatarRetry:
+    delay = retry_after or settings.TELEGRAM_API_DEFAULT_RETRY_SECONDS
+    defer_bot_api(delay)
+    return AvatarRetry("rate_limited", delay)
+
+
 def _telegram_request(
     path: str, *, parameters: dict[str, Any] | None = None, image: bool = False
 ) -> bytes:
@@ -90,6 +112,9 @@ def _telegram_request(
         r"[0-9]+:[A-Za-z0-9_-]+", settings.TELEGRAM_BOT_TOKEN
     ):
         raise ValueError("bot_configuration")
+    denial = reserve_bot_api_budget("avatarFileDownload" if image else path, fail_closed=True)
+    if denial is not None:
+        raise AvatarRetry(denial.category, denial.retry_after)
     for addr in socket.getaddrinfo("api.telegram.org", 443, type=socket.SOCK_STREAM):
         if not ipaddress.ip_address(addr[4][0]).is_global:
             raise ValueError("source_address")
@@ -103,32 +128,45 @@ def _telegram_request(
     opener = urllib.request.build_opener(NoRedirect())
     limit = settings.AVATAR_CACHE_MAX_BYTES if image else 65536
     started = monotonic()
-    with opener.open(req, timeout=5) as response:
-        if response.status != 200:
-            raise ValueError("source_status")
-        mime = response.headers.get_content_type()
-        if image and mime not in {"image/jpeg", "image/png", "image/webp"}:
-            raise ValueError("source_mime")
-        length = response.headers.get("Content-Length")
-        if length and int(length) > limit:
-            raise ValueError("source_size")
-        result = bytearray()
-        while len(result) <= limit:
-            chunk = response.read(min(65536, limit + 1 - len(result)))
-            if not chunk:
-                break
-            result.extend(chunk)
-            if monotonic() - started > 10:
-                raise ValueError("source_timeout")
-        if len(result) > limit:
-            raise ValueError("source_size")
-        return bytes(result)
+    try:
+        with opener.open(req, timeout=5) as response:
+            if response.status != 200:
+                raise ValueError("source_status")
+            mime = response.headers.get_content_type()
+            if image and mime not in {"image/jpeg", "image/png", "image/webp"}:
+                raise ValueError("source_mime")
+            length = response.headers.get("Content-Length")
+            if length and int(length) > limit:
+                raise ValueError("source_size")
+            result = bytearray()
+            while len(result) <= limit:
+                chunk = response.read(min(65536, limit + 1 - len(result)))
+                if not chunk:
+                    break
+                result.extend(chunk)
+                if monotonic() - started > 10:
+                    raise ValueError("source_timeout")
+            if len(result) > limit:
+                raise ValueError("source_size")
+            return bytes(result)
+    except urllib.error.HTTPError as exc:
+        if exc.code != 429:
+            raise
+        delay = None
+        with suppress(ValueError, TypeError):
+            delay = retry_after_from_payload(json.loads(exc.read(65536)))
+        if delay is None:
+            value = exc.headers.get("Retry-After", "")
+            delay = int(value) if value.isdigit() and int(value) > 0 else None
+        raise _rate_limit(delay) from None
 
 
 def bot_call(method: str, parameters: dict[str, Any]) -> dict[str, Any]:
     if method not in {"getUserProfilePhotos", "getFile"}:
         raise ValueError("source_method")
     payload = json.loads(_telegram_request(method, parameters=parameters))
+    if isinstance(payload, dict) and payload.get("error_code") == 429:
+        raise _rate_limit(retry_after_from_payload(payload))
     if (
         not isinstance(payload, dict)
         or payload.get("ok") is not True
@@ -179,6 +217,23 @@ def refresh_player_avatar(player_id: int, *, at: datetime | None = None) -> None
     if not configured():
         return
     now = at or timezone.now()
+    with avatar_refresh_slot() as available:
+        if not available:
+            # Never hold a worker sleeping or reset another worker's in-progress token.
+            PlayerAvatar.objects.filter(
+                player_id=player_id, refresh_token__isnull=True, refresh_after__lte=now
+            ).update(
+                refresh_after=now + timedelta(seconds=settings.AVATAR_CACHE_RETRY_SECONDS),
+                last_error_category="concurrency_limited",
+            )
+            return
+        _refresh_player_avatar(player_id, at=now)
+
+
+def _refresh_player_avatar(player_id: int, *, at: datetime) -> None:
+    if not configured():
+        return
+    now = at
     token = uuid4()
     with transaction.atomic():
         player = Player.objects.select_for_update().get(pk=player_id)
@@ -187,7 +242,7 @@ def refresh_player_avatar(player_id: int, *, at: datetime | None = None) -> None
             defaults={"source_fingerprint": fingerprint(player), "refresh_after": now},
         )
         row = PlayerAvatar.objects.select_for_update().get(pk=row.pk)
-        if row.refresh_token and row.refresh_after > now:
+        if row.refresh_after > now:
             return
         row.refresh_token = token
         row.refresh_after = now + timedelta(seconds=settings.AVATAR_CACHE_RETRY_SECONDS)
@@ -220,10 +275,18 @@ def refresh_player_avatar(player_id: int, *, at: datetime | None = None) -> None
         storage.delete(old_key)
     except Exception as exc:
         # Category only: urllib/boto exceptions can contain bot tokens/private paths.
-        PlayerAvatar.objects.filter(player_id=player_id, refresh_token=token).update(
-            refresh_token=None, last_error_category=type(exc).__name__[:40]
+        delay = max(
+            settings.AVATAR_CACHE_RETRY_SECONDS,
+            exc.retry_after if isinstance(exc, AvatarRetry) else 0,
         )
-        logger.warning("avatar_refresh_failed", player_id=player_id, category=type(exc).__name__)
+        delay += random.randint(0, max(0, settings.TELEGRAM_API_RETRY_JITTER_SECONDS))
+        category = exc.category if isinstance(exc, AvatarRetry) else type(exc).__name__[:40]
+        PlayerAvatar.objects.filter(player_id=player_id, refresh_token=token).update(
+            refresh_token=None,
+            last_error_category=category,
+            refresh_after=now + timedelta(seconds=delay),
+        )
+        logger.warning("avatar_refresh_failed", player_id=player_id, category=category)
 
 
 def deliver_avatar(delivery_id: UUID) -> HttpResponse:

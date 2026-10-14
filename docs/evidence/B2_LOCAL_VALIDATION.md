@@ -1,5 +1,7 @@
 # B2 local validation evidence (2026-10-14)
 
+The [same-PR compatibility follow-up](../B2_CONTRACT_COMPATIBILITY_FOLLOWUP.md) records the newer 680-test regression and [new benchmark](b2-followup-benchmark.json); the original measurements below are retained as historical evidence.
+
 Base main `95f8458e3058112e12053d090f54a10e0aedd599`. Evidence is synthetic/local; no public endpoint traffic, deployed user inventory, production migration or VPN-off claim.
 
 - Full repository regression: **659 passed**, one opt-in benchmark skipped, one existing static-directory warning, 98.53s. Final B2/Avatar/fixture rerun: **39 passed**, 14.23s (includes the additional historical projection-only 150-point preservation case). Hosted CI tests final head separately.

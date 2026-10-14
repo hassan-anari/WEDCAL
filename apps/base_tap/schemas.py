@@ -31,6 +31,7 @@ class LeaseOutput(Schema):
     generation: int
     authorized_allowance: int
     reward_per_tap: int
+    cooldown_seconds: int = Field(ge=1)
     max_taps_per_batch: int
     min_batch_interval_ms: int
     expires_at: datetime
@@ -59,6 +60,25 @@ class TapStateOutput(Schema):
     progression_policy: BootstrapProgressionPolicy
 
 
+class TapReceiptOutput(Schema):
+    """Immutable ledger evidence; independent of the response's current snapshot."""
+
+    receipt_id: int
+    idempotency_key: str
+    lease_id: UUID
+    session_id: UUID
+    generation: int
+    sequence_start: int
+    requested_taps: int
+    sequence_through: int
+    accepted_taps: int
+    rejected_taps: int
+    earned_points: int
+    accepted_at: datetime
+    season_id: str
+    config_version: str
+
+
 class BatchOutput(Schema):
     duplicate: bool
     accepted_taps: int
@@ -67,6 +87,7 @@ class BatchOutput(Schema):
     receipt_id: int
     sequence_through: int
     snapshot: TapStateOutput
+    receipt: TapReceiptOutput
 
 
 class TapErrorOutput(Schema):

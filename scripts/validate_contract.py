@@ -16,6 +16,9 @@ REQUIRED_FILES = (
     "DEXO_LAND_SEASON1_ECONOMY_CONFIG_CONTRACT.md",
     "config/examples/season1.game-config.v1.json",
     "config/examples/season1.game-config.v2.json",
+    "docs/B2_TAP_V2_CONTRACT.md",
+    "docs/fixtures/tap-v2.json",
+    "docs/fixtures/tap-v2-openapi.json",
 )
 
 
@@ -207,27 +210,152 @@ def validate_invariants(contents: dict[str, str]) -> list[str]:
         legacy = json.loads(example)
         current = json.loads(contents["config/examples/season1.game-config.v2.json"])
         tap = current["base_tap"]
-        if current["meta"]["schema_version"] != 3 or current["meta"]["economy_contract_version"] != "3.0.0":
+        if (
+            current["meta"]["schema_version"] != 3
+            or current["meta"]["economy_contract_version"] != "3.0.0"
+        ):
             errors.append("B2 config must use schema 3 / economy 3.0.0")
-        if tap.get("protocol_version") != 2 or tap.get("rewarded_taps_per_burst") != 50 or tap.get("cooldown_seconds") != 10:
+        if (
+            tap.get("protocol_version") != 2
+            or tap.get("rewarded_taps_per_burst") != 50
+            or tap.get("cooldown_seconds") != 10
+        ):
             errors.append("B2 initial burst policy must match owner 50/10 approval")
         if any(key in tap for key in ("rewarded_taps_per_utc_day", "reset_timezone")):
             errors.append("B2 cannot carry daily Tap earning/reset fields")
-        if tap.get("grants_direct_dlx") is not False or tap.get("passive_referral_share_eligible") is not False:
+        if (
+            tap.get("grants_direct_dlx") is not False
+            or tap.get("passive_referral_share_eligible") is not False
+        ):
             errors.append("B2 must retain direct DLX/referral exclusion")
         for key in legacy.keys() | current.keys():
             if key not in {"meta", "base_tap"} and legacy.get(key) != current.get(key):
                 errors.append(f"B2 changed unrelated economy section: {key}")
         if not has_all(source, "no UTC daily Tap cap", "immediately", "Historical Tap protocol 1"):
-            errors.append("B2 canonical Source of Truth must distinguish immediate uncapped Tap from history")
+            errors.append(
+                "B2 canonical Source of Truth must distinguish immediate uncapped Tap from history"
+            )
     except (KeyError, TypeError, json.JSONDecodeError) as exc:
         errors.append(f"B2 configuration structural validation failed: {exc}")
+    return errors
+
+
+def validate_tap_wire(contents: dict[str, str]) -> list[str]:
+    """Dependency-free fixture checks also run in the Phase 0 contract gate."""
+    errors: list[str] = []
+    try:
+        fixture = json.loads(contents["docs/fixtures/tap-v2.json"])
+        schemas = json.loads(contents["docs/fixtures/tap-v2-openapi.json"])["components"]["schemas"]
+        lease = schemas["LeaseOutput"]
+        duration = lease["properties"]["cooldown_seconds"]
+        if (
+            "cooldown_seconds" not in lease["required"]
+            or duration["type"] != "integer"
+            or duration["minimum"] != 1
+        ):
+            errors.append("Lease OpenAPI must expose the positive pinned cooldown duration")
+        batch = schemas["BatchOutput"]
+        if "receipt" not in batch["required"] or batch["properties"]["receipt"] != {
+            "$ref": "#/components/schemas/TapReceiptOutput"
+        }:
+            errors.append("Batch OpenAPI must expose immutable typed receipt evidence")
+        required = {
+            "receipt_id",
+            "idempotency_key",
+            "lease_id",
+            "session_id",
+            "generation",
+            "sequence_start",
+            "requested_taps",
+            "sequence_through",
+            "accepted_taps",
+            "rejected_taps",
+            "earned_points",
+            "accepted_at",
+            "season_id",
+            "config_version",
+        }
+        if not required.issubset(schemas["TapReceiptOutput"]["required"]):
+            errors.append("Receipt OpenAPI is missing authoritative request provenance")
+        for key, value in fixture.items():
+            if isinstance(value, dict) and "receipt" in value:
+                receipt = value["receipt"]
+                if not required.issubset(receipt):
+                    errors.append(f"Incomplete receipt fixture: {key}")
+                    continue
+                if any(
+                    receipt[name] != value[name]
+                    for name in (
+                        "receipt_id",
+                        "accepted_taps",
+                        "rejected_taps",
+                        "earned_points",
+                        "sequence_through",
+                    )
+                ):
+                    errors.append(f"Flat/typed receipt mismatch: {key}")
+                if (
+                    receipt["accepted_taps"] + receipt["rejected_taps"] != receipt["requested_taps"]
+                    or receipt["sequence_start"] + receipt["accepted_taps"] - 1
+                    != receipt["sequence_through"]
+                ):
+                    errors.append(f"Receipt count/range mismatch: {key}")
+            state = value.get("snapshot", value) if isinstance(value, dict) else {}
+            if state.get("lease") is not None and state["lease"].get("cooldown_seconds", 0) <= 0:
+                errors.append(f"Missing lease cooldown duration: {key}")
+        for response, request in (
+            ("batch_response", "batch_request"),
+            ("partial_response", "partial_request"),
+        ):
+            receipt, body = fixture[response]["receipt"], fixture[request]
+            if (
+                any(
+                    receipt[name] != body[name]
+                    for name in (
+                        "lease_id",
+                        "session_id",
+                        "generation",
+                        "sequence_start",
+                        "idempotency_key",
+                    )
+                )
+                or receipt["requested_taps"] != body["tap_count"]
+            ):
+                errors.append(f"Fixture receipt does not identify its original request: {response}")
+        for replay, original in (
+            ("duplicate_response", "batch_response"),
+            ("recovered_previous_lease_response", "batch_response"),
+            ("partial_recovery_response", "partial_response"),
+        ):
+            if (
+                not fixture[replay]["duplicate"]
+                or fixture[replay]["receipt"] != fixture[original]["receipt"]
+            ):
+                errors.append(f"Replay must retain the exact original receipt: {replay}")
+        active = fixture["batch_response"]["snapshot"]
+        daily = fixture["state_after_daily_reward"]
+        if (
+            daily["revision"] != active["revision"]
+            or daily["receipt_cursor"] <= active["receipt_cursor"]
+            or daily["lease"] != active["lease"]
+        ):
+            errors.append(
+                "Daily fixture must advance only the all-source cursor, retaining Tap state"
+            )
+        contract = contents["docs/B2_TAP_V2_CONTRACT.md"]
+        if not has_all(
+            contract, "cooldown_seconds", "receipt_cursor", "revision", "exact persisted body"
+        ):
+            errors.append("Wire contract must describe pinned duration and authoritative recovery")
+    except (KeyError, TypeError, ValueError) as exc:
+        errors.append(f"Tap wire fixture validation failed: {exc}")
     return errors
 
 
 def main() -> int:
     contents, errors = validate_files()
     errors.extend(validate_invariants(contents))
+    errors.extend(validate_tap_wire(contents))
 
     if errors:
         print("Repository contract validation failed:", file=sys.stderr)
