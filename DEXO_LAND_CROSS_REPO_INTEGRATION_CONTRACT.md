@@ -288,7 +288,7 @@ All migrations are forward-safe and rollback-tested on backups/synthetic copies.
 | Batch | Status | Paired PRs / acceptance | Critical handoff |
 |---|---|---|---|
 | B1 | IN_PROGRESS | Backend [Draft PR #26](https://github.com/hassan-anari/WEDCAL/pull/26); frontend B1 PR pending | Backend PR_OPEN; initial implementation `90bf6930a5036ea6cd720605ef4f1d6079153eda`; latest head/CI evidence in PR #26. P-01/P-04 contract and regression delivery: [handoff](docs/B1_BACKEND_HANDOFF.md). Frontend/paired Telegram and cache verification pending; no batch acceptance or next-batch approval. |
-| B2 | BACKEND_DRAFT | Backend branch `ai/b2-backend`; paired frontend [Draft #3](https://github.com/hassan-anari/FROCAL/pull/3)/E2E pending | [wire contract](docs/B2_TAP_V2_CONTRACT.md), [handoff](docs/B2_BACKEND_HANDOFF.md), immediate atomic leases, exactly-once legacy drain; no deployment/activation acceptance |
+| B2 | BACKEND_DRAFT | Backend [Draft #27](https://github.com/hassan-anari/WEDCAL/pull/27), branch `ai/b2-backend`; paired frontend [Draft #3](https://github.com/hassan-anari/FROCAL/pull/3)/E2E pending | [wire contract](docs/B2_TAP_V2_CONTRACT.md), [handoff](docs/B2_BACKEND_HANDOFF.md), immediate atomic leases, exactly-once legacy drain; no deployment/activation acceptance |
 | B3 | PLANNED | — | Daily/Missions/Typing/Referral/Creator/Network |
 | B4 | PLANNED | — | Profile/collection/notifications/Arena/DLX |
 | B5 | PLANNED | — | Clan lifecycle/governance/Recovery/Treasury/Shop |
@@ -350,5 +350,7 @@ No Season 1 Clan War/Defence/Rivalry/Alliance/Warfront engine, no Officer role o
 **Owner-approved intent summary:** One stable Telegram Mini App, two independent production-grade codebases, a single auditable phased integration roadmap, instant server-authorized Tap feedback, transactionally committed and unbounded-across-days Tap earning with 50-per-burst/10-second cooldown, full multi-touch, Telegram VPN-off resilience, complete Season 1 feature parity and independent PR-based controls. Preserve all existing S1 exclusions. Do not implement later phases without the owner's explicit gate approval.
 
 ## B2 backend execution amendment
+
+Backend Draft PR: https://github.com/hassan-anari/WEDCAL/pull/27. Paired frontend Draft PR: https://github.com/hassan-anari/FROCAL/pull/3 (`f538f1cc42dc34d7ba21725432915244f34b8005` inspected; wire binding pending). Initial complete backend implementation/contract commit `345ea9f104bc07a3f5f10476f8f3cb1dbe23d500`; final head and exact-head CI links live in #27. No batch acceptance or activation authorization.
 
 Owner mission authorizes C-01/P-02/backend P-03 as one B2 delivery, plus permanent Admin static fix and safe avatar cache. Wire contract 2.0 is now defined in committed schemas/fixtures. Historical candidate route wording in §2.1 is superseded by `/api/v1/base/v2/tap-state`, `/tap-leases`, `/tap-batches` as documented in the B2 wire contract. D-01/D-04 backend semantics implemented for review; D-02 unsent-intent physical limitations disclosed; D-03 inflation/scale requires owner rollout review. B1 owner device smoke and legitimate historical 150 Lifetime Points were confirmed in the mission; preserve them. No B2 merged/deployed or paired frontend acceptance is claimed.

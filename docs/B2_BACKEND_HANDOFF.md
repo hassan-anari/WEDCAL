@@ -1,6 +1,6 @@
 # B2 backend handoff — independent review required
 
-C-01/P-02 and backend P-03 delivered as one B2 batch. Paired frontend [Draft PR #3](https://github.com/hassan-anari/FROCAL/pull/3), inspected at `f538f1cc42dc34d7ba21725432915244f34b8005`, is waiting for this committed wire contract; binding/E2E is still its pending work. Repository names/remotes/URLs preserved. No merge, deployment, deployed DB mutation or public economic/load test performed. [Wire contract](B2_TAP_V2_CONTRACT.md).
+[Backend Draft PR #27](https://github.com/hassan-anari/WEDCAL/pull/27), branch `ai/b2-backend`. C-01/P-02 and backend P-03 delivered as one B2 batch. Paired frontend [Draft PR #3](https://github.com/hassan-anari/FROCAL/pull/3), inspected at `f538f1cc42dc34d7ba21725432915244f34b8005`, is waiting for this committed wire contract; binding/E2E is still its pending work. Repository names/remotes/URLs preserved. No merge, deployment, deployed DB mutation or public economic/load test performed. [Wire contract](B2_TAP_V2_CONTRACT.md).
 
 ## Migration and settlement inventory
 
