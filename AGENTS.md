@@ -14,6 +14,7 @@ Before changing code, every agent MUST read:
 2. `DEXO_LAND_SEASON1_SOURCE_OF_TRUTH_EN.md`
 3. the files/tests directly related to its assigned slice
 4. the final frontend source/contract only when the task requires confirming a user-visible flow
+5. `DEXO_LAND_CROSS_REPO_INTEGRATION_CONTRACT.md` for cross-repository integration tasks; follow its owner-decision register and phase gates, and reconcile any newer Tap decisions with the canonical Source of Truth before implementation
 
 The legacy Dalexio backend may be consulted for implementation patterns only. It is not the product contract.
 
