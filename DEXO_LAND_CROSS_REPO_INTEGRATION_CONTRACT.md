@@ -287,7 +287,7 @@ All migrations are forward-safe and rollback-tested on backups/synthetic copies.
 
 | Batch | Status | Paired PRs / acceptance | Critical handoff |
 |---|---|---|---|
-| B1 | IN_PROGRESS | Backend Draft PR: `ai/b1-backend-foundation`; frontend B1 PR pending | Backend P-01/P-04 contract and regression delivery: [handoff](docs/B1_BACKEND_HANDOFF.md). Frontend/paired Telegram and cache verification pending; no batch acceptance or next-batch approval. |
+| B1 | IN_PROGRESS | Backend [Draft PR #26](https://github.com/hassan-anari/WEDCAL/pull/26); frontend B1 PR pending | Backend PR_OPEN at `90bf6930a5036ea6cd720605ef4f1d6079153eda`; current-head CI evidence in PR #26. P-01/P-04 contract and regression delivery: [handoff](docs/B1_BACKEND_HANDOFF.md). Frontend/paired Telegram and cache verification pending; no batch acceptance or next-batch approval. |
 | B2 | PLANNED | — | C-01 canonical Tap reconciliation, atomic backend leases, instant frontend multi-touch, legacy drain |
 | B3 | PLANNED | — | Daily/Missions/Typing/Referral/Creator/Network |
 | B4 | PLANNED | — | Profile/collection/notifications/Arena/DLX |
@@ -298,10 +298,10 @@ All migrations are forward-safe and rollback-tested on backups/synthetic copies.
 |---|---|---|---|
 | C-00 | ACCEPTED | Backend #22 merged | GitHub connector dual-repo proof in backend #24 / frontend #1; two Codex environments selected; PH-037 still owner action |
 | C-01 | PLANNED | — | Update conflicting Tap authoritative contracts |
-| P-01 | IN_PROGRESS (B1) | Backend draft delivery; frontend pending | Auth malformed-input/error regressions addressed; VPN root cause not reproduced. Frontend SDK/credential findings and real WebView gate in B1 handoff. |
+| P-01 | IN_PROGRESS (B1) | Backend [Draft #26](https://github.com/hassan-anari/WEDCAL/pull/26); frontend pending | Auth malformed-input/error regressions addressed; VPN root cause not reproduced. Frontend SDK/credential findings and real WebView gate in B1 handoff. |
 | P-02 | PLANNED | — | Transactional uncapped Tap backend/migration |
 | P-03 | PLANNED | — | Instant Tap frontend/end-to-end |
-| P-04 | IN_PROGRESS (B1) | Backend draft delivery; frontend pending | Typed additive Bootstrap, config/feature/gameplay metadata and coherent progression/Season snapshot; frontend typed adapter and scoped cache gate pending. |
+| P-04 | IN_PROGRESS (B1) | Backend [Draft #26](https://github.com/hassan-anari/WEDCAL/pull/26); frontend pending | Typed additive Bootstrap, config/feature/gameplay metadata and coherent progression/Season snapshot; frontend typed adapter and scoped cache gate pending. |
 | P-05 | PLANNED | — | Daily/Missions |
 | P-06 | PLANNED | — | Typing |
 | P-07 | PLANNED | — | Referral/Creator/Network |

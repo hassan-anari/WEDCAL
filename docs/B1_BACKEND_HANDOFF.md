@@ -1,7 +1,8 @@
 # B1 backend — Foundation & Telegram Authentication
 
 Delivery unit: **B1 / P-01 + P-04**, repository `hassan-anari/WEDCAL`, branch
-`ai/b1-backend-foundation`. Draft delivery; independent review and owner approval
+`ai/b1-backend-foundation`. [Backend Draft PR #26](https://github.com/hassan-anari/WEDCAL/pull/26),
+implementation commit `90bf6930a5036ea6cd720605ef4f1d6079153eda`. Draft delivery; independent review and owner approval
 are required. B1 is not accepted until the frontend and paired integration checks
 pass. No B2–B6 work or merge is authorized by this handoff.
 
