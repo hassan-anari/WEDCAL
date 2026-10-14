@@ -202,6 +202,22 @@ def test_missing_effective_config_returns_safe_initialization_error(
 
 
 @pytest.mark.django_db
+def test_initial_profile_read_handles_missing_config_without_internal_errors(
+    client: Client,
+    settings: Any,
+    telegram_bot_token: str,
+    init_data_factory: Callable[..., str],
+) -> None:
+    settings.TELEGRAM_BOT_TOKEN = telegram_bot_token
+    response = client.get(
+        "/api/v1/profile/overview", HTTP_AUTHORIZATION=f"tma {init_data_factory()}"
+    )
+    assert response.status_code == 503
+    assert response.json()["code"] == "INITIALIZATION_UNAVAILABLE"
+    assert "No published" not in response.content.decode()
+
+
+@pytest.mark.django_db
 def test_disabled_features_follow_effective_config(
     client: Client,
     settings: Any,

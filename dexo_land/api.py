@@ -7,6 +7,7 @@ from apps.base_tap.api import router as base_tap_router
 from apps.clans.api import router as clans_router
 from apps.core.api_errors import IntegrationError, IntegrationErrorOutput
 from apps.daily.api import router as daily_router
+from apps.game_config.services import GameConfigUnavailable
 from apps.missions.api import router as missions_router
 from apps.moderation.api import router as moderation_router
 from apps.network.api import router as network_router
@@ -28,6 +29,18 @@ def integration_error(request: HttpRequest, exc: IntegrationError) -> HttpRespon
     response = api.create_response(request, body.model_dump(), status=exc.status_code)
     response["Cache-Control"] = "private, no-store"
     return response
+
+
+@api.exception_handler(GameConfigUnavailable)
+def configuration_unavailable(request: HttpRequest, exc: GameConfigUnavailable) -> HttpResponse:
+    return integration_error(
+        request,
+        IntegrationError(
+            503,
+            "INITIALIZATION_UNAVAILABLE",
+            "Application initialization is temporarily unavailable",
+        ),
+    )
 
 
 @api.exception_handler(ValidationError)

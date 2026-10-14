@@ -287,7 +287,7 @@ All migrations are forward-safe and rollback-tested on backups/synthetic copies.
 
 | Batch | Status | Paired PRs / acceptance | Critical handoff |
 |---|---|---|---|
-| B1 | IN_PROGRESS | Backend [Draft PR #26](https://github.com/hassan-anari/WEDCAL/pull/26); frontend B1 PR pending | Backend PR_OPEN at `90bf6930a5036ea6cd720605ef4f1d6079153eda`; current-head CI evidence in PR #26. P-01/P-04 contract and regression delivery: [handoff](docs/B1_BACKEND_HANDOFF.md). Frontend/paired Telegram and cache verification pending; no batch acceptance or next-batch approval. |
+| B1 | IN_PROGRESS | Backend [Draft PR #26](https://github.com/hassan-anari/WEDCAL/pull/26); frontend B1 PR pending | Backend PR_OPEN; initial implementation `90bf6930a5036ea6cd720605ef4f1d6079153eda`; latest head/CI evidence in PR #26. P-01/P-04 contract and regression delivery: [handoff](docs/B1_BACKEND_HANDOFF.md). Frontend/paired Telegram and cache verification pending; no batch acceptance or next-batch approval. |
 | B2 | PLANNED | — | C-01 canonical Tap reconciliation, atomic backend leases, instant frontend multi-touch, legacy drain |
 | B3 | PLANNED | — | Daily/Missions/Typing/Referral/Creator/Network |
 | B4 | PLANNED | — | Profile/collection/notifications/Arena/DLX |

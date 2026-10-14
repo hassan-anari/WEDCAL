@@ -2,7 +2,7 @@
 
 Delivery unit: **B1 / P-01 + P-04**, repository `hassan-anari/WEDCAL`, branch
 `ai/b1-backend-foundation`. [Backend Draft PR #26](https://github.com/hassan-anari/WEDCAL/pull/26),
-implementation commit `90bf6930a5036ea6cd720605ef4f1d6079153eda`. Draft delivery; independent review and owner approval
+initial implementation commit `90bf6930a5036ea6cd720605ef4f1d6079153eda`. Draft delivery; independent review and owner approval
 are required. B1 is not accepted until the frontend and paired integration checks
 pass. No B2–B6 work or merge is authorized by this handoff.
 
@@ -46,6 +46,8 @@ pass. No B2–B6 work or merge is authorized by this handoff.
 4. Both auth transports collapsed expiry and missing server bot configuration into
    an undifferentiated 401. Distinguish credential failures from service outages
    with a stable, sanitized error envelope; preserve a string `detail` field.
+   Initial Profile reads also exposed missing effective config as a 500; uncaught
+   config-unavailable failures now share the safe initialization 503 envelope.
 5. Bootstrap exposed `dict[str, Any]` in OpenAPI. Publish nested response schemas
    and additive config/feature/gameplay/request metadata.
 6. Lifetime progression was read in a transaction that ended before Season Points
@@ -177,7 +179,10 @@ Redis 8 and RabbitMQ tests, migrations and Docker build/smoke. Added tests requi
 PostgreSQL rather than substituting SQLite. They cover simultaneous signed launches,
 real reward/Bootstrap lock contention, identity isolation, config turnover, max
 level/null thresholds, no-Season/disabled/moderated states and OpenAPI contracts.
-CI URLs and results are recorded in the draft PR after execution. Passing local
+Initial implementation CI: [Phase 1 Foundation run 38556669974](https://github.com/hassan-anari/WEDCAL/actions/runs/38556669974),
+620 passed with PostgreSQL 17.11 (88 existing staticfiles/deprecation warnings);
+quality, migrations and Docker smoke also passed. This initial evidence does not
+replace the latest-head checks: final-head CI URLs/results are recorded in PR #26. Passing local
 tests alone does not satisfy the PostgreSQL or paired frontend acceptance gate.
 
 ## Deployment, rollback and remaining risk
