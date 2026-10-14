@@ -15,6 +15,7 @@ REQUIRED_FILES = (
     "README.md",
     "DEXO_LAND_SEASON1_ECONOMY_CONFIG_CONTRACT.md",
     "config/examples/season1.game-config.v1.json",
+    "config/examples/season1.game-config.v2.json",
 )
 
 
@@ -202,6 +203,25 @@ def validate_invariants(contents: dict[str, str]) -> list[str]:
     except (KeyError, TypeError, json.JSONDecodeError) as exc:
         errors.append(f"Example config structural validation failed: {exc}")
 
+    try:
+        legacy = json.loads(example)
+        current = json.loads(contents["config/examples/season1.game-config.v2.json"])
+        tap = current["base_tap"]
+        if current["meta"]["schema_version"] != 3 or current["meta"]["economy_contract_version"] != "3.0.0":
+            errors.append("B2 config must use schema 3 / economy 3.0.0")
+        if tap.get("protocol_version") != 2 or tap.get("rewarded_taps_per_burst") != 50 or tap.get("cooldown_seconds") != 10:
+            errors.append("B2 initial burst policy must match owner 50/10 approval")
+        if any(key in tap for key in ("rewarded_taps_per_utc_day", "reset_timezone")):
+            errors.append("B2 cannot carry daily Tap earning/reset fields")
+        if tap.get("grants_direct_dlx") is not False or tap.get("passive_referral_share_eligible") is not False:
+            errors.append("B2 must retain direct DLX/referral exclusion")
+        for key in legacy.keys() | current.keys():
+            if key not in {"meta", "base_tap"} and legacy.get(key) != current.get(key):
+                errors.append(f"B2 changed unrelated economy section: {key}")
+        if not has_all(source, "no UTC daily Tap cap", "immediately", "Historical Tap protocol 1"):
+            errors.append("B2 canonical Source of Truth must distinguish immediate uncapped Tap from history")
+    except (KeyError, TypeError, json.JSONDecodeError) as exc:
+        errors.append(f"B2 configuration structural validation failed: {exc}")
     return errors
 
 

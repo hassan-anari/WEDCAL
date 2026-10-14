@@ -1,3 +1,5 @@
+import uuid
+
 from django.db import models
 
 
@@ -43,3 +45,17 @@ class Player(models.Model):
 
     def __str__(self) -> str:
         return f"Telegram user {self.telegram_user_id}"
+
+
+class PlayerAvatar(models.Model):
+    """Private object metadata only; photo bytes never enter PostgreSQL."""
+
+    player = models.OneToOneField(Player, on_delete=models.CASCADE)
+    delivery_id = models.UUIDField(default=uuid.uuid4, unique=True)
+    source_fingerprint = models.CharField(max_length=64)
+    object_key = models.CharField(max_length=200, blank=True)
+    expires_at = models.DateTimeField(null=True, db_index=True)
+    refresh_after = models.DateTimeField(db_index=True)
+    refresh_token = models.UUIDField(null=True)
+    last_error_category = models.CharField(max_length=40, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)

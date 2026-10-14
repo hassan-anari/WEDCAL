@@ -47,7 +47,10 @@ def preview_safe_cutover(config: GameConfigVersion) -> tuple[str, ...]:
         if not is_reset_boundary(old_daily) or not is_reset_boundary(new_daily):
             issues.append("Daily reset-policy changes require the configured reset boundary")
 
-    if old.get("base_tap") != new.get("base_tap"):
+    if (
+        old.get("base_tap") != new.get("base_tap")
+        and old.get("base_tap", {}).get("protocol_version", 1) == 1
+    ):
         utc = at.astimezone(ZoneInfo("UTC"))
         if (utc.hour, utc.minute, utc.second, utc.microsecond) != (0, 0, 0, 0):
             issues.append("Base Tap policy changes require 00:00 UTC")
@@ -195,6 +198,10 @@ class BaseTapConfig:
     max_taps_per_batch: int
     min_batch_interval_ms: int
     receipt_retention_days: int
+    protocol_version: int = 1
+    rewarded_taps_per_burst: int = 0
+    cooldown_seconds: int = 0
+    lease_seconds: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -962,17 +969,38 @@ def parse_phase5(payload: dict[str, Any]) -> tuple[ReferralConfig, NetworkConfig
 def parse_economy_sync(payload: dict[str, Any]) -> tuple[BaseTapConfig, DlxDistributionConfig]:
     try:
         meta = payload["meta"]
-        if meta["schema_version"] != 2 or meta["economy_contract_version"] != "2.0.0":
+        if (meta["schema_version"], meta["economy_contract_version"]) not in (
+            (2, "2.0.0"),
+            (3, "3.0.0"),
+        ):
             raise TypeError
         tap = payload["base_tap"]
+        v2 = meta["schema_version"] == 3
+        if v2 and (
+            tap.get("protocol_version") != 2
+            or "rewarded_taps_per_utc_day" in tap
+            or "reset_timezone" in tap
+        ):
+            raise TypeError
+        if v2 and (
+            tap.get("grants_direct_dlx") is not False
+            or tap.get("passive_referral_share_eligible") is not False
+        ):
+            raise TypeError
         base_tap = BaseTapConfig(
             _boolean(tap["enabled"], "base_tap.enabled"),
             _integer(tap["points_per_rewarded_tap"], "base tap reward", minimum=1),
-            _integer(tap["rewarded_taps_per_utc_day"], "base tap daily cap", minimum=1),
-            _timezone(tap["reset_timezone"], "base_tap.reset_timezone"),
+            0
+            if v2
+            else _integer(tap["rewarded_taps_per_utc_day"], "base tap daily cap", minimum=1),
+            "UTC" if v2 else _timezone(tap["reset_timezone"], "base_tap.reset_timezone"),
             _integer(tap["max_taps_per_batch"], "base tap batch cap", minimum=1),
             _integer(tap["min_batch_interval_ms"], "base tap interval", minimum=0),
             _integer(tap["receipt_retention_days"], "base tap receipt retention", minimum=1),
+            2 if v2 else 1,
+            _integer(tap["rewarded_taps_per_burst"], "burst allowance", minimum=1) if v2 else 0,
+            _integer(tap["cooldown_seconds"], "burst cooldown", minimum=1) if v2 else 0,
+            _integer(tap["lease_seconds"], "lease duration", minimum=1) if v2 else 0,
         )
         distribution = payload["dlx_distribution"]
         timing = distribution["timing"]
@@ -1011,7 +1039,14 @@ def parse_economy_sync(payload: dict[str, Any]) -> tuple[BaseTapConfig, DlxDistr
         raise ValidationError("Invalid economy sync configuration shape") from exc
     if base_tap.reset_timezone != "UTC":
         raise ValidationError("Base Tap resets at 00:00 UTC")
-    if base_tap.max_taps_per_batch > base_tap.rewarded_taps_per_day:
+    if v2 and (
+        base_tap.rewarded_taps_per_burst > 1000
+        or base_tap.max_taps_per_batch > base_tap.rewarded_taps_per_burst
+        or base_tap.lease_seconds > 300
+        or base_tap.receipt_retention_days > 30
+    ):
+        raise ValidationError("Tap v2 authorization/retention exceeds protocol safety bounds")
+    if not v2 and base_tap.max_taps_per_batch > base_tap.rewarded_taps_per_day:
         raise ValidationError("Base Tap batch cap cannot exceed its daily cap")
     if result.epoch_count != 6 or result.epoch_days != 7:
         raise ValidationError("Season 1 requires exactly six seven-day economic epochs")

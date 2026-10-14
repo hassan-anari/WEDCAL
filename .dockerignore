@@ -8,3 +8,6 @@ __pycache__
 .ruff_cache
 *.pyc
 *.log
+
+# Local B2 scratch, logs and synthetic test output
+work/

@@ -11,7 +11,7 @@
 **Phase 10 reviewed hosted HEAD:** `d049af43a3c9d18d4221e883413834d82125ae78`
 **Phase 11 final reviewed hosted HEAD:** `eb6b293b472bacb273d69c8681406cc15af58c96`
 **Initial review date:** 2026-09-10
-**Last reviewed:** 2026-09-14 (Phase 11 PR #16 final hosted verification; 542/542 tests)
+**Last reviewed:** 2026-10-14 (B2 backend draft based on main `95f8458`; see committed B2 evidence and PR CI)
 **Owner:** repository/product owner
 
 ---
@@ -1330,3 +1330,16 @@ PH-039 is `RESOLVED`: final PR #16 hosted scans retained SARIF/JSON/policy evide
 `OWNER PRODUCT DECISION REQUIRED BEFORE S1 LAUNCH`. The accepted hosted 542-test result closes the
 Phase-11 application verification campaign; measurement-only WATCH items retain their measured or
 WATCH state and are not converted into artificial correctness blockers by this security-only pass.
+
+## B2 hardening delta — 2026-10-14
+
+Verified base: `95f8458e3058112e12053d090f54a10e0aedd599`; implementation/CI head recorded in B2 PR and handoff.
+
+- **PH-010 CHANGED/WATCH:** New v2 microbatches settle synchronously; no daily recovery backlog for new Tap. Legacy atomic finalizer and dry-run/drain remain installed; synthetic concurrent drain verifies exactly once. Existing large-user backlog SLA remains a rollout measure requirement, not fabricated proof. See `docs/evidence/b2-benchmark.json` and handoff.
+- **PH-011 CHANGED/WATCH:** No extra v2 receipt table; ledger is durable receipt. Lease metadata expires+retention with bounded cleanup; legacy receipt cleanup leaves facts/obligations intact. Ledger/fact growth per batch is measured and bounded per burst, not per day. Launch-scale sizing/partition/archival remains open.
+- **PH-012 IMPLEMENTED/ROLLOUT VERIFY:** IP ingress covers v2 state/mutations; authenticated player/session request budgets, PostgreSQL burst/cooldown/sequence/fencing survive Redis loss. Stable 429/transient handling and rejected-request no-receipt behavior. Proxy ingress tuning/owner synthetic scale test remains a deployment prerequisite; no hidden daily cap.
+- **PH-028 CODE+LOCAL EVIDENCE:** Docker builds WhiteNoise manifest using secret-free runtime-compatible settings as non-root app; explicit static directory ownership; nonempty manifest check and Admin/hashed asset smoke at build/runtime/CI/deploy. Local manifest 10404 bytes, `/admin/login/` and hashed CSS 200, DEBUG=False, UID 999. Hosted proof requires owner deployment; no deployed change performed here.
+- **PH-B2-001 NEW/OWNER ECONOMY REVIEW:** Uncapped initial 50/10s ceiling permits theoretical 432000 XP/day; existing Level pacing assumptions are monitoring estimates. Owner reviews inflation telemetry before activation; no unapproved reward cap/threshold change.
+- **PH-B2-002 NEW/OPERATIONAL PREREQUISITE:** Avatar cache default disabled. Private S3 credentials/bucket/lifecycle/API-origin configuration and filtered-network delivery test are required; code tests do not prove VPN-off operation.
+
+No unrelated hardening items were closed. PH-037 and PH-043 remain owner launch gates.

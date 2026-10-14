@@ -57,7 +57,10 @@ class RequestContextMiddleware:
     @staticmethod
     def _prepare_response(request: HttpRequest, response: HttpResponse, request_id: str) -> None:
         response["X-Request-ID"] = request_id
-        if request.path.rstrip("/") in {"/api/v1/bootstrap", "/api/v1/auth/telegram"}:
+        if request.path.startswith("/api/v1/base/v2/") or request.path.rstrip("/") in {
+            "/api/v1/bootstrap",
+            "/api/v1/auth/telegram",
+        }:
             response["Cache-Control"] = "private, no-store"
             patch_vary_headers(response, ["Authorization"])
 
@@ -76,7 +79,8 @@ class MutationThrottleMiddleware:
             (
                 value
                 for prefix, value in settings.MUTATION_THROTTLE_POLICIES.items()
-                if request.method == "POST" and request.path.startswith(prefix)
+                if (request.method == "POST" or request.path.startswith("/api/v1/base/v2/"))
+                and request.path.startswith(prefix)
             ),
             None,
         )

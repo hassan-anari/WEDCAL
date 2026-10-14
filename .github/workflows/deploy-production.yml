@@ -86,6 +86,8 @@ jobs:
           for attempt in $(seq 1 30); do
             if curl --fail --silent --show-error \
               http://127.0.0.1:8000/health/ready > /dev/null; then
+              docker compose exec -T api python scripts/admin_static_smoke.py
+              curl --fail --silent --show-error http://127.0.0.1:8000/admin/login/ > /dev/null
               exit 0
             fi
             echo "Readiness attempt ${attempt}/30 failed; retrying in 5 seconds."
