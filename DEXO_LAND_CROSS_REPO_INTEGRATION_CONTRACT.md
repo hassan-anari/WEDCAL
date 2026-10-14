@@ -5,8 +5,8 @@
 **Status:** DRAFT — documentation PR; not yet merged or deployed  
 **Owner decision date:** 2026-10-14  
 **Owner repositories:**
-- Frontend: https://github.com/hassan-anari/Dalexio-Game
-- Backend: https://github.com/hassan-anari/Dalexio-Game-Backend
+- Frontend (PRIVATE): https://github.com/hassan-anari/Dalexio-Game
+- Backend (PUBLIC): https://github.com/hassan-anari/WEDCAL
 - Existing production API: https://api.dalexio.com (backend `main` is automatically deployed)
 
 ## 0. Purpose, scope, and reading order
@@ -253,6 +253,8 @@ All migrations are forward-safe and rollback-tested on backups/synthetic copies.
 ## 8. Codex Cloud multi-repository capability probe (docs-only)
 
 Before real development, perform **one safe task in Codex Web/Cloud**, bound to the Backend environment if only one root is selectable. Purpose: empirically determine whether this task can independently read, write/commit and open **two PRs** in both repositories.
+
+**Repository access note:** Backend `WEDCAL` is public while frontend `Dalexio-Game` remains private. Public read access to backend does not prove that the Codex Cloud task is authorized to inspect or publish to the private frontend. The probe MUST independently verify private-repository installation/authorization and report permission boundaries without bypassing them.
 
 **Test footprint:** Create a unique, nonfunctional Markdown file such as `docs/codex-multirepo-probe/20261014-<short-run-id>.md` in **each** repository, with: repository name, timestamp, base SHA, task/run ID, confirmation this is documentation only. One distinct branch+commit+draft PR **per repository**, targeting `main`; absolutely no change to application code, CI/config, secrets or AGENTS. Do not merge.
 
