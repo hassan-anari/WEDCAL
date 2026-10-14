@@ -1,7 +1,7 @@
 # Dexo Land — Cross-Repository Integration & Release Execution Contract
 
 **Contract ID:** DLX-INT-2026-10-14  
-**Version:** 1.0 (proposed for repository-owner review)  
+**Version:** 1.1 (batch-delivery amendment proposed for owner review)  
 **Status:** Active execution contract — original PR #22 merged; batch delivery amendment proposed in a separate documentation PR  
 **Owner decision date:** 2026-10-14  
 **Owner repositories:**
@@ -136,7 +136,7 @@ Target:
 
 **Environment results already observed:** In one Codex Cloud task, GitHub connector access could read/write both repositories and create independent documentation Draft PRs (backend `#24`, frontend `#1`). Local backend and frontend worktrees **could not be jointly built/tested in that environment**: shell Git transport hit proxy port 8080, the frontend environment had no backend checkout/services, and frontend web server binding failed with `EPERM`. Two separate repository environments plus cross-repository CI/staging therefore remain the selected operating model. Frontend Vitest/Playwright discovery and stale E2E expectations are part of **B1** quality baseline, not a license to disable failing tests. Backend repository `WEDCAL` is a temporary name; don't rename remotes, application configuration or documents solely because of that temporary change.
 
-**Execution statuses:** `PLANNED` → `IN_PROGRESS` → `PR_OPEN` → `CI_GREEN` → `OWNER_APPROVED` → `MERGED` → `ACCEPTED`. `BLOCKED` requires a documented owner decision. Update the Batch register in `9` and the affected historical workstream notes after each delivery. No auto-advance.
+**Execution statuses:** `PLANNED` → `IN_PROGRESS` → `PR_OPEN` → `CI_GREEN` → `OWNER_APPROVED` → `MERGED` → `ACCEPTED`. `BLOCKED` requires a documented owner decision. Update the Batch register in section 9 and the affected historical workstream notes after each delivery. No auto-advance.
 
 ### Detailed workstream acceptance catalog (grouped within B1–B6; not standalone owner gates)
 
@@ -271,9 +271,9 @@ Backend code on `main` automatically deploys to the live API. This changes accep
 
 All migrations are forward-safe and rollback-tested on backups/synthetic copies. Never "undo" earned points by rewriting historical ledger. If operation is unsafe during Season close/epoch freeze, pause at the barrier and document the owner decision. Production feature flags must have a proven off switch and bounded lease recovery behavior.
 
-## 8. Codex Cloud multi-repository capability probe (docs-only)
+## 8. Codex Cloud multi-repository capability probe (completed; docs-only)
 
-Before real development, perform **one safe task in Codex Web/Cloud**, bound to the Backend environment if only one root is selectable. Purpose: empirically determine whether this task can independently read, write/commit and open **two PRs** in both repositories.
+**Completed 2026-10-14:** One Codex Cloud task successfully created independent documentation-only branches/commits/Draft PRs using the authorized GitHub connector in both repositories (backend #24, frontend #1). This verified API-based cross-repo publication, **not two local worktrees or local integration tests**. Shell Git transport failed through proxy port 8080, and a separate frontend-environment audit confirmed no backend checkout/runtime. Adopt **two coordinated Codex Cloud environments** and pinned CI/staging cross-repo acceptance. The original test requirements below are retained for audit history.
 
 **Test footprint:** Create a unique, nonfunctional Markdown file such as `docs/codex-multirepo-probe/20261014-<short-run-id>.md` in **each** repository, with: repository name, timestamp, base SHA, task/run ID, confirmation this is documentation only. One distinct branch+commit+draft PR **per repository**, targeting `main`; absolutely no change to application code, CI/config, secrets or AGENTS. Do not merge.
 
