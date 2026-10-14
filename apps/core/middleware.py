@@ -7,6 +7,7 @@ from asgiref.sync import iscoroutinefunction, markcoroutinefunction
 from django.conf import settings
 from django.core.cache import cache
 from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.utils.cache import patch_vary_headers
 
 SAFE_REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
@@ -31,25 +32,34 @@ class RequestContextMiddleware:
             return self.__acall__(request)
 
         request_id = self._request_id(request)
+        request.META["DEXO_REQUEST_ID"] = request_id
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(request_id=request_id)
         try:
             response: HttpResponse = self.get_response(request)
-            response["X-Request-ID"] = request_id
+            self._prepare_response(request, response, request_id)
             return response
         finally:
             structlog.contextvars.clear_contextvars()
 
     async def __acall__(self, request: HttpRequest) -> HttpResponse:
         request_id = self._request_id(request)
+        request.META["DEXO_REQUEST_ID"] = request_id
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(request_id=request_id)
         try:
             response: HttpResponse = await self.get_response(request)
-            response["X-Request-ID"] = request_id
+            self._prepare_response(request, response, request_id)
             return response
         finally:
             structlog.contextvars.clear_contextvars()
+
+    @staticmethod
+    def _prepare_response(request: HttpRequest, response: HttpResponse, request_id: str) -> None:
+        response["X-Request-ID"] = request_id
+        if request.path.rstrip("/") in {"/api/v1/bootstrap", "/api/v1/auth/telegram"}:
+            response["Cache-Control"] = "private, no-store"
+            patch_vary_headers(response, ["Authorization"])
 
 
 class MutationThrottleMiddleware:
