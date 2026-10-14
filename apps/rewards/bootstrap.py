@@ -5,6 +5,7 @@ from django.db import transaction
 
 from apps.game_config.models import GameConfigVersion
 from apps.game_config.services import resolve_effective_game_config
+from apps.players.avatars import avatar_url
 from apps.players.models import Player
 from apps.players.services import reward_gameplay_allowed
 from apps.progression.services import refresh_player_progression
@@ -103,7 +104,7 @@ def build_bootstrap(player: Player, now: datetime, *, request_id: str) -> dict[s
         "player": {
             "id": str(player.telegram_user_id),
             "language_code": player.language_code,
-            "photo_url": player.photo_url,
+            "photo_url": avatar_url(player),
             "telegram_user_id": player.telegram_user_id,
             "first_name": player.first_name,
             "last_name": player.last_name,

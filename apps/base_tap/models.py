@@ -1,3 +1,5 @@
+import uuid
+
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
@@ -74,4 +76,43 @@ class BaseTapReceipt(models.Model):
                 condition=Q(requested_taps=models.F("accepted_taps") + models.F("rejected_taps")),
                 name="base_tap_receipt_counts_balance",
             ),
+        ]
+
+
+class TapBurstState(models.Model):
+    """One allowance across every device; expiry/takeover never resets remaining taps."""
+
+    player = models.OneToOneField("players.Player", on_delete=models.PROTECT)
+    season = models.ForeignKey("seasons.Season", on_delete=models.PROTECT)
+    config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
+    generation = models.PositiveBigIntegerField(default=0)
+    revision = models.PositiveBigIntegerField(default=0)
+    remaining = models.PositiveIntegerField(default=0)
+    next_sequence = models.PositiveIntegerField(default=1)
+    cooldown_until = models.DateTimeField(null=True)
+    last_batch_at = models.DateTimeField(null=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(condition=Q(next_sequence__gte=1), name="tap_sequence_positive")
+        ]
+
+
+class TapLease(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    player = models.ForeignKey("players.Player", on_delete=models.PROTECT)
+    season = models.ForeignKey("seasons.Season", on_delete=models.PROTECT)
+    config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
+    session_id = models.UUIDField()
+    generation = models.PositiveBigIntegerField()
+    allowance = models.PositiveIntegerField()
+    issued_at = models.DateTimeField()
+    expires_at = models.DateTimeField(db_index=True)
+    revoked_at = models.DateTimeField(null=True)
+    delete_after = models.DateTimeField(db_index=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("player", "generation"), name="tap_lease_generation")
         ]

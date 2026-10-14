@@ -1,9 +1,9 @@
 # Dexo Land — Season 1 Economy & Balance Contract
 
-**Status:** APPROVED BASELINE FOR IMPLEMENTATION  
-**Contract version:** `1.0.0`  
-**Machine-readable companion:** `config/examples/season1.game-config.v1.json`  
-**Applies to:** Dexo Land Season 1 backend and future Season 1 GameConfig versions  
+**Status:** APPROVED BASELINE FOR IMPLEMENTATION
+**Contract version:** `3.0.0` (B2 Tap amendment; historical versions retained)
+**Machine-readable companion:** `config/examples/season1.game-config.v2.json`; historical `v1.json` remains immutable
+**Applies to:** Dexo Land Season 1 backend and future Season 1 GameConfig versions
 
 ---
 
@@ -123,7 +123,7 @@ The curve intentionally has three pacing zones:
 - Levels 6–15: steady core progression.
 - Levels 16–30: long-term/social/competitive progression.
 
-**Clan unlock:** Level 5 (`2,500` Lifetime Points).  
+**Clan unlock:** Level 5 (`2,500` Lifetime Points).
 **Referral verification progression gate:** Level 5.
 
 ---
@@ -692,7 +692,13 @@ Settlement starts through a Season-scoped audited operational control (initial d
 
 Growth unlock milestones use a configurable qualified-player predicate, never raw Telegram starts/MAU. The milestone list may remain empty until launch values are approved. Each milestone is uniquely keyed, can unlock once, and allocates exact off-chain DLX allocation amount only to still-open epochs without rewriting frozen or settled budgets.
 
-Base Tap awards 1 XP per rewarded tap with an initial 50-tap UTC-day cap, through batched authenticated requests and configurable batch/rate controls. It grants no direct DLX and is ineligible for passive Referral share. PostgreSQL daily aggregation creates at most one canonical XP settlement per player/day. Only accepted requests have terminal, short-lived idempotency receipts; receipt retention is configurable (initial sample: 7 days), expired receipts are safely purged, and rejected/rate-limited/cap-exhausted spam creates no durable receipt rows.
+**Current B2 / Tap protocol 2 / economy 3.0.0:** Base Tap initially awards 1 XP per accepted touch, with **50 rewarded taps per burst** and **10 seconds cooldown after completing a burst**. Unlimited eligible bursts during the playable Season; **no UTC daily Tap cap, no daily XP reset**. These values are configurable only through new effective-dated immutable GameConfig versions. New accepted microbatches settle ledger/progression/Season and source-time Arena facts atomically when the request succeeds. No direct DLX, no passive Referral share, no change to Daily/Typing/Missions or independent S1 economics.
+
+New sample schema 3 (`season1.game-config.v2.json`) explicitly selects Tap protocol 2. Lease duration (120s), max batch (50), accepted-batch interval (50ms) and lease metadata retention (7d) are reviewed initial transport values, not daily earning caps. One shared allowance across sessions/devices; renewals/takeovers retain remaining taps. Ledger entries are immutable durable microbatch receipts; no separate transient receipt row is needed for v2. Existing published snapshots remain immutable. [Exact protocol](docs/B2_TAP_V2_CONTRACT.md), [legacy drain and rollback](docs/B2_BACKEND_HANDOFF.md).
+
+**Historical protocol 1 / economy 2.0.0:** 1 XP per tap, 50-tap UTC-day cap, daily accumulator/finalizer and short-lived accepted receipts. Historical sample/config/ledgers/facts and legitimately accepted pending XP are retained, not erased or reinterpreted. Controlled cutover drains old events exactly once; v2 never shares their settlement identities.
+
+The uncapped burst ceiling materially changes mint pacing. Existing §2 expected ranges remain provisional monitoring targets, not hidden earning limits. Any added inflation control needs owner approval and a future config; do not silently alter other rewards/thresholds.
 
 # 27. Phase implementation ownership
 

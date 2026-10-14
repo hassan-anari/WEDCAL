@@ -26,6 +26,7 @@ class RewardLedger(models.Model):
 
     class Meta:
         indexes = [
+            models.Index(fields=("player", "-id"), name="reward_player_receipt_cursor"),
             models.Index(fields=("player", "-occurred_at", "-id"), name="reward_player_history"),
             models.Index(fields=("season", "player"), name="reward_season_player"),
             models.Index(fields=("source_type", "source_id"), name="reward_source"),

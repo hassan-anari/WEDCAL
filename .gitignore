@@ -229,3 +229,6 @@ __pycache__/
 
 # Django collected static output
 /staticfiles/
+
+# Local B2 scratch, logs and synthetic test output
+work/

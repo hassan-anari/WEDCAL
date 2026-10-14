@@ -328,3 +328,30 @@ LOGGING = {
     "root": {"handlers": ["console"], "level": LOG_LEVEL},
 }
 logging.captureWarnings(True)
+
+# Rollback disables issuance only; outstanding authorizations remain redeemable.
+TAP_V2_ISSUANCE_ENABLED = env_bool("TAP_V2_ISSUANCE_ENABLED", False)
+BASE_TAP_LEGACY_INGRESS_ENABLED = env_bool("BASE_TAP_LEGACY_INGRESS_ENABLED", True)
+TAP_V2_PLAYER_REQUESTS = int(os.getenv("TAP_V2_PLAYER_REQUESTS", "240"))
+TAP_V2_SESSION_REQUESTS = int(os.getenv("TAP_V2_SESSION_REQUESTS", "180"))
+
+# Private shared S3-compatible avatar storage. No endpoint/source URLs come from clients.
+AVATAR_CACHE_ENABLED = env_bool("AVATAR_CACHE_ENABLED", False)
+AVATAR_CACHE_TTL_SECONDS = int(os.getenv("AVATAR_CACHE_TTL_SECONDS", "604800"))
+AVATAR_CACHE_MAX_BYTES = int(os.getenv("AVATAR_CACHE_MAX_BYTES", "2097152"))
+AVATAR_CACHE_MAX_PIXELS = int(os.getenv("AVATAR_CACHE_MAX_PIXELS", "16000000"))
+AVATAR_CACHE_MAX_CONCURRENT_REFRESHES = int(os.getenv("AVATAR_CACHE_MAX_CONCURRENT_REFRESHES", "2"))
+AVATAR_CACHE_RETRY_SECONDS = int(os.getenv("AVATAR_CACHE_RETRY_SECONDS", "900"))
+AVATAR_S3_BUCKET = os.getenv("AVATAR_S3_BUCKET", "")
+AVATAR_S3_ENDPOINT_URL = os.getenv("AVATAR_S3_ENDPOINT_URL", "")
+AVATAR_S3_REGION = os.getenv("AVATAR_S3_REGION", "us-east-1")
+AVATAR_PUBLIC_API_ORIGIN = os.getenv("AVATAR_PUBLIC_API_ORIGIN", "")
+CELERY_BEAT_SCHEDULE["purge-expired-avatars"] = {
+    "task": "apps.players.tasks.purge_avatars",
+    "schedule": 3600,
+}
+
+CELERY_BEAT_SCHEDULE["refresh-due-avatars"] = {
+    "task": "apps.players.tasks.refresh_due_avatars",
+    "schedule": 60,
+}

@@ -251,7 +251,8 @@ def _build_performance_snapshots(epoch: EconomicEpoch, policy: DlxDistributionCo
         )
         # Typing performance is represented once by its immutable source-time CREDIT fact.
         # A later wallet claim is XP settlement, not a second weekly performance event.
-        .exclude(source_type="TYPING_CLAIM")
+        # Base Tap likewise contributes once through immutable microbatch source-time facts.
+        .exclude(source_type__in=("TYPING_CLAIM", "BASE_TAP"))
         # Its passive Referral Share is likewise represented at Typing CREDIT source time.
         .exclude(
             source_type="REFERRAL",

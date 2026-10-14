@@ -1,0 +1,47 @@
+{
+  "scope": "isolated synthetic legacy crash-window reconciliation",
+  "dry_run": {
+    "mode": "dry-run",
+    "next_after_id": 1,
+    "observed_at": "2026-10-14T18:02:18.517827+00:00",
+    "rows": [
+      {
+        "accepted_taps": 25,
+        "accumulator_id": 1,
+        "config_id": 13,
+        "consistent": true,
+        "ledger_id": 21,
+        "pending_points": 25,
+        "player_id": 13,
+        "receipt_count": 1,
+        "season_id": 12,
+        "settled_points": 0,
+        "source_fact_points": 25,
+        "state": "PROCESSING"
+      }
+    ]
+  },
+  "apply": {
+    "mode": "apply",
+    "next_after_id": 1,
+    "observed_at": "2026-10-14T18:02:18.527604+00:00",
+    "rows": [
+      {
+        "accepted_taps": 25,
+        "accumulator_id": 1,
+        "after_pending": 0,
+        "after_state": "SETTLED",
+        "config_id": 13,
+        "consistent": true,
+        "ledger_id": 21,
+        "pending_points": 25,
+        "player_id": 13,
+        "receipt_count": 1,
+        "season_id": 12,
+        "settled_points": 0,
+        "source_fact_points": 25,
+        "state": "PROCESSING"
+      }
+    ]
+  }
+}

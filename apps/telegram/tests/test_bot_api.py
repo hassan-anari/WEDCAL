@@ -10,6 +10,17 @@ import pytest
 from apps.telegram.bot_api import create_chat_invite_link, get_chat_member
 
 
+@pytest.fixture(autouse=True)
+def isolated_bot_budget(settings: Any) -> Any:
+    # Unit transports never share a pause/counter with other tests or real Redis users.
+    settings.CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
+    from django.core.cache import cache
+
+    cache.clear()
+    yield
+    cache.clear()
+
+
 class Response:
     def __init__(self, payload: bytes):
         self.payload = payload

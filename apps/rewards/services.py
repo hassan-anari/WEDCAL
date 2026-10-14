@@ -179,7 +179,7 @@ def settle_reward(
             raise InvalidReward("Player moderation state blocks reward generation")
         projection_config = (
             resolve_effective_game_config(projection_at or timezone.now())
-            if allow_closed_source_season
+            if allow_closed_source_season or projection_at is not None
             else resolved_config
         )
         config_model = GameConfigVersion.objects.get(pk=resolved_config.id)

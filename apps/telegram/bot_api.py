@@ -6,7 +6,8 @@ from typing import Any
 
 import structlog
 from django.conf import settings
-from django.core.cache import cache
+
+from apps.telegram.budget import defer_bot_api, reserve_bot_api_budget, retry_after_from_payload
 
 logger = structlog.get_logger(__name__)
 
@@ -24,21 +25,9 @@ def request(method: str, parameters: dict[str, Any]) -> TelegramResult:
     token = settings.TELEGRAM_BOT_TOKEN
     if not token:
         return TelegramResult(False, category="configuration_error")
-    # Short Redis buckets cap both the single-bot global budget and costly method bursts.
-    # Workers never sleep; callers persist retry scheduling from retry_after.
-    bucket = int(__import__("time").time())
-    for key, limit in (
-        (f"telegram-api:global:{bucket}", settings.TELEGRAM_API_GLOBAL_RPS),
-        (f"telegram-api:method:{method}:{bucket}", settings.TELEGRAM_API_METHOD_RPS),
-    ):
-        try:
-            count = 1 if cache.add(key, 1, timeout=2) else cache.incr(key)
-            if count > limit:
-                logger.warning("telegram_api_budget_exhausted", method=method)
-                return TelegramResult(False, category="local_rate_limited", retry_after=1)
-        except Exception:
-            # Telegram remains authoritative and will return 429; rate control is availability aid.
-            pass
+    denial = reserve_bot_api_budget(method)
+    if denial is not None:
+        return TelegramResult(False, category=denial.category, retry_after=denial.retry_after)
     req = urllib.request.Request(
         f"https://api.telegram.org/bot{token}/{method}",
         data=json.dumps(parameters).encode(),
@@ -56,10 +45,12 @@ def request(method: str, parameters: dict[str, Any]) -> TelegramResult:
         retry_after = None
         try:
             error = json.loads(exc.read(65536))
-            value = error.get("parameters", {}).get("retry_after")
-            retry_after = value if type(value) is int else None
+            retry_after = retry_after_from_payload(error)
         except (ValueError, AttributeError):
             pass
+        if exc.code == 429:
+            retry_after = retry_after or settings.TELEGRAM_API_DEFAULT_RETRY_SECONDS
+            defer_bot_api(retry_after)
         category = "rate_limited" if exc.code == 429 else "http_error"
         logger.warning(
             "telegram_api_failure",
@@ -87,11 +78,13 @@ def request(method: str, parameters: dict[str, Any]) -> TelegramResult:
             ambiguous=method in {"createChatInviteLink", "sendMessage"},
         )
     if not isinstance(payload, dict) or payload.get("ok") is not True:
-        retry = (
-            payload.get("parameters", {}).get("retry_after") if isinstance(payload, dict) else None
-        )
+        retry = retry_after_from_payload(payload)
+        is_429 = isinstance(payload, dict) and payload.get("error_code") == 429
+        if is_429:
+            retry = retry or settings.TELEGRAM_API_DEFAULT_RETRY_SECONDS
+            defer_bot_api(retry)
         return TelegramResult(
-            False, category="telegram_not_ok", retry_after=retry if type(retry) is int else None
+            False, category="rate_limited" if is_429 else "telegram_not_ok", retry_after=retry
         )
     result = payload.get("result")
     return TelegramResult(True, result if isinstance(result, dict) else {})

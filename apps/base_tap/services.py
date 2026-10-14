@@ -35,7 +35,23 @@ def submit_tap_batch(
         raise ValueError("A bounded Idempotency-Key is required")
     if type(tap_count) is not int or tap_count <= 0:
         raise ValueError("tap_count must be a positive integer")
+    if not settings.BASE_TAP_LEGACY_INGRESS_ENABLED:
+        # Cutover pause rejects new intents but allows lost-response retrieval of durable receipts.
+        with transaction.atomic():
+            locked = Player.objects.select_for_update().get(pk=player.pk)
+            prior = (
+                BaseTapReceipt.objects.select_related("accumulator")
+                .filter(player=locked, idempotency_key=idempotency_key)
+                .first()
+            )
+            if prior:
+                if prior.requested_taps != tap_count:
+                    raise ValueError("Idempotency-Key belongs to another legacy request")
+                bound = resolve_game_config_version(prior.config_version_id)
+                return _result(prior.accumulator, bound.base_tap.rewarded_taps_per_day, prior)
     config = resolve_effective_game_config(at)
+    if not settings.BASE_TAP_LEGACY_INGRESS_ENABLED or config.base_tap.protocol_version != 1:
+        raise LookupError("Legacy Base Tap ingress is paused")
     if not config.base_tap.enabled:
         raise LookupError("Base Tap is unavailable")
     if tap_count > config.base_tap.max_taps_per_batch:
@@ -49,6 +65,10 @@ def submit_tap_batch(
 
         acquire_economic_write_barrier(season.pk)
         locked_player = Player.objects.select_for_update().get(pk=player.pk)
+        from apps.players.services import reward_gameplay_allowed
+
+        if not reward_gameplay_allowed(locked_player):
+            raise ValueError("Player moderation state blocks reward generation")
         existing = (
             BaseTapReceipt.objects.select_related("accumulator")
             .filter(player=locked_player, idempotency_key=idempotency_key)
@@ -158,113 +178,84 @@ def _result(
 
 
 def finalize_tap_accumulator(
-    accumulator_id: int, *, at: datetime | None = None
+    accumulator_id: int, *, at: datetime | None = None, force: bool = False
 ) -> BaseTapDailyAccumulator:
-    from apps.seasons.barrier import economic_write_session_barrier
-
-    season_id = BaseTapDailyAccumulator.objects.values_list("season_id", flat=True).get(
+    """One atomic ledger+projection+drain update. Old worker leases are safely reconciled."""
+    now = at or timezone.now()
+    if force and settings.BASE_TAP_LEGACY_INGRESS_ENABLED:
+        raise ValueError("Pause legacy ingress before forcing a drain")
+    identity = BaseTapDailyAccumulator.objects.values("season_id", "player_id").get(
         pk=accumulator_id
     )
-    with economic_write_session_barrier(season_id):
-        return _finalize_tap_accumulator(accumulator_id, at=at)
-
-
-def _finalize_tap_accumulator(
-    accumulator_id: int, *, at: datetime | None = None
-) -> BaseTapDailyAccumulator:
-    now = at or timezone.now()
-    lease_seconds = settings.BASE_TAP_SETTLEMENT_LEASE_SECONDS
-    retry_seconds = settings.BASE_TAP_SETTLEMENT_RETRY_SECONDS
-    with transaction.atomic():
-        accumulator = (
-            BaseTapDailyAccumulator.objects.select_for_update()
-            .select_related("player", "season", "config_version")
-            .get(pk=accumulator_id)
-        )
-        if accumulator.settlement_state == BaseTapDailyAccumulator.SettlementState.SETTLED:
-            return accumulator
-        day_closed = now.astimezone(UTC).date() > accumulator.utc_day
-        season_closed = accumulator.season.status != Season.Status.ACTIVE
-        if not day_closed and not season_closed:
-            return accumulator
-        if (
-            accumulator.settlement_state == BaseTapDailyAccumulator.SettlementState.PROCESSING
-            and accumulator.lease_until
-            and accumulator.lease_until > now
-        ):
-            return accumulator
-        accumulator.settlement_state = BaseTapDailyAccumulator.SettlementState.PROCESSING
-        accumulator.settlement_attempts += 1
-        accumulator.lease_until = now + timedelta(seconds=lease_seconds)
-        accumulator.last_error_category = ""
-        accumulator.save(
-            update_fields=(
-                "settlement_state",
-                "settlement_attempts",
-                "lease_until",
-                "last_error_category",
-                "updated_at",
-            )
-        )
     try:
-        config = resolve_game_config_version(accumulator.config_version_id)
-        if accumulator.first_accepted_at is None or accumulator.pending_points <= 0:
-            raise ValueError("Pending Base Tap accumulator has no accepted economic input")
-        settle_player_reward(
-            player=accumulator.player,
-            source_type="BASE_TAP",
-            source_id=str(accumulator.pk),
-            context="CORE_GAMEPLAY",
-            amount=accumulator.pending_points,
-            idempotency_key=f"base-tap-day:{accumulator.pk}",
-            occurred_at=accumulator.first_accepted_at,
-            resolved_config=config,
-            source_season=accumulator.season,
-            preserve_config_version=True,
-            create_settlement_outbox=False,
-            allow_closed_source_season=True,
-            projection_at=now,
-            metadata={"tap_accumulator_id": accumulator.pk, "utc_day": str(accumulator.utc_day)},
-        )
+        with transaction.atomic():
+            from apps.seasons.barrier import acquire_economic_write_barrier
+
+            acquire_economic_write_barrier(identity["season_id"])
+            # Match the ingress/reward lock order. No settlement can race a pending increment.
+            player = Player.objects.select_for_update().get(pk=identity["player_id"])
+            accumulator = (
+                BaseTapDailyAccumulator.objects.select_for_update()
+                .select_related("season")
+                .get(pk=accumulator_id)
+            )
+            if accumulator.settlement_state == BaseTapDailyAccumulator.SettlementState.SETTLED:
+                return accumulator
+            day_closed = now.astimezone(UTC).date() > accumulator.utc_day
+            season_closed = accumulator.season.status != Season.Status.ACTIVE
+            if not force and not day_closed and not season_closed:
+                return accumulator
+            config = resolve_game_config_version(accumulator.config_version_id)
+            if accumulator.first_accepted_at is None or accumulator.pending_points <= 0:
+                raise ValueError("Pending Base Tap accumulator has no accepted economic input")
+            settle_player_reward(
+                player=player,
+                source_type="BASE_TAP",
+                source_id=str(accumulator.pk),
+                context="CORE_GAMEPLAY",
+                amount=accumulator.pending_points,
+                idempotency_key=f"base-tap-day:{accumulator.pk}",
+                occurred_at=accumulator.first_accepted_at,
+                resolved_config=config,
+                source_season=accumulator.season,
+                preserve_config_version=True,
+                create_settlement_outbox=False,
+                allow_closed_source_season=True,
+                source_eligibility_verified=True,
+                projection_at=now,
+                metadata={
+                    "tap_accumulator_id": accumulator.pk,
+                    "utc_day": str(accumulator.utc_day),
+                },
+            )
+            accumulator.settled_points += accumulator.pending_points
+            accumulator.pending_points = 0
+            accumulator.settlement_state = BaseTapDailyAccumulator.SettlementState.SETTLED
+            accumulator.settlement_attempts += 1
+            accumulator.lease_until = None
+            accumulator.last_error_category = ""
+            accumulator.settled_at = now
+            accumulator.save()
+            return accumulator
     except Exception as exc:
-        BaseTapDailyAccumulator.objects.filter(pk=accumulator_id).update(
+        # Never overwrite a concurrent successful drain with a retry state.
+        from django.db.models import F
+
+        BaseTapDailyAccumulator.objects.filter(pk=accumulator_id).exclude(
+            settlement_state="SETTLED"
+        ).update(
             settlement_state=BaseTapDailyAccumulator.SettlementState.RETRY,
+            settlement_attempts=F("settlement_attempts") + 1,
             lease_until=None,
-            next_attempt_at=now + timedelta(seconds=retry_seconds),
+            next_attempt_at=now + timedelta(seconds=settings.BASE_TAP_SETTLEMENT_RETRY_SECONDS),
             last_error_category=type(exc).__name__,
         )
         logger.warning(
             "base_tap_settlement_failed",
             accumulator_id=accumulator_id,
-            player_id=accumulator.player_id,
-            attempt=accumulator.settlement_attempts,
             error_category=type(exc).__name__,
         )
         raise
-    with transaction.atomic():
-        accumulator = BaseTapDailyAccumulator.objects.select_for_update().get(pk=accumulator_id)
-        accumulator.settled_points += accumulator.pending_points
-        accumulator.pending_points = 0
-        accumulator.settlement_state = BaseTapDailyAccumulator.SettlementState.SETTLED
-        accumulator.lease_until = None
-        accumulator.settled_at = now
-        accumulator.save(
-            update_fields=(
-                "settled_points",
-                "pending_points",
-                "settlement_state",
-                "lease_until",
-                "settled_at",
-                "updated_at",
-            )
-        )
-    logger.info(
-        "base_tap_settled",
-        accumulator_id=accumulator_id,
-        player_id=accumulator.player_id,
-        attempt=accumulator.settlement_attempts,
-    )
-    return accumulator
 
 
 def recover_pending_tap_accumulators(*, at: datetime | None = None, limit: int = 500) -> int:

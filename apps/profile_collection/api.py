@@ -1,12 +1,14 @@
 from datetime import datetime
+from uuid import UUID
 
 from django.core.exceptions import ValidationError
-from django.http import HttpRequest
+from django.http import HttpRequest, HttpResponse
 from django.utils import timezone
 from ninja import Router, Schema
 from ninja.errors import HttpError
 
 from apps.game_config.services import ResolvedGameConfig, resolve_effective_game_config
+from apps.players.avatars import avatar_url
 from apps.players.models import Player
 from apps.profile_collection.models import PlayerAchievementUnlock, PlayerMedalAward, PlayerProfile
 from apps.profile_collection.services import (
@@ -158,7 +160,7 @@ def overview(request: HttpRequest) -> OverviewOut:
             first_name=player.first_name,
             last_name=player.last_name,
             username=player.username,
-            photo_url=player.photo_url,
+            photo_url=avatar_url(player),
         ),
         progression=ProgressionOut(
             lifetime_points=projection.lifetime_points,
@@ -263,3 +265,10 @@ def customization(request: HttpRequest, payload: CustomizationIn) -> Customizati
     except ValidationError as exc:
         raise HttpError(422, str(exc.message)) from exc
     return _customization(profile)
+
+
+@router.get("/avatar/{delivery_id}", auth=None)
+def avatar_delivery(request: HttpRequest, delivery_id: UUID) -> HttpResponse:
+    from apps.players.avatars import deliver_avatar
+
+    return deliver_avatar(delivery_id)

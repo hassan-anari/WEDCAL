@@ -35,6 +35,7 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run mypy .
       - run: uv run python manage.py check
+      - run: uv run python scripts/export_tap_v2_openapi.py --check
 
   test:
     name: test
@@ -86,6 +87,12 @@ jobs:
       - run: uv run python manage.py migrate --noinput
       - run: uv run python manage.py makemigrations --check --dry-run
       - run: uv run pytest
+      - name: B2 isolated PostgreSQL benchmark
+        run: B2_BENCHMARK=1 uv run pytest apps/base_tap/tests/test_benchmark.py -q
+      - uses: actions/upload-artifact@v4
+        with:
+          name: b2-postgres-benchmark
+          path: work/b2-benchmark.json
 
   docker-build:
     name: docker-build
@@ -95,6 +102,7 @@ jobs:
       - run: cp .env.example .env
       - run: docker compose config --quiet
       - run: docker build --tag dexo-land:${{ github.sha }} .
+      - run: docker run --rm dexo-land:${{ github.sha }} python scripts/admin_static_smoke.py
       - name: Start and smoke test application services
         shell: bash
         run: |

@@ -1,0 +1,979 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Dexo Land API",
+    "version": "1.0.0",
+    "description": ""
+  },
+  "paths": {
+    "/api/v1/base/taps": {
+      "post": {
+        "operationId": "apps_base_tap_api_submit",
+        "summary": "Submit",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response",
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "base"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TapBatchSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "MiniAppAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/base/v2/tap-state": {
+      "get": {
+        "operationId": "apps_base_tap_api_tap_state",
+        "summary": "Tap State",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "session_id",
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session Id"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapStateOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapErrorOutput"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapErrorOutput"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapErrorOutput"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapErrorOutput"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapErrorOutput"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapErrorOutput"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "base"
+        ],
+        "security": [
+          {
+            "MiniAppAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/base/v2/tap-leases": {
+      "post": {
+        "operationId": "apps_base_tap_api_tap_lease",
+        "summary": "Tap Lease",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapStateOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapErrorOutput"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapErrorOutput"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapErrorOutput"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapErrorOutput"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapErrorOutput"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapErrorOutput"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "base"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeaseInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "MiniAppAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/base/v2/tap-batches": {
+      "post": {
+        "operationId": "apps_base_tap_api_tap_batch",
+        "summary": "Tap Batch",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapErrorOutput"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapErrorOutput"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapErrorOutput"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapErrorOutput"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapErrorOutput"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapErrorOutput"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapErrorOutput"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "base"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "MiniAppAuth": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BootstrapProgression": {
+        "properties": {
+          "lifetime_points": {
+            "title": "Lifetime Points",
+            "type": "integer"
+          },
+          "level": {
+            "title": "Level",
+            "type": "integer"
+          },
+          "current_threshold": {
+            "title": "Current Threshold",
+            "type": "integer"
+          },
+          "next_threshold": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Threshold"
+          },
+          "points_into_level": {
+            "title": "Points Into Level",
+            "type": "integer"
+          },
+          "points_remaining": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Points Remaining"
+          },
+          "dexo_stage": {
+            "title": "Dexo Stage",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lifetime_points",
+          "level",
+          "current_threshold",
+          "next_threshold",
+          "points_into_level",
+          "points_remaining",
+          "dexo_stage"
+        ],
+        "title": "BootstrapProgression",
+        "type": "object"
+      },
+      "BootstrapProgressionPolicy": {
+        "properties": {
+          "levels": {
+            "items": {
+              "$ref": "#/components/schemas/LevelRuleOutput"
+            },
+            "title": "Levels",
+            "type": "array"
+          },
+          "dexo_stages": {
+            "items": {
+              "$ref": "#/components/schemas/DexoStageOutput"
+            },
+            "title": "Dexo Stages",
+            "type": "array"
+          },
+          "clan_min_level": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clan Min Level"
+          }
+        },
+        "required": [
+          "levels",
+          "dexo_stages",
+          "clan_min_level"
+        ],
+        "title": "BootstrapProgressionPolicy",
+        "type": "object"
+      },
+      "DexoStageOutput": {
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "min_level": {
+            "title": "Min Level",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "min_level"
+        ],
+        "title": "DexoStageOutput",
+        "type": "object"
+      },
+      "LevelRuleOutput": {
+        "properties": {
+          "level": {
+            "title": "Level",
+            "type": "integer"
+          },
+          "min_lifetime_points": {
+            "title": "Min Lifetime Points",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "level",
+          "min_lifetime_points"
+        ],
+        "title": "LevelRuleOutput",
+        "type": "object"
+      },
+      "TapBatchSubmission": {
+        "properties": {
+          "tap_count": {
+            "title": "Tap Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tap_count"
+        ],
+        "title": "TapBatchSubmission",
+        "type": "object"
+      },
+      "LeaseOutput": {
+        "properties": {
+          "lease_id": {
+            "format": "uuid",
+            "title": "Lease Id",
+            "type": "string"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "generation": {
+            "title": "Generation",
+            "type": "integer"
+          },
+          "authorized_allowance": {
+            "title": "Authorized Allowance",
+            "type": "integer"
+          },
+          "reward_per_tap": {
+            "title": "Reward Per Tap",
+            "type": "integer"
+          },
+          "cooldown_seconds": {
+            "minimum": 1,
+            "title": "Cooldown Seconds",
+            "type": "integer"
+          },
+          "max_taps_per_batch": {
+            "title": "Max Taps Per Batch",
+            "type": "integer"
+          },
+          "min_batch_interval_ms": {
+            "title": "Min Batch Interval Ms",
+            "type": "integer"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "sequence_start": {
+            "title": "Sequence Start",
+            "type": "integer"
+          },
+          "sequence_end": {
+            "title": "Sequence End",
+            "type": "integer"
+          },
+          "config_version": {
+            "title": "Config Version",
+            "type": "string"
+          },
+          "season_id": {
+            "title": "Season Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lease_id",
+          "session_id",
+          "generation",
+          "authorized_allowance",
+          "reward_per_tap",
+          "cooldown_seconds",
+          "max_taps_per_batch",
+          "min_batch_interval_ms",
+          "expires_at",
+          "sequence_start",
+          "sequence_end",
+          "config_version",
+          "season_id"
+        ],
+        "title": "LeaseOutput",
+        "type": "object"
+      },
+      "TapStateOutput": {
+        "properties": {
+          "contract_version": {
+            "const": "2.0",
+            "default": "2.0",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "server_time": {
+            "format": "date-time",
+            "title": "Server Time",
+            "type": "string"
+          },
+          "player_id": {
+            "title": "Player Id",
+            "type": "string"
+          },
+          "season_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Season Id"
+          },
+          "config_version": {
+            "title": "Config Version",
+            "type": "string"
+          },
+          "issuance_enabled": {
+            "title": "Issuance Enabled",
+            "type": "boolean"
+          },
+          "reward_earning_allowed": {
+            "title": "Reward Earning Allowed",
+            "type": "boolean"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "generation": {
+            "title": "Generation",
+            "type": "integer"
+          },
+          "receipt_cursor": {
+            "title": "Receipt Cursor",
+            "type": "integer"
+          },
+          "burst_remaining": {
+            "title": "Burst Remaining",
+            "type": "integer"
+          },
+          "cooldown_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cooldown Until"
+          },
+          "lease": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LeaseOutput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "progression": {
+            "$ref": "#/components/schemas/BootstrapProgression"
+          },
+          "season_points": {
+            "title": "Season Points",
+            "type": "integer"
+          },
+          "progression_policy": {
+            "$ref": "#/components/schemas/BootstrapProgressionPolicy"
+          }
+        },
+        "required": [
+          "server_time",
+          "player_id",
+          "season_id",
+          "config_version",
+          "issuance_enabled",
+          "reward_earning_allowed",
+          "revision",
+          "generation",
+          "receipt_cursor",
+          "burst_remaining",
+          "cooldown_until",
+          "lease",
+          "progression",
+          "season_points",
+          "progression_policy"
+        ],
+        "title": "TapStateOutput",
+        "type": "object"
+      },
+      "TapErrorOutput": {
+        "properties": {
+          "code": {
+            "enum": [
+              "AUTH_MISSING",
+              "AUTH_INVALID",
+              "AUTH_EXPIRED",
+              "AUTH_UNAVAILABLE",
+              "PLAYER_RESTRICTED",
+              "LEASE_UNKNOWN",
+              "ACTIVE_SESSION",
+              "GENERATION_STALE",
+              "LEASE_REVOKED",
+              "LEASE_EXPIRED",
+              "ALLOWANCE_EXHAUSTED",
+              "SEQUENCE_REPLAY",
+              "IDEMPOTENCY_CONFLICT",
+              "SEASON_CHANGED",
+              "SEASON_UNAVAILABLE",
+              "SEASON_FINALIZED",
+              "EPOCH_FINALIZED",
+              "COOLDOWN",
+              "SEQUENCE_GAP",
+              "REQUEST_INVALID",
+              "BATCH_TOO_LARGE",
+              "RATE_LIMITED",
+              "ISSUANCE_DISABLED",
+              "LEGACY_DRAIN_REQUIRED",
+              "CONFIG_UNAVAILABLE",
+              "TEMPORARY_UNAVAILABLE"
+            ],
+            "title": "Code",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "retryable": {
+            "title": "Retryable",
+            "type": "boolean"
+          },
+          "retry_after_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry After Ms"
+          },
+          "snapshot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TapStateOutput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "code",
+          "detail",
+          "retryable"
+        ],
+        "title": "TapErrorOutput",
+        "type": "object"
+      },
+      "LeaseInput": {
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "takeover": {
+            "default": false,
+            "title": "Takeover",
+            "type": "boolean"
+          },
+          "expected_generation": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Generation"
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "title": "LeaseInput",
+        "type": "object"
+      },
+      "BatchOutput": {
+        "properties": {
+          "duplicate": {
+            "title": "Duplicate",
+            "type": "boolean"
+          },
+          "accepted_taps": {
+            "title": "Accepted Taps",
+            "type": "integer"
+          },
+          "rejected_taps": {
+            "title": "Rejected Taps",
+            "type": "integer"
+          },
+          "earned_points": {
+            "title": "Earned Points",
+            "type": "integer"
+          },
+          "receipt_id": {
+            "title": "Receipt Id",
+            "type": "integer"
+          },
+          "sequence_through": {
+            "title": "Sequence Through",
+            "type": "integer"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/TapStateOutput"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/TapReceiptOutput"
+          }
+        },
+        "required": [
+          "duplicate",
+          "accepted_taps",
+          "rejected_taps",
+          "earned_points",
+          "receipt_id",
+          "sequence_through",
+          "snapshot",
+          "receipt"
+        ],
+        "title": "BatchOutput",
+        "type": "object"
+      },
+      "TapReceiptOutput": {
+        "description": "Immutable ledger evidence; independent of the response's current snapshot.",
+        "properties": {
+          "receipt_id": {
+            "title": "Receipt Id",
+            "type": "integer"
+          },
+          "idempotency_key": {
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "lease_id": {
+            "format": "uuid",
+            "title": "Lease Id",
+            "type": "string"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "generation": {
+            "title": "Generation",
+            "type": "integer"
+          },
+          "sequence_start": {
+            "title": "Sequence Start",
+            "type": "integer"
+          },
+          "requested_taps": {
+            "title": "Requested Taps",
+            "type": "integer"
+          },
+          "sequence_through": {
+            "title": "Sequence Through",
+            "type": "integer"
+          },
+          "accepted_taps": {
+            "title": "Accepted Taps",
+            "type": "integer"
+          },
+          "rejected_taps": {
+            "title": "Rejected Taps",
+            "type": "integer"
+          },
+          "earned_points": {
+            "title": "Earned Points",
+            "type": "integer"
+          },
+          "accepted_at": {
+            "format": "date-time",
+            "title": "Accepted At",
+            "type": "string"
+          },
+          "season_id": {
+            "title": "Season Id",
+            "type": "string"
+          },
+          "config_version": {
+            "title": "Config Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "receipt_id",
+          "idempotency_key",
+          "lease_id",
+          "session_id",
+          "generation",
+          "sequence_start",
+          "requested_taps",
+          "sequence_through",
+          "accepted_taps",
+          "rejected_taps",
+          "earned_points",
+          "accepted_at",
+          "season_id",
+          "config_version"
+        ],
+        "title": "TapReceiptOutput",
+        "type": "object"
+      },
+      "BatchInput": {
+        "additionalProperties": false,
+        "properties": {
+          "lease_id": {
+            "format": "uuid",
+            "title": "Lease Id",
+            "type": "string"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "generation": {
+            "minimum": 1,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "sequence_start": {
+            "maximum": 1001,
+            "minimum": 1,
+            "title": "Sequence Start",
+            "type": "integer"
+          },
+          "tap_count": {
+            "maximum": 1000,
+            "minimum": 1,
+            "title": "Tap Count",
+            "type": "integer"
+          },
+          "idempotency_key": {
+            "maxLength": 80,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._:-]+$",
+            "title": "Idempotency Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lease_id",
+          "session_id",
+          "generation",
+          "sequence_start",
+          "tap_count",
+          "idempotency_key"
+        ],
+        "title": "BatchInput",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "MiniAppAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Authorization"
+      }
+    }
+  },
+  "servers": []
+}
