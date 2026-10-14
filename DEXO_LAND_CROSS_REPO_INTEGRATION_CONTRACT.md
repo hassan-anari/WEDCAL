@@ -1,8 +1,8 @@
 # Dexo Land — Cross-Repository Integration & Release Execution Contract
 
 **Contract ID:** DLX-INT-2026-10-14  
-**Version:** 1.0 (proposed for repository-owner review)  
-**Status:** DRAFT — documentation PR; not yet merged or deployed  
+**Version:** 1.1 (batch-delivery amendment proposed for owner review)  
+**Status:** Active execution contract — original PR #22 merged; batch delivery amendment proposed in a separate documentation PR  
 **Owner decision date:** 2026-10-14  
 **Owner repositories:**
 - Frontend: https://github.com/hassan-anari/Dalexio-Game
@@ -115,13 +115,34 @@ Target:
 
 **Known integration mismatches requiring explicit tests:** frontend referral link constructed from Telegram user ID rather than backend-issued code; cold onboarding/profile bootstrap calls may omit `initData`; frontend Bootstrap adapter currently discards rich server feature payloads; query caches not consistently player/season keyed; Clan UI exposes local-only operations and lacks backend governance/recovery; Base Tap UI today uses UTC-day local state, local burst cooldown, optimistic XP and a server daily cap—causing reversals. Re-verify these observations against current code before fixing.
 
-## 5. Phased delivery roadmap (each stage is a hard gate)
+## 5. Batched integration delivery roadmap (owner-approved execution gates)
 
-Statuses: `PLANNED` → `IN_PROGRESS` → `PR_OPEN` → `CI_GREEN` → `OWNER_APPROVED` → `MERGED` → `ACCEPTED`. `BLOCKED` requires documented owner decision. Update section 9 after each accepted PR. A phase may contain multiple narrow sub-PRs, but **no unapproved auto-advance**.
+**Owner delivery-model update: 2026-10-14.** The detailed labels `C-01` and `P-01` through `P-13` below are **workstream/checklist identifiers**, **not separate Codex task or release gates**. Execute related workstreams together inside **six integrated batches**. For this integration program, a **Batch is the development phase** governed by the `AGENTS.md` mandatory PR/CI/independent review/explicit owner-approval rule. The completed `C-00` bootstrap is historical preparation. **Do not create an independent C-01-only task by default.** Reconcile Tap documentation and implement its related runtime and UI pieces as the coordinated **B2** deliverable, in safe internal order, while preserving separate review of any unresolved product decisions.
+
+| Batch / owner gate | Workstreams grouped into a single coordinated objective | Delivery result |
+|---|---|---|
+| **B1 — Foundation & Telegram Authentication** | `P-01` + `P-04` + relevant frontend test-discovery/E2E baseline | Reliable Telegram launch with VPN-off diagnostics/robust SDK delivery, authenticated Bootstrap/client API/typed contracts, player/season-scoped cache, meaningful errors and reproducible QA |
+| **B2 — Real-Time Tap Economy** | `C-01` + `P-02` + `P-03` | Canonical uncapped Tap contract, compatible backend atomic rewards and leases, immediate multi-touch XP/Level UI, server-owned 50-tap-burst/10s cooldown, historical pending settlement migration, abuse and load evidence |
+| **B3 — Earn & Network** | `P-05` + `P-06` + `P-07` | Complete Daily/Missions/Typing/Referral/Creator/Network server-backed flow and one coherent progression/cache integration |
+| **B4 — Profile & Arena** | `P-08` + `P-09` | Server-sourced Profile/collection/achievements/notifications, player/clan ranking and correct confirmed off-chain DLX presentation |
+| **B5 — Complete Clan System** | `P-10` + `P-11` + `P-12` | End-to-end Captain/Soldier membership, Telegram-group verification, governance/emergency exit/recovery, Treasury/shop/inventory/missions with role/economic concurrency proof |
+| **B6 — Integrated Release & Hardening** | `P-13` + remaining PH-037/PH-043 owner launch gates | Staging cross-repo E2E, Android/iOS Telegram WebView, security/load/recovery/rollback, CI branch protection and controlled deployment proof |
+
+**Default execution model per batch:** Two coordinated Codex Cloud tasks—one based on the **currently active backend repository** and one on the **private frontend repository**—with shared request/response/error schemas, named endpoint owners, pinned base/head SHAs and an explicit integration gate. Each agent should own the **entire repository-side scope of its batch**, not receive separate micro-tasks for individual pages, endpoints, or test assertions. When one repository needs no runtime changes, its task may be read-only audit/contract verification; **never force unnecessary edits**. Target **one coherent Draft PR per repository per batch when safe and reviewable**. Split only for warranted migration, deployment-compatibility or independent security/release gates, keeping them under the same Batch ID and cross-linked. **Do not merge any individual PR** without owner approval, even if it is part of a bigger batch.
+
+**Within-batch sequencing:** Agents may complete multiple logically related subtasks before final handoff; do not stop after each old `P-xx` label. But perform safe contract/compatibility preparation before breaking changes, and obtain an owner decision for any unresolved economics or security invariant **before encoding that decision in runtime code**. Backend `main` automatically deploys to the live API; stage backward-compatible backend behavior behind a disabled/controlled feature before migrating frontend clients. Frontend and backend PRs may be developed concurrently against a pinned contract, but deployment activation is controlled and proven safe.
+
+**Batch acceptance:** Both repository PRs (when applicable) are inspected; required checks pass; real PostgreSQL/transaction tests support economic work; frontend unit and appropriate browser/Telegram tests pass or are explicitly blocked with separate evidence; the pinned frontend/backend pairing has been tested in staging or an approved isolated harness; rollout/rollback and economic obligations have been reviewed. **Only owner approval opens the next batch.** Passing an API connectivity check to `api.dalexio.com` or `dalexio.com` does not authorize production account/reward mutations or load tests.
+
+**Environment results already observed:** In one Codex Cloud task, GitHub connector access could read/write both repositories and create independent documentation Draft PRs (backend `#24`, frontend `#1`). Local backend and frontend worktrees **could not be jointly built/tested in that environment**: shell Git transport hit proxy port 8080, the frontend environment had no backend checkout/services, and frontend web server binding failed with `EPERM`. Two separate repository environments plus cross-repository CI/staging therefore remain the selected operating model. Frontend Vitest/Playwright discovery and stale E2E expectations are part of **B1** quality baseline, not a license to disable failing tests. Backend repository `WEDCAL` is a temporary name; don't rename remotes, application configuration or documents solely because of that temporary change.
+
+**Execution statuses:** `PLANNED` → `IN_PROGRESS` → `PR_OPEN` → `CI_GREEN` → `OWNER_APPROVED` → `MERGED` → `ACCEPTED`. `BLOCKED` requires a documented owner decision. Update the Batch register in section 9 and the affected historical workstream notes after each delivery. No auto-advance.
+
+### Detailed workstream acceptance catalog (grouped within B1–B6; not standalone owner gates)
 
 ### C-00 — Establish contract, repository controls and cross-repo access
 
-**Status:** IN_PROGRESS (this contract PR only).  
+**Status:** ACCEPTED (contract PR #22 merged; connector-based dual-repository publication tested in backend #24 and frontend #1; local joint build not verified).  
 **Scope:** Make this plan discoverable from backend `AGENTS.md`; confirm frontend/backend heads, current API and environment. Run docs-only Codex Cloud dual-repo capability probe (section 8). Identify backend `main` auto-deployment, required checks, frontend CI deficiency, safe branch/PR permissions and PH-037 owner action.  
 **Deliverables:** reviewed contract PR, recorded Codex capabilities, API/version/feature-flag ownership, release governance.  
 **Gate:** owner approves/merges contract and any minimum agent discovery changes. No functional changes or production writes in this phase.
@@ -250,9 +271,9 @@ Backend code on `main` automatically deploys to the live API. This changes accep
 
 All migrations are forward-safe and rollback-tested on backups/synthetic copies. Never "undo" earned points by rewriting historical ledger. If operation is unsafe during Season close/epoch freeze, pause at the barrier and document the owner decision. Production feature flags must have a proven off switch and bounded lease recovery behavior.
 
-## 8. Codex Cloud multi-repository capability probe (docs-only)
+## 8. Codex Cloud multi-repository capability probe (completed; docs-only)
 
-Before real development, perform **one safe task in Codex Web/Cloud**, bound to the Backend environment if only one root is selectable. Purpose: empirically determine whether this task can independently read, write/commit and open **two PRs** in both repositories.
+**Completed 2026-10-14:** One Codex Cloud task successfully created independent documentation-only branches/commits/Draft PRs using the authorized GitHub connector in both repositories (backend #24, frontend #1). This verified API-based cross-repo publication, **not two local worktrees or local integration tests**. Shell Git transport failed through proxy port 8080, and a separate frontend-environment audit confirmed no backend checkout/runtime. Adopt **two coordinated Codex Cloud environments** and pinned CI/staging cross-repo acceptance. The original test requirements below are retained for audit history.
 
 **Test footprint:** Create a unique, nonfunctional Markdown file such as `docs/codex-multirepo-probe/20261014-<short-run-id>.md` in **each** repository, with: repository name, timestamp, base SHA, task/run ID, confirmation this is documentation only. One distinct branch+commit+draft PR **per repository**, targeting `main`; absolutely no change to application code, CI/config, secrets or AGENTS. Do not merge.
 
@@ -262,9 +283,20 @@ Before real development, perform **one safe task in Codex Web/Cloud**, bound to 
 
 ## 9. Durable execution register (update after every gate)
 
+**Batches are owner-approved execution gates; C/P workstream rows below remain detailed planning references.**
+
+| Batch | Status | Paired PRs / acceptance | Critical handoff |
+|---|---|---|---|
+| B1 | PLANNED | — | Telegram launch/auth, typed Bootstrap/client, frontend QA/test discovery |
+| B2 | PLANNED | — | C-01 canonical Tap reconciliation, atomic backend leases, instant frontend multi-touch, legacy drain |
+| B3 | PLANNED | — | Daily/Missions/Typing/Referral/Creator/Network |
+| B4 | PLANNED | — | Profile/collection/notifications/Arena/DLX |
+| B5 | PLANNED | — | Clan lifecycle/governance/Recovery/Treasury/Shop |
+| B6 | PLANNED | — | Staging E2E, measured load, release gates/rollback |
+
 | ID | Status | Owner approval/merged PRs | Evidence, blockers, next handoff |
 |---|---|---|---|
-| C-00 | IN_PROGRESS | Documentation draft PR pending | Contract + Cloud dual-repo probe; PH-037 owner rules |
+| C-00 | ACCEPTED | Backend #22 merged | GitHub connector dual-repo proof in backend #24 / frontend #1; two Codex environments selected; PH-037 still owner action |
 | C-01 | PLANNED | — | Update conflicting Tap authoritative contracts |
 | P-01 | PLANNED | — | Telegram VPN-off/root-auth issue |
 | P-02 | PLANNED | — | Transactional uncapped Tap backend/migration |
@@ -280,13 +312,13 @@ Before real development, perform **one safe task in Codex Web/Cloud**, bound to 
 | P-12 | PLANNED | — | Clan economics |
 | P-13 | PLANNED | — | Security/E2E/observability/release |
 
-**Update protocol:** A phase PR must update only its register row, include URLs of BOTH related frontend/backend PRs where applicable, record commit SHAs and checks passing, note migration/rollout status, mark blockers, link owner acceptance, and set the next authorized phase. This ledger is not itself evidence of successful testing: link raw CI and benchmark artifacts.
+**Update protocol:** A batch handoff must update its batch row and the relevant C/P sub-workstream rows, include URLs of BOTH related frontend/backend PRs where applicable, record commit SHAs and checks passing, note migration/rollout status, mark blockers, link owner acceptance, and set the next authorized batch. This ledger is not itself evidence of successful testing: link raw CI and benchmark artifacts.
 
 ## 10. Mandatory agent handoff format
 
-Every future Codex or other agent's final phase summary and PR description must contain:
+Every future Codex or other agent's final batch summary and PR description must contain:
 
-- **Phase / scope:** exact ID; repo, branch, head SHA; changed paths; explicit out-of-scope work.
+- **Batch / scope:** exact B1–B6 ID plus completed C/P workstream IDs; repo, branch, head SHA; changed paths; explicit out-of-scope work.
 - **Contract decisions:** source documents read, discrepancies discovered, API request/response/error additions, versioning and owner decisions needed.
 - **Implementation:** concise data-flow description including transaction/lock order, idempotency and frontend state ownership.
 - **Test evidence:** commands executed, pass/fail counts, CI jobs/URLs, Postgres concurrency, E2E/Mini App recordings, load profiles and actual metrics.
