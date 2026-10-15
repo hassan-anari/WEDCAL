@@ -2,12 +2,13 @@
 
 Draft PR: https://github.com/hassan-anari/WEDCAL/pull/28.
 Branch: `ai/b3-backend-integration`, targeting `main`.
-Paired frontend: https://github.com/hassan-anari/FROCAL/pull/4, `ai/b3-frontend-integration`,
-inspected head `0edabe530ab0e373ef61ea29b1e2b9b07f7e2be8`. Its description still pins the initial
-incremental backend contract `b443eee`; FROCAL must repin to the final backend SHA and current
-implemented schemas/fixtures before completing B3. Final immutable SHA and exact-head CI evidence
-will be recorded in the PR and `docs/evidence/B3_VALIDATION.md`; never infer acceptance from this
-handoff alone. No merge, deployment, production mutation/reset, B3 activation or live mass send.
+Paired frontend: https://github.com/hassan-anari/FROCAL/pull/4, `ai/b3-frontend-integration`.
+The owner confirms FROCAL B3 now pins backend SHA
+`88b26bea8e61f68adea4d2652b531f26cb5171d7`. The banner credential follow-up changes server
+configuration only; game API schemas and fixtures at that pin are unchanged. Final immutable SHA
+and exact-head CI evidence will be recorded in the PR and `docs/evidence/B3_VALIDATION.md`; never
+infer acceptance from this handoff alone. No merge, deployment, production mutation/reset, B3
+activation or live mass send.
 
 ## Implemented scope
 
@@ -72,7 +73,8 @@ the authenticated inbound update. No privileged synchronous webhook business log
 
 ## FROCAL integration instructions
 
-1. Pin the exact backend commit, its OpenAPI and all fixtures together. Keep fake frontend data out
+1. FROCAL pins backend `88b26bea8e61f68adea4d2652b531f26cb5171d7`; keep its OpenAPI and fixtures
+   together. The credential follow-up does not require a frontend schema change. Keep fake data out
    of production fallbacks. Every game API uses signed Telegram credentials and scoped query keys.
 2. Use real Daily/Mission/Typing state and mutation responses. Reconcile `canonical`, including
    cursor ordering, across Base/Header/Earn/Profile; invalidate relevant reads after claim.
@@ -108,13 +110,45 @@ legacy materialization code does not understand them. Defaults `B3_BOT_WELCOME_E
 `B3_BROADCAST_AUDIENCES_ENABLED=false`, empty TELEGRAM_ADMIN_IDS and disabled banners prevent
 accidental activation. Configure roles/HTTPS app URL/storage/link hosts using deployment secrets;
 never put credentials in frontend. The banner S3 account may reuse existing SDK credential
-infrastructure, but uses its own bucket/settings and does not require avatar-cache activation.
+infrastructure or reuse the same private bucket with a dedicated banner key as described below;
+banner storage does not require avatar-cache activation.
 
 Disable switches to stop new bot issuance/queueing; already durable deliveries/campaigns require
 explicit cancellation or controlled drain before older workers return. Switches do not erase
 queued obligations. Disable/deactivate banners independently. Do not roll schema back while group
 recipients exist; retain additive tables, receipts, ledgers and audit. Never re-enable legacy Tap
 or replay accepted economic requests as rollback. No rollout or rollback operation was executed.
+
+### Reuse a private Backblaze B2 bucket with isolated banner credentials
+
+Keep the existing bucket private and leave the avatar application's AWS credentials unchanged.
+Create a separate Backblaze B2 Application Key limited to that bucket and the file-name prefix
+`banners/`. Grant only `readFiles` and `writeFiles` for the backend's GetObject/PutObject operations;
+listing, bucket administration, deletion and public-read access are not needed. Use a normal
+restricted Application Key, not the account master key. The existing AES256 server-side encryption
+request remains unchanged; use a bucket/key configuration that permits it.
+
+In backend secret management set:
+
+- `BANNER_S3_BUCKET`: the existing private bucket name (may equal `AVATAR_S3_BUCKET`).
+- `BANNER_S3_ENDPOINT_URL`: the bucket's regional HTTPS S3-compatible B2 endpoint.
+- `BANNER_S3_REGION`: the matching B2 region.
+- `BANNER_S3_ACCESS_KEY_ID`: the new key's **keyID**.
+- `BANNER_S3_SECRET_ACCESS_KEY`: its **applicationKey**.
+- `BANNER_ASSET_ORIGIN`: the HTTPS backend API origin, for example `https://api.dalexio.com`.
+
+Supply both credential settings or leave both empty. An incomplete pair raises
+`ImproperlyConfigured` at startup and client construction; it never silently falls back to the
+avatar key. With both empty, boto3's normal environment/shared-profile/IAM-role credential chain
+is preserved. A complete pair affects only banner S3 clients and does not inherit an AWS session
+token from shared avatar credentials. Never replace the process-wide `AWS_*` credentials to set
+the banner key, and never expose either key to the frontend, logs, fixtures or browser URLs.
+
+Images remain under `banners/<sha256>.webp`; avatars remain under `avatars/`. The API reads the
+private object and serves only validated, approved UUID/digest assets over HTTPS. Public image
+response caching does not make the bucket public. Size/pixel/type/destination validation,
+sanitization and encryption are unchanged. No bucket ACL/policy change or live B2 operation is
+part of this PR. Review and configure these secrets only in a separately authorized rollout.
 
 ## Evidence and remaining gates
 

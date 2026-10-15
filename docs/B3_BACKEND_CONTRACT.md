@@ -225,8 +225,14 @@ Django Admin supports upload, preview, schedule, enable/disable, soft deactivati
 `OperatorAuditEvent` records create/publish/update/enable/disable/deactivate with before/after and
 operator. Economic records/configs are untouched. Deletion in Admin deactivates, preserving history.
 
-Storage uses dedicated BANNER_S3_* settings and SDK credentials; it does not depend on avatar-cache
-activation. BANNER_ASSET_ORIGIN must be HTTPS. The API serves only approved matching UUID/digest
+Storage uses dedicated BANNER_S3_* settings; optional `BANNER_S3_ACCESS_KEY_ID` and
+`BANNER_S3_SECRET_ACCESS_KEY` isolate its credentials from avatars. Both must be set or both empty;
+an incomplete pair is rejected. Both empty preserve the SDK's environment/shared-profile/IAM-role
+credential chain. A complete pair is supplied only to banner clients, without changing process
+credentials or inheriting a shared AWS session token. The bucket remains private, AES256 encryption
+unchanged. See the [private Backblaze B2 setup](B3_BACKEND_HANDOFF.md#reuse-a-private-backblaze-b2-bucket-with-isolated-banner-credentials)
+for reusing the avatar bucket with a separate key restricted to `banners/`. Storage does not depend
+on avatar-cache activation. BANNER_ASSET_ORIGIN must be HTTPS. The API serves only approved matching UUID/digest
 WebP bytes via a public immutable asset route, bounded reads and digest verification, with nosniff,
 CSP and one-year versioned caching. No browser storage credentials or arbitrary reference URL.
 Missing storage returns an empty banner; failed image delivery is 503/no-store, and frontend hides

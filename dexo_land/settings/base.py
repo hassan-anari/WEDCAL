@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import structlog
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 
@@ -361,6 +362,12 @@ CELERY_BEAT_SCHEDULE["refresh-due-avatars"] = {
 BANNER_S3_BUCKET = os.getenv("BANNER_S3_BUCKET", "")
 BANNER_S3_ENDPOINT_URL = os.getenv("BANNER_S3_ENDPOINT_URL", "")
 BANNER_S3_REGION = os.getenv("BANNER_S3_REGION", "us-east-1")
+BANNER_S3_ACCESS_KEY_ID = os.getenv("BANNER_S3_ACCESS_KEY_ID", "")
+BANNER_S3_SECRET_ACCESS_KEY = os.getenv("BANNER_S3_SECRET_ACCESS_KEY", "")
+if bool(BANNER_S3_ACCESS_KEY_ID) != bool(BANNER_S3_SECRET_ACCESS_KEY):
+    raise ImproperlyConfigured(
+        "BANNER_S3_ACCESS_KEY_ID and BANNER_S3_SECRET_ACCESS_KEY must both be set or both empty"
+    )
 BANNER_ASSET_ORIGIN = os.getenv("BANNER_ASSET_ORIGIN", "")
 BANNER_MAX_BYTES = int(os.getenv("BANNER_MAX_BYTES", "1048576"))
 BANNER_ALLOWED_LINK_HOSTS = frozenset(

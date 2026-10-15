@@ -90,11 +90,33 @@ substitute for that gate. No dependency manifest/base-image changes were made in
 
 - PH-043: approved Season brief content/completion evidence; endpoint explicitly unavailable,
   no invented verifier/reward. PH-037 branch protections remain the existing owner release gate.
-- FROCAL Draft #4 currently describes an initial backend pin; repin to the final backend commit,
-  bind current schemas/fixtures and finish paired mobile/Desktop acceptance. No frontend edits here.
+- The owner confirms FROCAL Draft #4 now pins backend
+  `88b26bea8e61f68adea4d2652b531f26cb5171d7`; the subsequent banner credential follow-up does not
+  change frontend schemas/fixtures. Paired mobile/Desktop acceptance remains. No frontend edits here.
 - No live welcome/broadcast/Backblaze write or real webhook delivery proof was performed. All
   outbound Telegram/storage transports in feature tests are mocked; the owner supplied the
   existing live avatar path PASS, and B3 only commits the narrow hotfix parity change.
 - B4/B5/B6, production rollout and owner acceptance remain outside this PR's execution authority.
 
 Stop after exact-head CI for independent review. Do not merge or deploy automatically.
+
+## Independent-review follow-up: banner credential isolation
+
+Optional `BANNER_S3_ACCESS_KEY_ID` / `BANNER_S3_SECRET_ACCESS_KEY` select credentials only for
+banner clients. Both absent preserve the SDK credential chain; incomplete pairs raise a
+configuration error at settings startup and before SDK client construction. The existing avatar
+adapter, private bucket behavior, AES256 encryption, image validation and API schemas are unchanged.
+No migration is added. The handoff includes a same-bucket B2 setup with a dedicated `banners/` key
+and corrects the frontend pin to the owner's confirmed `88b26bea8e61f68adea4d2652b531f26cb5171d7`.
+
+Executed affected command:
+`pytest apps/content/tests apps/players/tests/test_avatars.py apps/players/tests/test_avatar_controls.py -q --tb=short`:
+**52 passed in 15.53s**. This includes 10 new cases covering actual SDK credential isolation from
+avatars, inherited session-token isolation, omitted credential arguments for IAM/shared-chain
+fallback, environment fallback, both incomplete-pair directions at runtime and startup, no
+credential values in startup errors, and exact stubbed private/encrypted PutObject/GetObject.
+Only synthetic credentials and S3 stubs were used; no live B2 access or secret changes.
+
+Ruff lint/format, mypy (**397** source files), Django system check, contract validator, both
+OpenAPI drift checks and diff whitespace passed. Final follow-up commit SHA and its GitHub CI
+results are recorded in Draft PR #28; earlier-head CI evidence above is historical.

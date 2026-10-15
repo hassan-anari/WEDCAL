@@ -1,10 +1,11 @@
-"""Dedicated banner storage; independent of avatar cache activation and credentials."""
+"""Private banner storage with optional credentials separate from the SDK default chain."""
 
 from typing import Any
 
 import boto3  # type: ignore[import-untyped]
 from botocore.config import Config  # type: ignore[import-untyped]
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 
 
 def configured() -> bool:
@@ -12,11 +13,21 @@ def configured() -> bool:
 
 
 def client() -> Any:
+    access_key = settings.BANNER_S3_ACCESS_KEY_ID
+    secret_key = settings.BANNER_S3_SECRET_ACCESS_KEY
+    if bool(access_key) != bool(secret_key):
+        raise ImproperlyConfigured(
+            "BANNER_S3_ACCESS_KEY_ID and BANNER_S3_SECRET_ACCESS_KEY must both be set or both empty"
+        )
+    credentials = (
+        {"aws_access_key_id": access_key, "aws_secret_access_key": secret_key} if access_key else {}
+    )
     return boto3.client(
         "s3",
         endpoint_url=settings.BANNER_S3_ENDPOINT_URL or None,
         region_name=settings.BANNER_S3_REGION,
         config=Config(connect_timeout=3, read_timeout=5, retries={"max_attempts": 1}),
+        **credentials,
     )
 
 
