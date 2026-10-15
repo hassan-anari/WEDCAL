@@ -42,4 +42,5 @@ def test_temporary_admission_never_permanently_fails_even_at_attempt_limit(
     _deliver(row, "synthetic")
     row.refresh_from_db()
     assert row.state == DeliveryState.RETRY_WAIT
+    assert row.next_attempt_at is not None
     assert row.next_attempt_at >= before + timedelta(seconds=17)
