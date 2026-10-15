@@ -799,7 +799,14 @@
             "$ref": "#/components/schemas/BootstrapProgressionPolicy"
           },
           "ownership": {
-            "$ref": "#/components/schemas/SessionOwnership"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SessionOwnership"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -817,8 +824,7 @@
           "lease",
           "progression",
           "season_points",
-          "progression_policy",
-          "ownership"
+          "progression_policy"
         ],
         "title": "TapStateOutput",
         "type": "object"

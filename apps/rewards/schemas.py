@@ -24,6 +24,16 @@ class BootstrapProgression(Schema):
     dexo_stage: str
 
 
+class CanonicalState(Schema):
+    server_time: datetime
+    player_id: str
+    season_id: str | None
+    config_version: str
+    receipt_cursor: int
+    progression: BootstrapProgression
+    season_points: int
+
+
 class BootstrapSeason(Schema):
     code: str
     title: str
@@ -106,6 +116,7 @@ class BootstrapGameplay(Schema):
 
 
 class BootstrapOutput(Schema):
+    canonical: CanonicalState | None = None
     contract_version: Literal["1.1"]
     request_id: str
     server_time: datetime

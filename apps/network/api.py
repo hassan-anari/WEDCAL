@@ -1,9 +1,16 @@
-from typing import Any
+from contextlib import suppress
+from typing import Annotated, Any
+from uuid import UUID
 
 from django.http import HttpRequest
-from ninja import Router
+from django.utils import timezone
+from ninja import Query, Router, Schema
+from pydantic import Field
 
+from apps.core.b3 import B3Error, b3_responses
 from apps.network.models import CreatorGroupRegistration
+from apps.network.read_models import group_output, network_summary
+from apps.network.schemas import CreatorGroupPage, IntentOutput, NetworkSummary
 from apps.network.services import create_registration_intent
 from apps.network.tasks import verify_creator_registration
 from apps.players.models import Player
@@ -19,28 +26,43 @@ def _player(request: HttpRequest) -> Player:
     return player
 
 
-@router.get("/groups", response=dict[str, Any])
-def groups(request: HttpRequest) -> dict[str, Any]:
+@router.get("", response=b3_responses(NetworkSummary))
+def summary(request: HttpRequest) -> dict[str, Any]:
+    return network_summary(_player(request))
+
+
+@router.get("/groups", response=b3_responses(CreatorGroupPage))
+def groups(
+    request: HttpRequest,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 30,
+) -> dict[str, Any]:
     rows = (
         CreatorGroupRegistration.objects.filter(creator=_player(request))
         .select_related("group")
         .order_by("id")
     )
+    batch = list(rows[offset : offset + limit + 1])
     return {
-        "items": [
-            {"public_id": str(x.public_id), "title": x.group.title, "state": x.state} for x in rows
-        ]
+        "items": [group_output(row) for row in batch[:limit]],
+        "next_offset": offset + limit if len(batch) > limit else None,
     }
 
 
-@router.post("/groups/intents", response=dict[str, Any])
+@router.post("/groups/intents", response=b3_responses(IntentOutput))
 def intent(request: HttpRequest) -> dict[str, Any]:
-    _, link = create_registration_intent(_player(request))
-    return {"startgroup_url": link}
+    if not network_summary(_player(request))["can_register"]:
+        raise B3Error("CREATOR_UNAVAILABLE")
+    from django.conf import settings
+
+    if not settings.TELEGRAM_BOT_USERNAME:
+        raise B3Error("BOT_UNCONFIGURED", 503)
+    row, link = create_registration_intent(_player(request))
+    return {"startgroup_url": link, "expires_at": row.expires_at}
 
 
 @router.post("/groups/{public_id}/reverify", response={202: dict[str, bool], 404: dict[str, str]})
-def reverify(request: HttpRequest, public_id: str) -> tuple[int, dict[str, str] | dict[str, bool]]:
+def reverify(request: HttpRequest, public_id: UUID) -> tuple[int, dict[str, str] | dict[str, bool]]:
     item = CreatorGroupRegistration.objects.filter(
         public_id=public_id,
         creator=_player(request),
@@ -52,5 +74,41 @@ def reverify(request: HttpRequest, public_id: str) -> tuple[int, dict[str, str] 
     ).first()
     if not item:
         return 404, {"detail": "Not found"}
-    verify_creator_registration.delay(item.pk)
+    CreatorGroupRegistration.objects.filter(pk=item.pk).update(next_verification_at=timezone.now())
+    # The periodic durable scanner recovers if broker dispatch fails.
+    with suppress(Exception):
+        verify_creator_registration.delay(item.pk)
     return 202, {"accepted": True}
+
+
+class BroadcastConsentOutput(Schema):
+    enabled: bool
+    revision: int
+
+
+class BroadcastConsentInput(Schema):
+    enabled: bool = Field(strict=True)
+
+
+@router.post("/groups/{public_id}/broadcast-consent", response=b3_responses(BroadcastConsentOutput))
+def broadcast_consent(
+    request: HttpRequest, public_id: UUID, payload: BroadcastConsentInput
+) -> dict[str, Any]:
+    from django.core.exceptions import ValidationError
+
+    from apps.notifications.audiences import set_group_consent
+
+    registration = (
+        CreatorGroupRegistration.objects.select_related("group")
+        .filter(public_id=public_id, creator=_player(request))
+        .first()
+    )
+    if not registration:
+        raise B3Error("GROUP_NOT_FOUND", 404)
+    try:
+        row = set_group_consent(
+            registration.group, _player(request).telegram_user_id, enabled=payload.enabled
+        )
+    except ValidationError as exc:
+        raise B3Error("GROUP_AUTHORIZATION_UNAVAILABLE", 409) from exc
+    return {"enabled": row.enabled, "revision": row.revision}

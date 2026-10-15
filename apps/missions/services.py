@@ -9,6 +9,7 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 
+from apps.core.b3 import B3Error
 from apps.core.periods import resolve_daily_period
 from apps.game_config.models import GameConfigVersion
 from apps.game_config.services import ResolvedGameConfig, resolve_effective_game_config
@@ -22,14 +23,15 @@ from apps.typing_game.models import TypingAttempt
 logger = structlog.get_logger(__name__)
 
 
-class MissionUnavailable(LookupError):
-    pass
+class MissionUnavailable(B3Error, LookupError):
+    def __init__(self, detail: str):
+        super().__init__("MISSION_UNAVAILABLE")
 
 
-class MissionVerificationUnavailable(RuntimeError):
+class MissionVerificationUnavailable(B3Error, RuntimeError):
     def __init__(self, category: str, retry_after: int | None = None):
         self.category, self.retry_after = category, retry_after
-        super().__init__("Mission verification is temporarily unavailable")
+        super().__init__("TELEGRAM_VERIFICATION_UNAVAILABLE", 503, retry_after=retry_after)
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,7 +57,10 @@ def _definition(key: str, at: datetime) -> MissionDefinition:
 
 
 def _require_policy_binding(definition: MissionDefinition, resolved: ResolvedGameConfig) -> None:
-    rule = resolved.missions.definition(definition.key)
+    try:
+        rule = resolved.missions.definition(definition.key)
+    except (ValueError, LookupError) as exc:
+        raise MissionUnavailable("Mission policy is unavailable") from exc
     if (
         definition.verification_family != rule.verification
         or definition.repeat_policy != rule.repeat
@@ -138,7 +143,17 @@ def list_missions(player: Player, at: datetime) -> list[dict[str, object]]:
                 "verification_family": definition.verification_family,
                 "repeat_policy": definition.repeat_policy,
                 "reward_amount": rule.reward_points,
-                "state": row.status if row else "AVAILABLE",
+                "state": row.status
+                if row
+                else ("UNAVAILABLE" if definition.key == "read-season-brief" else "AVAILABLE"),
+                "available": definition.key != "read-season-brief",
+                "unavailable_reason": "PRODUCT_EVIDENCE_PENDING"
+                if definition.key == "read-season-brief"
+                else None,
+                "destination_url": definition.verification_parameters.get("destination_url"),
+                "opened_at": row.opened_at if row else None,
+                "verified_at": row.verified_at if row else None,
+                "claimed_at": row.claimed_at if row else None,
             }
         )
     return result
@@ -290,27 +305,28 @@ def verify_mission(
 
 def claim_mission(player: Player, key: str, at: datetime) -> tuple[PlayerMission, bool]:
     resolved_now = resolve_effective_game_config(at)
-    definition = _definition(key, at)
-    eligibility = _mission_period(definition, at, resolved_now)
     with transaction.atomic():
         player = Player.objects.select_for_update().get(pk=player.pk)
+        # Preserve verified obligations even if a definition is later disabled or replaced.
         progress = (
             PlayerMission.objects.select_for_update()
             .select_related("definition")
-            .filter(
-                player=player,
-                definition__key=key,
-                status__in=[PlayerMission.Status.REWARD_READY, PlayerMission.Status.CLAIMED],
-            )
-            .order_by("-verified_at", "-definition__version")
+            .filter(player=player, definition__key=key, status=PlayerMission.Status.REWARD_READY)
+            .order_by("verified_at", "pk")
             .first()
         )
         if progress is None:
-            progress = PlayerMission.objects.select_for_update().get(
-                player=player, definition=definition, eligibility_period=eligibility
+            definition = _definition(key, at)
+            eligibility = _mission_period(definition, at, resolved_now)
+            progress = (
+                PlayerMission.objects.select_for_update()
+                .select_related("definition")
+                .filter(player=player, definition=definition, eligibility_period=eligibility)
+                .first()
             )
+            if progress is None:
+                raise B3Error("MISSION_NOT_READY")
         definition = progress.definition
-        _require_policy_binding(definition, resolved_now)
         eligibility = progress.eligibility_period
         if progress.status == PlayerMission.Status.CLAIMED:
             return progress, False
@@ -320,8 +336,11 @@ def claim_mission(player: Player, key: str, at: datetime) -> tuple[PlayerMission
             or not progress.config_version_id
             or not progress.reward_amount
         ):
-            raise ValueError("Mission reward is not ready")
-        resolved = resolve_effective_game_config(progress.verified_at)
+            raise B3Error("MISSION_NOT_READY")
+        from apps.game_config.services import resolve_game_config_version
+
+        resolved = resolve_game_config_version(progress.config_version_id)
+        _require_policy_binding(definition, resolved)
         ledger, created = settle_player_reward(
             player=player,
             source_type="MISSION",

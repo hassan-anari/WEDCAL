@@ -8,6 +8,7 @@ from django.utils import timezone
 from ninja import Query, Router, Schema
 
 from apps.core.api_errors import IntegrationError, IntegrationErrorOutput
+from apps.core.b3 import CanonicalState, b3_responses, canonical_state
 from apps.game_config.services import GameConfigUnavailable
 from apps.players.models import Player
 from apps.rewards.bootstrap import build_bootstrap
@@ -80,3 +81,8 @@ def bootstrap(request: HttpRequest) -> dict[str, Any]:
             "INITIALIZATION_UNAVAILABLE",
             "Application initialization is temporarily unavailable",
         ) from exc
+
+
+@rewards_router.get("/state", response=b3_responses(CanonicalState))
+def progression_state(request: HttpRequest) -> dict[str, Any]:
+    return canonical_state(_player(request), timezone.now())

@@ -2,11 +2,13 @@ from datetime import datetime
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.http import HttpRequest, HttpResponse
 from django.utils import timezone
 from ninja import Router, Schema
 from ninja.errors import HttpError
 
+from apps.core.b3 import CanonicalState, canonical_state
 from apps.game_config.services import ResolvedGameConfig, resolve_effective_game_config
 from apps.players.avatars import avatar_url
 from apps.players.models import Player
@@ -57,6 +59,7 @@ class CustomizationOut(Schema):
 
 
 class OverviewOut(Schema):
+    canonical: CanonicalState | None = None
     identity: IdentityOut
     progression: ProgressionOut
     journey: JourneyOut
@@ -150,12 +153,14 @@ def _source_season_code(award: PlayerMedalAward | None) -> str | None:
 
 
 @router.get("/overview", response=OverviewOut)
+@transaction.atomic
 def overview(request: HttpRequest) -> OverviewOut:
-    player = _player(request)
+    player = Player.objects.select_for_update().get(pk=_player(request).pk)
     _, resolved, (profile, facts, _, _) = _state(player)
     projection = PlayerProgression.objects.get(player=player)
     progress = calculate_progression(projection.lifetime_points, resolved.progression)
     return OverviewOut(
+        canonical=CanonicalState.model_validate(canonical_state(player, timezone.now())),
         identity=IdentityOut(
             first_name=player.first_name,
             last_name=player.last_name,

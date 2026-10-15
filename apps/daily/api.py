@@ -1,10 +1,14 @@
 from typing import Any
 
+from django.db import transaction
 from django.http import HttpRequest
 from django.utils import timezone
 from ninja import Router
 
+from apps.core.b3 import b3_responses, canonical_state
+from apps.daily.schemas import DailyClaimOutput, DailyOutput
 from apps.daily.services import claim_daily, get_daily_state
+from apps.game_config.services import resolve_effective_game_config
 from apps.players.models import Player
 from apps.telegram.mini_app_auth import mini_app_auth
 
@@ -19,6 +23,9 @@ def _player(request: HttpRequest) -> Player:
 
 def _serialize(state: Any) -> dict[str, Any]:
     return {
+        "reward_cycle": list(
+            resolve_effective_game_config(timezone.now()).daily.reward_cycle_points
+        ),
         "claimable": state.claimable,
         "already_claimed": not state.claimable,
         "current_streak": state.streak,
@@ -31,15 +38,18 @@ def _serialize(state: Any) -> dict[str, Any]:
     }
 
 
-@router.get("", response=dict[str, Any])
+@router.get("", response=b3_responses(DailyOutput))
 def state(request: HttpRequest) -> dict[str, Any]:
     return _serialize(get_daily_state(_player(request), timezone.now()))
 
 
-@router.post("/claim", response=dict[str, Any])
+@router.post("/claim", response=b3_responses(DailyClaimOutput))
+@transaction.atomic
 def claim(request: HttpRequest) -> dict[str, Any]:
     row, created = claim_daily(_player(request), timezone.now())
     return {
+        "canonical": canonical_state(_player(request), timezone.now()),
+        "daily": _serialize(get_daily_state(_player(request), timezone.now())),
         "created": created,
         "claim_period": row.claim_period,
         "streak": row.streak_count_after_claim,

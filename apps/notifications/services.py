@@ -2,18 +2,25 @@
 import random
 import uuid
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Exists, OuterRef, Q
+from django.db.models import Count, Exists, F, OuterRef, Q
 from django.utils import timezone
 
+from apps.notifications.audiences import (
+    eligible_groups,
+    eligible_users,
+    estimated_targets,
+    verify_group,
+)
 from apps.notifications.models import (
     BroadcastCampaign,
     BroadcastRecipient,
     DeliveryState,
+    GroupBroadcastSubscription,
     Notification,
     NotificationTemplate,
     OperatorAuditEvent,
@@ -200,6 +207,13 @@ def _claim(
             .order_by("id")[:limit]
         )
         for row in rows:
+            if row.state == DeliveryState.PROCESSING:
+                row.state = DeliveryState.UNCERTAIN
+                row.completed_at = now
+                row.error_category = "dispatch_lease_expired"
+                row.lease_token = row.lease_expires_at = None
+                row.save()
+                continue
             row.state = DeliveryState.PROCESSING
             row.lease_token = uuid.uuid4()
             row.lease_expires_at = now + timedelta(
@@ -207,26 +221,72 @@ def _claim(
             )
             row.attempt_count += 1
             row.save(update_fields=("state", "lease_token", "lease_expires_at", "attempt_count"))
-    return rows
+    return [cast(Delivery, row) for row in rows if row.state == DeliveryState.PROCESSING]
 
 
 def _deliver(row: Delivery, text: str) -> None:
     token = row.lease_token
-    result = bot_api.send_message(row.telegram_user_id, text)
+    options = row.message_options if isinstance(row, TelegramDelivery) else {}
+    if isinstance(row, BroadcastRecipient) and row.target_kind == "GROUP":
+        assert row.group_subscription_id is not None
+        try:
+            subscription = GroupBroadcastSubscription.objects.select_related("group").get(
+                pk=row.group_subscription_id
+            )
+            permitted = (
+                subscription.enabled
+                and subscription.revoked_at is None
+                and subscription.revision == row.subscription_revision
+            )
+            permitted = permitted and verify_group(subscription.group)
+        except ValidationError:
+            result = bot_api.TelegramResult(False, category="local_rate_limited", retry_after=30)
+        else:
+            if not permitted:
+                type(row).objects.filter(
+                    pk=row.pk, lease_token=token, state=DeliveryState.PROCESSING
+                ).update(
+                    state=DeliveryState.SKIPPED,
+                    error_category="group_consent_or_permission_revoked",
+                    completed_at=timezone.now(),
+                    lease_token=None,
+                    lease_expires_at=None,
+                )
+                return
+            result = bot_api.send_message(row.telegram_user_id, text)
+    elif options.get("_method") == "answerCallbackQuery":
+        result = bot_api.request(
+            "answerCallbackQuery", {"callback_query_id": options["callback_query_id"]}
+        )
+    elif options:
+        result = bot_api.request(
+            "sendMessage", {"chat_id": row.telegram_user_id, "text": text, **options}
+        )
+    else:
+        result = bot_api.send_message(row.telegram_user_id, text)
     now = timezone.now()
     with transaction.atomic():
         locked = type(row).objects.select_for_update().get(pk=row.pk)
         if locked.state != DeliveryState.PROCESSING or locked.lease_token != token:
             return
         locked.lease_token = locked.lease_expires_at = None
+        retry_deadline_passed = (
+            now - locked.created_at
+        ).total_seconds() > settings.NOTIFICATION_MAX_QUEUE_AGE_SECONDS
         if result.ok:
             locked.state, locked.sent_at, locked.completed_at = DeliveryState.SENT, now, now
             message_id = (result.result or {}).get("message_id")
             locked.telegram_message_id = message_id if type(message_id) is int else None
+        elif (
+            result.category in {"local_rate_limited", "rate_limited", "budget_unavailable"}
+            and retry_deadline_passed
+        ):
+            locked.state, locked.completed_at = DeliveryState.SKIPPED, now
+            locked.error_category = "retry_deadline_exceeded"
         elif result.category in {"local_rate_limited", "rate_limited", "budget_unavailable"}:
             # Admission refusal never dispatched a message and is not a delivery failure.
             locked.state = DeliveryState.RETRY_WAIT
-            delay = result.retry_after or settings.TELEGRAM_API_DEFAULT_RETRY_SECONDS
+            delay = max(result.retry_after or 1, min(60, 2 ** min(locked.attempt_count, 6)))
             locked.next_attempt_at = now + timedelta(
                 seconds=delay + random.uniform(0, settings.TELEGRAM_API_RETRY_JITTER_SECONDS)
             )
@@ -255,9 +315,16 @@ def queue_campaign(*, campaign: BroadcastCampaign, actor: Any, reason: str) -> B
         return campaign
     if campaign.state != BroadcastCampaign.State.DRAFT or not reason.strip():
         raise ValidationError("Only a draft campaign with a reason can be queued")
+    if (
+        campaign.audience_type in {"USERS", "GROUPS", "BOTH"}
+        and not settings.B3_BROADCAST_AUDIENCES_ENABLED
+    ):
+        raise ValidationError("B3 broadcast audiences are not enabled")
+    estimates = estimated_targets(campaign.audience_type)
+    campaign.estimated_users, campaign.estimated_groups = estimates["users"], estimates["groups"]
     campaign.state = BroadcastCampaign.State.MATERIALIZING
     campaign.queued_at = timezone.now()
-    campaign.save(update_fields=("state", "queued_at"))
+    campaign.save(update_fields=("state", "queued_at", "estimated_users", "estimated_groups"))
     OperatorAuditEvent.objects.create(
         actor=actor,
         action="BROADCAST_QUEUE",
@@ -275,10 +342,12 @@ def materialize_campaign(campaign_id: int, batch_size: int = 1000) -> int:
         campaign = BroadcastCampaign.objects.select_for_update().get(pk=campaign_id)
         if campaign.state != BroadcastCampaign.State.MATERIALIZING:
             return 0
-        players = Player.objects.filter(pk__gt=campaign.materialization_cursor).order_by("pk")
-        if campaign.audience_type == BroadcastCampaign.Audience.TELEGRAM_REACHABLE:
-            players = players.filter(first_private_contact_at__isnull=False)
-        batch = list(players[:batch_size])
+        users = eligible_users().filter(pk__gt=campaign.materialization_cursor).order_by("pk")
+        if campaign.audience_type == BroadcastCampaign.Audience.ALL:
+            users = Player.objects.filter(pk__gt=campaign.materialization_cursor).order_by("pk")
+        if campaign.audience_type == BroadcastCampaign.Audience.GROUPS:
+            users = Player.objects.none()
+        batch = list(users[:batch_size])
         BroadcastRecipient.objects.bulk_create(
             [
                 BroadcastRecipient(
@@ -299,10 +368,36 @@ def materialize_campaign(campaign_id: int, batch_size: int = 1000) -> int:
         )
         if batch:
             campaign.materialization_cursor = batch[-1].pk
-        if len(batch) < batch_size:
+        groups = (
+            eligible_groups()
+            .filter(pk__gt=campaign.group_materialization_cursor)
+            .select_related("group")
+            .order_by("pk")
+        )
+        if campaign.audience_type not in {"GROUPS", "BOTH"}:
+            groups = GroupBroadcastSubscription.objects.none()
+        group_batch = list(groups[:batch_size])
+        BroadcastRecipient.objects.bulk_create(
+            [
+                BroadcastRecipient(
+                    campaign=campaign,
+                    group_subscription=g,
+                    target_kind="GROUP",
+                    telegram_user_id=g.group.telegram_chat_id,
+                    subscription_revision=g.revision,
+                )
+                for g in group_batch
+            ],
+            ignore_conflicts=True,
+        )
+        if group_batch:
+            campaign.group_materialization_cursor = group_batch[-1].pk
+        if len(batch) < batch_size and len(group_batch) < batch_size:
             campaign.state = BroadcastCampaign.State.QUEUED
-        campaign.save(update_fields=("materialization_cursor", "state"))
-        count = len(batch)
+        campaign.save(
+            update_fields=("materialization_cursor", "group_materialization_cursor", "state")
+        )
+        count = len(batch) + len(group_batch)
     reconcile_campaign(campaign_id)
     return count
 
@@ -360,12 +455,14 @@ def claim_broadcast_recipients(limit: int) -> list[BroadcastRecipient]:
         .filter(state__in=SENDABLE_CAMPAIGN_STATES)
         .annotate(has_claimable=Exists(claimable))
         .filter(has_claimable=True)
-        .order_by("id")
+        .order_by(F("last_dispatch_at").asc(nulls_first=True), "id")
         .first()
     )
     if campaign is None:
         return []
-    rows = list(
+    campaign.last_dispatch_at = now
+    campaign.save(update_fields=("last_dispatch_at",))
+    candidates = (
         BroadcastRecipient.objects.select_for_update(skip_locked=True)
         .filter(campaign=campaign)
         .filter(
@@ -373,15 +470,26 @@ def claim_broadcast_recipients(limit: int) -> list[BroadcastRecipient]:
             | Q(state=DeliveryState.RETRY_WAIT, next_attempt_at__lte=now)
             | Q(state=DeliveryState.PROCESSING, lease_expires_at__lte=now)
         )
-        .order_by("id")[:limit]
+        .order_by("id")
     )
+    rows = list(candidates.filter(target_kind="GROUP")[: limit // 2])
+    rows += list(candidates.filter(target_kind="USER")[: limit - len(rows)])
+    if len(rows) < limit:
+        rows += list(candidates.exclude(pk__in=[row.pk for row in rows])[: limit - len(rows)])
     for row in rows:
+        if row.state == DeliveryState.PROCESSING:
+            row.state = DeliveryState.UNCERTAIN
+            row.completed_at = now
+            row.error_category = "dispatch_lease_expired"
+            row.lease_token = row.lease_expires_at = None
+            row.save()
+            continue
         row.state = DeliveryState.PROCESSING
         row.lease_token = uuid.uuid4()
         row.lease_expires_at = now + timedelta(seconds=settings.NOTIFICATION_DELIVERY_LEASE_SECONDS)
         row.attempt_count += 1
         row.save(update_fields=("state", "lease_token", "lease_expires_at", "attempt_count"))
-    return rows
+    return [row for row in rows if row.state == DeliveryState.PROCESSING]
 
 
 @transaction.atomic
@@ -428,4 +536,38 @@ def campaign_metrics(campaign: BroadcastCampaign) -> dict[str, int]:
     return {
         "total": sum(counts.values()),
         **{state.lower(): counts.get(state, 0) for state in DeliveryState.values},
+    }
+
+
+def audience_metrics(campaign: BroadcastCampaign) -> dict[str, Any]:
+    def counts(kind: str) -> dict[str, int]:
+        values = {
+            x["state"]: x["count"]
+            for x in campaign.recipients.filter(target_kind=kind)
+            .values("state")
+            .annotate(count=Count("id"))
+        }
+        oldest = (
+            campaign.recipients.filter(
+                target_kind=kind, state__in=[DeliveryState.PENDING, DeliveryState.RETRY_WAIT]
+            )
+            .order_by("created_at")
+            .first()
+        )
+        return {
+            "materialized": sum(values.values()),
+            **{state.lower(): values.get(state, 0) for state in DeliveryState.values},
+            "oldest_pending_seconds": max(
+                0, int((timezone.now() - oldest.created_at).total_seconds())
+            )
+            if oldest
+            else 0,
+        }
+
+    return {
+        "state": campaign.state,
+        "estimated_users": campaign.estimated_users,
+        "estimated_groups": campaign.estimated_groups,
+        "users": counts("USER"),
+        "groups": counts("GROUP"),
     }

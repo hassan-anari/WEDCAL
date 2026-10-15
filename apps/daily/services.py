@@ -4,6 +4,7 @@ from datetime import datetime
 import structlog
 from django.db import transaction
 
+from apps.core.b3 import B3Error
 from apps.core.periods import resolve_daily_period
 from apps.daily.models import DailyClaim
 from apps.game_config.models import GameConfigVersion
@@ -32,7 +33,7 @@ def get_daily_state(
     config = resolved or resolve_effective_game_config(at)
     policy = config.daily
     if not policy.enabled:
-        raise LookupError("Daily is unavailable in the effective configuration")
+        raise B3Error("DAILY_UNAVAILABLE")
     period = resolve_daily_period(at, policy.reset_timezone, policy.reset_hour, policy.reset_minute)
     current = DailyClaim.objects.filter(player=player, claim_period=period.key).first()
     previous = DailyClaim.objects.filter(player=player).order_by("-period_start").first()
@@ -63,7 +64,7 @@ def get_daily_state(
 def claim_daily(player: Player, at: datetime) -> tuple[DailyClaim, bool]:
     resolved = resolve_effective_game_config(at)
     if not resolved.daily.enabled:
-        raise LookupError("Daily is unavailable in the effective configuration")
+        raise B3Error("DAILY_UNAVAILABLE")
     season = resolve_current_season(at=at)
     assert season is not None
     period = resolve_daily_period(

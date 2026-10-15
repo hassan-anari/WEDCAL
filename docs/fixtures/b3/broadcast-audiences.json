@@ -1,0 +1,27 @@
+{
+  "state": "COMPLETED",
+  "estimated_users": 1,
+  "estimated_groups": 1,
+  "users": {
+    "materialized": 1,
+    "pending": 0,
+    "processing": 0,
+    "retry_wait": 0,
+    "sent": 1,
+    "failed": 0,
+    "uncertain": 0,
+    "skipped": 0,
+    "oldest_pending_seconds": 0
+  },
+  "groups": {
+    "materialized": 1,
+    "pending": 0,
+    "processing": 0,
+    "retry_wait": 0,
+    "sent": 1,
+    "failed": 0,
+    "uncertain": 0,
+    "skipped": 0,
+    "oldest_pending_seconds": 0
+  }
+}

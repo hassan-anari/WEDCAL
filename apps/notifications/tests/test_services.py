@@ -261,7 +261,7 @@ def test_cancelled_campaign_recipients_are_never_claimed():
     assert campaign.recipients.get().state == DeliveryState.SKIPPED
 
 
-def test_expired_broadcast_lease_is_reclaimed_only_while_sendable():
+def test_expired_broadcast_lease_becomes_uncertain_without_automatic_resend():
     from apps.notifications.models import BroadcastRecipient
     from apps.notifications.services import claim_broadcast_recipients
 
@@ -282,7 +282,9 @@ def test_expired_broadcast_lease_is_reclaimed_only_while_sendable():
         lease_expires_at=timezone.now() - timedelta(seconds=1),
     )
     claimed = claim_broadcast_recipients(1)
-    assert [row.pk for row in claimed] == [recipient.pk]
+    assert claimed == []
+    recipient.refresh_from_db()
+    assert recipient.state == DeliveryState.UNCERTAIN
     campaign.state = BroadcastCampaign.State.CANCELLED
     campaign.save(update_fields=("state",))
     BroadcastRecipient.objects.filter(pk=recipient.pk).update(

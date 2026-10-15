@@ -289,7 +289,7 @@ All migrations are forward-safe and rollback-tested on backups/synthetic copies.
 |---|---|---|---|
 | B1 | IN_PROGRESS | Backend [Draft PR #26](https://github.com/hassan-anari/WEDCAL/pull/26); frontend B1 PR pending | Backend PR_OPEN; initial implementation `90bf6930a5036ea6cd720605ef4f1d6079153eda`; latest head/CI evidence in PR #26. P-01/P-04 contract and regression delivery: [handoff](docs/B1_BACKEND_HANDOFF.md). Frontend/paired Telegram and cache verification pending; no batch acceptance or next-batch approval. |
 | B2 | BACKEND_DRAFT | Backend [Draft #27](https://github.com/hassan-anari/WEDCAL/pull/27), branch `ai/b2-backend`; paired frontend [Draft #3](https://github.com/hassan-anari/FROCAL/pull/3)/E2E pending | [wire contract](docs/B2_TAP_V2_CONTRACT.md), [handoff](docs/B2_BACKEND_HANDOFF.md), immediate atomic leases, exactly-once legacy drain; no deployment/activation acceptance |
-| B3 | PLANNED | — | Daily/Missions/Typing/Referral/Creator/Network |
+| B3 | BACKEND_DRAFT | Backend [Draft #28](https://github.com/hassan-anari/WEDCAL/pull/28), `ai/b3-backend-integration`; FROCAL B3 PR pending | [implemented contract](docs/B3_BACKEND_CONTRACT.md), [handoff](docs/B3_BACKEND_HANDOFF.md); P-05/P-06/P-07 plus owner-authorized session/banner/bot/broadcast extensions; independent review and paired frontend/device acceptance pending |
 | B4 | PLANNED | — | Profile/collection/notifications/Arena/DLX |
 | B5 | PLANNED | — | Clan lifecycle/governance/Recovery/Treasury/Shop |
 | B6 | PLANNED | — | Staging E2E, measured load, release gates/rollback |
@@ -302,9 +302,9 @@ All migrations are forward-safe and rollback-tested on backups/synthetic copies.
 | P-02 | B2_BACKEND_DRAFT | Unmerged | Atomic Tap v2, migration/reconciliation, local PostgreSQL evidence; owner rollout approval pending |
 | P-03 | B2_CONTRACT_READY | Frontend [Draft #3](https://github.com/hassan-anari/FROCAL/pull/3) | Backend owns exact [contract/fixtures](docs/B2_TAP_V2_CONTRACT.md); frontend/device E2E pending |
 | P-04 | IN_PROGRESS (B1) | Backend [Draft #26](https://github.com/hassan-anari/WEDCAL/pull/26); frontend pending | Typed additive Bootstrap, config/feature/gameplay metadata and coherent progression/Season snapshot; frontend typed adapter and scoped cache gate pending. |
-| P-05 | PLANNED | — | Daily/Missions |
-| P-06 | PLANNED | — | Typing |
-| P-07 | PLANNED | — | Referral/Creator/Network |
+| P-05 | BACKEND_IMPLEMENTED | Backend Draft #28, unmerged | Typed Daily/Missions + canonical claim state; frontend binding/review pending |
+| P-06 | BACKEND_IMPLEMENTED | Backend Draft #28, unmerged | Server attempts/resume/scoring/wallet contracts and fixtures; frontend/device review pending |
+| P-07 | BACKEND_IMPLEMENTED | Backend Draft #28, unmerged | Actual referral/creator/network read contracts; frontend integration pending |
 | P-08 | PLANNED | — | Profile/Collection/Notifications |
 | P-09 | PLANNED | — | Arena rankings/off-chain DLX |
 | P-10 | PLANNED | — | Clan core |
@@ -361,3 +361,16 @@ Owner mission authorizes C-01/P-02/backend P-03 as one B2 delivery, plus permane
 Reviewed head `47205dfcba09f4a7b0fb545a823de2aace4ffabb` is superseded for frontend binding by the final follow-up commit listed in Draft #27. Frontend must pin that commit's [wire contract](docs/B2_TAP_V2_CONTRACT.md), [JSON fixtures](docs/fixtures/tap-v2.json) and [OpenAPI](docs/fixtures/tap-v2-openapi.json). See [findings and validation](docs/B2_CONTRACT_COMPATIBILITY_FOLLOWUP.md).
 
 The additive response fields are `lease.cooldown_seconds` (pinned duration) and `receipt` (immutable ledger-backed request identity/counts). Routes/request bodies and `contract_version="2.0"` are preserved. Frontend Draft #3 at `f538f1cc42dc34d7ba21725432915244f34b8005` was re-inspected using the GitHub connector: its adapter must preserve both `(receipt_cursor, revision)` fields and retire persisted batches using matching receipt evidence; a single local revision/inferred grant cursor is insufficient. Frontend binding/device acceptance remains pending. No new batch, activation, migration or economy change is authorized by this follow-up.
+
+
+## B3 backend execution amendment
+
+The current owner mission reports B2 merged, deployed and server-verified. Actual repository main
+is WEDCAL `a213c209f04411fdecc63ef4d78516f60856ee44`, paired FROCAL
+`ba2cdabcf30fe3d99fd8f43159c1422f2c0175d4`; older B2 draft rows above are historical handoff state.
+No new production verification is claimed by B3. Owner-authorized B3 scope includes P-05/P-06/P-07
+and session recovery, banners, private welcome/Admin and audience/retry reliability as one Draft
+#28. Exact implemented contracts/fixtures are in `docs/B3_BACKEND_CONTRACT.md` and
+`docs/fixtures/b3/`; delivery, migrations and rollout gates are in `docs/B3_BACKEND_HANDOFF.md`.
+No B3 merge, deployment/activation or next-batch acceptance is authorized. Stop for independent
+review after required checks. PH-043 remains explicit; do not fabricate Season-brief completion.

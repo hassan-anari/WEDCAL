@@ -71,7 +71,7 @@ class TapStateOutput(Schema):
     progression: BootstrapProgression
     season_points: int
     progression_policy: BootstrapProgressionPolicy
-    ownership: SessionOwnership
+    ownership: SessionOwnership | None = None
 
 
 class TapReceiptOutput(Schema):

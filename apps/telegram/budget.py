@@ -51,7 +51,9 @@ def defer_bot_api(retry_after: int) -> None:
         logger.warning("telegram_api_pause_unavailable")
 
 
-def reserve_bot_api_budget(method: str, *, fail_closed: bool = False) -> BudgetDenial | None:
+def reserve_bot_api_budget(
+    method: str, *, fail_closed: bool = False, chat_id: int | None = None
+) -> BudgetDenial | None:
     now = time.time()
     try:
         deadline = get_redis_connection("default").get(cache.make_key(PAUSE_KEY))
@@ -64,6 +66,18 @@ def reserve_bot_api_budget(method: str, *, fail_closed: bool = False) -> BudgetD
             return BudgetDenial("budget_unavailable", settings.TELEGRAM_API_DEFAULT_RETRY_SECONDS)
         # Preserve existing critical-call availability on Redis loss; avatars always fail closed.
     bucket = int(now)
+    if method == "sendMessage":
+        try:
+            key = f"telegram-api:send:{bucket}"
+            count = 1 if cache.add(key, 1, timeout=2) else cache.incr(key)
+            if count > settings.TELEGRAM_API_SEND_RPS:
+                return BudgetDenial("local_rate_limited", 1)
+            if chat_id is not None:
+                interval = settings.TELEGRAM_API_GROUP_INTERVAL_SECONDS if chat_id < 0 else 1
+                if not cache.add(f"telegram-api:chat:{chat_id}", 1, timeout=interval):
+                    return BudgetDenial("local_rate_limited", interval)
+        except Exception:
+            return BudgetDenial("budget_unavailable", settings.TELEGRAM_API_DEFAULT_RETRY_SECONDS)
     for key, limit in (
         (f"telegram-api:global:{bucket}", settings.TELEGRAM_API_GLOBAL_RPS),
         (f"telegram-api:method:{method}:{bucket}", settings.TELEGRAM_API_METHOD_RPS),

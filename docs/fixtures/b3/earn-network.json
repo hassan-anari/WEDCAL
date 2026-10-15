@@ -1,0 +1,780 @@
+{
+  "daily_available": {
+    "claimable": true,
+    "already_claimed": false,
+    "current_streak": 0,
+    "cycle_day": 1,
+    "reward_amount": 80,
+    "reward_cycle": [
+      80,
+      90,
+      100,
+      110,
+      120,
+      140,
+      180
+    ],
+    "period_start": "2026-10-15T00:00:00Z",
+    "period_end": "2026-10-16T00:00:00Z",
+    "next_reset": "2026-10-16T00:00:00Z",
+    "last_claim_time": null
+  },
+  "daily_claim": {
+    "request": {},
+    "response": {
+      "created": true,
+      "claim_period": "2026-10-15T00:00:00+00:00",
+      "streak": 1,
+      "cycle_day": 1,
+      "reward_amount": 80,
+      "claimed_at": "2026-10-15T08:12:22.290Z",
+      "daily": {
+        "claimable": false,
+        "already_claimed": true,
+        "current_streak": 1,
+        "cycle_day": 1,
+        "reward_amount": 80,
+        "reward_cycle": [
+          80,
+          90,
+          100,
+          110,
+          120,
+          140,
+          180
+        ],
+        "period_start": "2026-10-15T00:00:00Z",
+        "period_end": "2026-10-16T00:00:00Z",
+        "next_reset": "2026-10-16T00:00:00Z",
+        "last_claim_time": "2026-10-15T08:12:22.290Z"
+      },
+      "canonical": {
+        "server_time": "2026-10-15T08:12:22.322Z",
+        "player_id": "9001",
+        "season_id": "phase4-s1",
+        "config_version": "api-config",
+        "receipt_cursor": 1,
+        "progression": {
+          "lifetime_points": 80,
+          "level": 1,
+          "current_threshold": 0,
+          "next_threshold": 300,
+          "points_into_level": 80,
+          "points_remaining": 220,
+          "dexo_stage": "newborn"
+        },
+        "season_points": 80
+      }
+    },
+    "http_status": 200
+  },
+  "daily_duplicate": {
+    "request": {},
+    "response": {
+      "created": false,
+      "claim_period": "2026-10-15T00:00:00+00:00",
+      "streak": 1,
+      "cycle_day": 1,
+      "reward_amount": 80,
+      "claimed_at": "2026-10-15T08:12:22.290Z",
+      "daily": {
+        "claimable": false,
+        "already_claimed": true,
+        "current_streak": 1,
+        "cycle_day": 1,
+        "reward_amount": 80,
+        "reward_cycle": [
+          80,
+          90,
+          100,
+          110,
+          120,
+          140,
+          180
+        ],
+        "period_start": "2026-10-15T00:00:00Z",
+        "period_end": "2026-10-16T00:00:00Z",
+        "next_reset": "2026-10-16T00:00:00Z",
+        "last_claim_time": "2026-10-15T08:12:22.290Z"
+      },
+      "canonical": {
+        "server_time": "2026-10-15T08:12:22.396Z",
+        "player_id": "9001",
+        "season_id": "phase4-s1",
+        "config_version": "api-config",
+        "receipt_cursor": 1,
+        "progression": {
+          "lifetime_points": 80,
+          "level": 1,
+          "current_threshold": 0,
+          "next_threshold": 300,
+          "points_into_level": 80,
+          "points_remaining": 220,
+          "dexo_stage": "newborn"
+        },
+        "season_points": 80
+      }
+    },
+    "http_status": 200
+  },
+  "mission_list": [
+    {
+      "key": "visit-dalexio",
+      "version": 1,
+      "title": "",
+      "description": "",
+      "verification_family": "TIMED_EXTERNAL",
+      "repeat_policy": "ONCE_PER_DEFINITION_VERSION",
+      "reward_amount": 120,
+      "state": "AVAILABLE",
+      "available": true,
+      "unavailable_reason": null,
+      "destination_url": "https://example.com",
+      "opened_at": null,
+      "verified_at": null,
+      "claimed_at": null
+    }
+  ],
+  "mission_start": {
+    "request": {},
+    "response": {
+      "key": "visit-dalexio",
+      "version": 1,
+      "state": "IN_PROGRESS",
+      "open_token": "284efddd6528bdd7fad807f2c2ddfd29ba805f956afba048fd3e48b2ebcfccbd",
+      "destination_url": "https://example.com",
+      "opened_at": "2026-10-15T08:12:22.443Z"
+    },
+    "http_status": 200
+  },
+  "mission_dwell_wait": {
+    "request": {
+      "open_token": "284efddd6528bdd7fad807f2c2ddfd29ba805f956afba048fd3e48b2ebcfccbd"
+    },
+    "response": {
+      "key": "visit-dalexio",
+      "version": 1,
+      "state": "IN_PROGRESS",
+      "verified_at": null
+    },
+    "http_status": 200
+  },
+  "mission_verified": {
+    "request": {
+      "open_token": "284efddd6528bdd7fad807f2c2ddfd29ba805f956afba048fd3e48b2ebcfccbd"
+    },
+    "response": {
+      "key": "visit-dalexio",
+      "version": 1,
+      "state": "REWARD_READY",
+      "verified_at": "2026-10-15T08:12:22.472Z"
+    },
+    "http_status": 200
+  },
+  "mission_claim": {
+    "request": {},
+    "response": {
+      "key": "visit-dalexio",
+      "version": 1,
+      "state": "CLAIMED",
+      "created": true,
+      "reward_amount": 120,
+      "claimed_at": "2026-10-15T08:12:22.502Z",
+      "canonical": {
+        "server_time": "2026-10-15T08:12:22.533Z",
+        "player_id": "9001",
+        "season_id": "phase4-s1",
+        "config_version": "api-config",
+        "receipt_cursor": 2,
+        "progression": {
+          "lifetime_points": 200,
+          "level": 1,
+          "current_threshold": 0,
+          "next_threshold": 300,
+          "points_into_level": 200,
+          "points_remaining": 100,
+          "dexo_stage": "newborn"
+        },
+        "season_points": 200
+      }
+    },
+    "http_status": 200
+  },
+  "mission_duplicate": {
+    "request": {},
+    "response": {
+      "key": "visit-dalexio",
+      "version": 1,
+      "state": "CLAIMED",
+      "created": false,
+      "reward_amount": 120,
+      "claimed_at": "2026-10-15T08:12:22.502Z",
+      "canonical": {
+        "server_time": "2026-10-15T08:12:22.574Z",
+        "player_id": "9001",
+        "season_id": "phase4-s1",
+        "config_version": "api-config",
+        "receipt_cursor": 2,
+        "progression": {
+          "lifetime_points": 200,
+          "level": 1,
+          "current_threshold": 0,
+          "next_threshold": 300,
+          "points_into_level": 200,
+          "points_remaining": 100,
+          "dexo_stage": "newborn"
+        },
+        "season_points": 200
+      }
+    },
+    "http_status": 200
+  },
+  "typing_state": {
+    "attempts_used": 0,
+    "attempts_remaining": 5,
+    "attempt_limit": 5,
+    "next_reset": "2026-10-16T00:00:00Z",
+    "claimable_balance": 0,
+    "best_wpm": 0,
+    "best_accuracy_bps": 0,
+    "active_attempt": null,
+    "active_attempt_detail": null
+  },
+  "typing_start": {
+    "request": {},
+    "response": {
+      "created": true,
+      "attempt_id": "c88f61eb-5e16-48bd-8987-738f80bbf44a",
+      "phrase_key": "api-phrase",
+      "phrase_version": 1,
+      "phrase_text": "Dexo typing arena phrase",
+      "started_at": "2026-10-15T08:12:22.628Z",
+      "expires_at": "2026-10-15T08:12:52.628Z",
+      "challenge_seconds": 30
+    },
+    "http_status": 200
+  },
+  "typing_resume": {
+    "attempts_used": 0,
+    "attempts_remaining": 5,
+    "attempt_limit": 5,
+    "next_reset": "2026-10-16T00:00:00Z",
+    "claimable_balance": 0,
+    "best_wpm": 0,
+    "best_accuracy_bps": 0,
+    "active_attempt": "c88f61eb-5e16-48bd-8987-738f80bbf44a",
+    "active_attempt_detail": {
+      "created": false,
+      "attempt_id": "c88f61eb-5e16-48bd-8987-738f80bbf44a",
+      "phrase_key": "api-phrase",
+      "phrase_version": 1,
+      "phrase_text": "Dexo typing arena phrase",
+      "started_at": "2026-10-15T08:12:22.628Z",
+      "expires_at": "2026-10-15T08:12:52.628Z",
+      "challenge_seconds": 30
+    }
+  },
+  "typing_submit": {
+    "request": {
+      "typed_text": "Dexo typing arena phrase"
+    },
+    "response": {
+      "created": true,
+      "attempt_id": "c88f61eb-5e16-48bd-8987-738f80bbf44a",
+      "status": "VALID",
+      "accuracy_bps": 10000,
+      "wpm": 57,
+      "reward_amount": 70,
+      "typing": {
+        "attempts_used": 1,
+        "attempts_remaining": 4,
+        "attempt_limit": 5,
+        "next_reset": "2026-10-16T00:00:00Z",
+        "claimable_balance": 70,
+        "best_wpm": 57,
+        "best_accuracy_bps": 10000,
+        "active_attempt": null,
+        "active_attempt_detail": null
+      }
+    },
+    "http_status": 200
+  },
+  "typing_duplicate_submit": {
+    "request": {
+      "typed_text": "different text cannot earn again"
+    },
+    "response": {
+      "created": false,
+      "attempt_id": "c88f61eb-5e16-48bd-8987-738f80bbf44a",
+      "status": "VALID",
+      "accuracy_bps": 10000,
+      "wpm": 57,
+      "reward_amount": 70,
+      "typing": {
+        "attempts_used": 1,
+        "attempts_remaining": 4,
+        "attempt_limit": 5,
+        "next_reset": "2026-10-16T00:00:00Z",
+        "claimable_balance": 70,
+        "best_wpm": 57,
+        "best_accuracy_bps": 10000,
+        "active_attempt": null,
+        "active_attempt_detail": null
+      }
+    },
+    "http_status": 200
+  },
+  "typing_claim": {
+    "request": {},
+    "response": {
+      "created": true,
+      "amount": 70,
+      "claimed_at": "2026-10-15T08:12:22.722Z",
+      "typing": {
+        "attempts_used": 1,
+        "attempts_remaining": 4,
+        "attempt_limit": 5,
+        "next_reset": "2026-10-16T00:00:00Z",
+        "claimable_balance": 0,
+        "best_wpm": 57,
+        "best_accuracy_bps": 10000,
+        "active_attempt": null,
+        "active_attempt_detail": null
+      },
+      "canonical": {
+        "server_time": "2026-10-15T08:12:22.756Z",
+        "player_id": "9001",
+        "season_id": "phase4-s1",
+        "config_version": "api-config",
+        "receipt_cursor": 3,
+        "progression": {
+          "lifetime_points": 270,
+          "level": 1,
+          "current_threshold": 0,
+          "next_threshold": 300,
+          "points_into_level": 270,
+          "points_remaining": 30,
+          "dexo_stage": "newborn"
+        },
+        "season_points": 270
+      }
+    },
+    "http_status": 200
+  },
+  "typing_duplicate_claim": {
+    "request": {},
+    "response": {
+      "created": false,
+      "amount": 70,
+      "claimed_at": "2026-10-15T08:12:22.722Z",
+      "typing": {
+        "attempts_used": 1,
+        "attempts_remaining": 4,
+        "attempt_limit": 5,
+        "next_reset": "2026-10-16T00:00:00Z",
+        "claimable_balance": 0,
+        "best_wpm": 57,
+        "best_accuracy_bps": 10000,
+        "active_attempt": null,
+        "active_attempt_detail": null
+      },
+      "canonical": {
+        "server_time": "2026-10-15T08:12:22.780Z",
+        "player_id": "9001",
+        "season_id": "phase4-s1",
+        "config_version": "api-config",
+        "receipt_cursor": 3,
+        "progression": {
+          "lifetime_points": 270,
+          "level": 1,
+          "current_threshold": 0,
+          "next_threshold": 300,
+          "points_into_level": 270,
+          "points_remaining": 30,
+          "dexo_stage": "newborn"
+        },
+        "season_points": 270
+      }
+    },
+    "http_status": 200
+  },
+  "referral": {
+    "code": "S9wRiiPhG4__SM86",
+    "link": "https://t.me/DexoFixtureBot?start=S9wRiiPhG4__SM86",
+    "pending_count": 0,
+    "verified_count": 0,
+    "current_tier": null,
+    "current_share_bps": 0,
+    "next_tier": {
+      "key": "BRONZE",
+      "min_verified_referrals": 1,
+      "share_bps": 300
+    },
+    "tiers": [
+      {
+        "key": "BRONZE",
+        "min_verified_referrals": 1,
+        "share_bps": 300
+      },
+      {
+        "key": "SILVER",
+        "min_verified_referrals": 5,
+        "share_bps": 500
+      },
+      {
+        "key": "GOLD",
+        "min_verified_referrals": 15,
+        "share_bps": 700
+      }
+    ],
+    "enabled": true,
+    "earned_points": 0,
+    "attribution_status": null,
+    "activation": null,
+    "inviter_bonus": 100,
+    "invitee_bonus": 50
+  },
+  "invitees_empty": {
+    "items": [],
+    "next_offset": null
+  },
+  "network_summary": {
+    "canonical": {
+      "server_time": "2026-10-15T08:12:22.821Z",
+      "player_id": "9001",
+      "season_id": "phase4-s1",
+      "config_version": "api-config",
+      "receipt_cursor": 3,
+      "progression": {
+        "lifetime_points": 270,
+        "level": 1,
+        "current_threshold": 0,
+        "next_threshold": 300,
+        "points_into_level": 270,
+        "points_remaining": 30,
+        "dexo_stage": "newborn"
+      },
+      "season_points": 270
+    },
+    "enabled": true,
+    "active_groups": 0,
+    "group_count": 0,
+    "max_active_groups": 3,
+    "can_register": true,
+    "speaker_rewards_enabled": false,
+    "earned_points": 0,
+    "settlement_window_seconds": 900
+  },
+  "network_groups_empty": {
+    "items": [],
+    "next_offset": null
+  },
+  "canonical_state": {
+    "server_time": "2026-10-15T08:12:22.852Z",
+    "player_id": "9001",
+    "season_id": "phase4-s1",
+    "config_version": "api-config",
+    "receipt_cursor": 3,
+    "progression": {
+      "lifetime_points": 270,
+      "level": 1,
+      "current_threshold": 0,
+      "next_threshold": 300,
+      "points_into_level": 270,
+      "points_remaining": 30,
+      "dexo_stage": "newborn"
+    },
+    "season_points": 270
+  },
+  "profile_overview": {
+    "canonical": {
+      "server_time": "2026-10-15T08:12:22.898Z",
+      "player_id": "9001",
+      "season_id": "phase4-s1",
+      "config_version": "api-config",
+      "receipt_cursor": 3,
+      "progression": {
+        "lifetime_points": 270,
+        "level": 1,
+        "current_threshold": 0,
+        "next_threshold": 300,
+        "points_into_level": 270,
+        "points_remaining": 30,
+        "dexo_stage": "newborn"
+      },
+      "season_points": 270
+    },
+    "identity": {
+      "first_name": "Phase4",
+      "last_name": "",
+      "username": "",
+      "photo_url": ""
+    },
+    "progression": {
+      "lifetime_points": 270,
+      "level": 1,
+      "current_threshold": 0,
+      "next_threshold": 300,
+      "points_into_level": 270,
+      "points_remaining": 30,
+      "dexo_stage": "newborn"
+    },
+    "journey": {
+      "claimed_missions": 1,
+      "current_daily_streak": 1,
+      "verified_referrals": 0
+    },
+    "customization": {
+      "active_frame": "standard",
+      "active_title": "explorer",
+      "featured_medal": null,
+      "featured_achievement": null
+    }
+  },
+  "bootstrap": {
+    "canonical": {
+      "server_time": "2026-10-15T08:12:22.916Z",
+      "player_id": "9001",
+      "season_id": "phase4-s1",
+      "config_version": "api-config",
+      "receipt_cursor": 3,
+      "progression": {
+        "lifetime_points": 270,
+        "level": 1,
+        "current_threshold": 0,
+        "next_threshold": 300,
+        "points_into_level": 270,
+        "points_remaining": 30,
+        "dexo_stage": "newborn"
+      },
+      "season_points": 270
+    },
+    "contract_version": "1.1",
+    "request_id": "b46f54608dd34b09b4794af43b4b7930",
+    "server_time": "2026-10-15T08:12:22.916Z",
+    "player": {
+      "id": "9001",
+      "telegram_user_id": 9001,
+      "first_name": "Phase4",
+      "last_name": "",
+      "username": "",
+      "language_code": "",
+      "photo_url": ""
+    },
+    "progression": {
+      "lifetime_points": 270,
+      "level": 1,
+      "current_threshold": 0,
+      "next_threshold": 300,
+      "points_into_level": 270,
+      "points_remaining": 30,
+      "dexo_stage": "newborn"
+    },
+    "season": {
+      "code": "phase4-s1",
+      "title": "Phase 4",
+      "status": "ACTIVE",
+      "starts_at": "2026-10-14T08:12:21.771Z",
+      "ends_at": "2026-11-28T08:12:21.771Z",
+      "season_points": 270
+    },
+    "config": {
+      "version": "api-config",
+      "effective_at": "2026-10-13T08:12:21.771Z",
+      "schema_version": 2,
+      "payload_checksum": "52720b6f4eaa86f9a5d7e595ec1a9646188bdcd2ab5d6ce50dcef6693e313248",
+      "progression": {
+        "levels": [
+          {
+            "level": 1,
+            "min_lifetime_points": 0
+          },
+          {
+            "level": 2,
+            "min_lifetime_points": 300
+          },
+          {
+            "level": 3,
+            "min_lifetime_points": 800
+          },
+          {
+            "level": 4,
+            "min_lifetime_points": 1500
+          },
+          {
+            "level": 5,
+            "min_lifetime_points": 2500
+          },
+          {
+            "level": 6,
+            "min_lifetime_points": 3800
+          },
+          {
+            "level": 7,
+            "min_lifetime_points": 5400
+          },
+          {
+            "level": 8,
+            "min_lifetime_points": 7300
+          },
+          {
+            "level": 9,
+            "min_lifetime_points": 9500
+          },
+          {
+            "level": 10,
+            "min_lifetime_points": 12000
+          },
+          {
+            "level": 11,
+            "min_lifetime_points": 14800
+          },
+          {
+            "level": 12,
+            "min_lifetime_points": 18000
+          },
+          {
+            "level": 13,
+            "min_lifetime_points": 21600
+          },
+          {
+            "level": 14,
+            "min_lifetime_points": 25600
+          },
+          {
+            "level": 15,
+            "min_lifetime_points": 30000
+          },
+          {
+            "level": 16,
+            "min_lifetime_points": 34900
+          },
+          {
+            "level": 17,
+            "min_lifetime_points": 40300
+          },
+          {
+            "level": 18,
+            "min_lifetime_points": 46200
+          },
+          {
+            "level": 19,
+            "min_lifetime_points": 52700
+          },
+          {
+            "level": 20,
+            "min_lifetime_points": 59800
+          },
+          {
+            "level": 21,
+            "min_lifetime_points": 67600
+          },
+          {
+            "level": 22,
+            "min_lifetime_points": 76200
+          },
+          {
+            "level": 23,
+            "min_lifetime_points": 85700
+          },
+          {
+            "level": 24,
+            "min_lifetime_points": 96200
+          },
+          {
+            "level": 25,
+            "min_lifetime_points": 108000
+          },
+          {
+            "level": 26,
+            "min_lifetime_points": 121500
+          },
+          {
+            "level": 27,
+            "min_lifetime_points": 137000
+          },
+          {
+            "level": 28,
+            "min_lifetime_points": 155000
+          },
+          {
+            "level": 29,
+            "min_lifetime_points": 176000
+          },
+          {
+            "level": 30,
+            "min_lifetime_points": 200000
+          }
+        ],
+        "dexo_stages": [
+          {
+            "key": "newborn",
+            "min_level": 1
+          },
+          {
+            "key": "explorer",
+            "min_level": 5
+          },
+          {
+            "key": "connector",
+            "min_level": 10
+          },
+          {
+            "key": "specialist",
+            "min_level": 15
+          },
+          {
+            "key": "vanguard",
+            "min_level": 20
+          },
+          {
+            "key": "legend",
+            "min_level": 30
+          }
+        ],
+        "clan_min_level": 5
+      }
+    },
+    "features": {
+      "season": true,
+      "daily": true,
+      "typing": true,
+      "missions": true,
+      "referral": true,
+      "network": true,
+      "base_tap": true,
+      "clan": false,
+      "profile": true,
+      "arena": true
+    },
+    "gameplay": {
+      "moderation_state": "ACTIVE",
+      "reward_earning_allowed": true
+    },
+    "daily": {
+      "claimable": false,
+      "streak": 1,
+      "cycle_day": 1,
+      "reward_amount": 80,
+      "next_reset": "2026-10-16T00:00:00Z"
+    },
+    "typing": {
+      "attempts_used": 1,
+      "attempts_remaining": 4,
+      "claimable_balance": 0
+    },
+    "missions": {
+      "available_count": 0,
+      "reward_ready_count": 0,
+      "unclaimed_count": 0
+    },
+    "referral": {
+      "status": null,
+      "verified_invites": 0
+    },
+    "network": {
+      "group_count": 0,
+      "active_group_count": 0
+    }
+  }
+}

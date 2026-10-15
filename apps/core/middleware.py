@@ -57,7 +57,19 @@ class RequestContextMiddleware:
     @staticmethod
     def _prepare_response(request: HttpRequest, response: HttpResponse, request_id: str) -> None:
         response["X-Request-ID"] = request_id
-        if request.path.startswith("/api/v1/base/v2/") or request.path.rstrip("/") in {
+        if request.path.startswith(
+            (
+                "/api/v1/daily",
+                "/api/v1/rewards/state",
+                "/api/v1/profile/overview",
+                "/api/v1/missions",
+                "/api/v1/typing",
+                "/api/v1/referrals",
+                "/api/v1/content/banners/",
+                "/api/v1/network",
+                "/api/v1/base/v2/",
+            )
+        ) or request.path.rstrip("/") in {
             "/api/v1/bootstrap",
             "/api/v1/auth/telegram",
         }:

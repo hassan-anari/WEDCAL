@@ -68,7 +68,16 @@ def _normalize_message(message: dict[str, Any]) -> NormalizedTelegramEvent | Non
         language_code=_string(sender.get("language_code")),
     )
     text = _string(message.get("text"))
-    if chat.get("type") == "private" and text:
+    if (
+        chat.get("type") == "private"
+        and text
+        and not sender.get("is_bot")
+        and type(chat.get("id")) is int
+        and chat["id"] == sender.get("id")
+        and not any(
+            message.get(k) for k in ("forward_origin", "forward_from", "sender_chat", "via_bot")
+        )
+    ):
         command, _, parameter = text.partition(" ")
         if command.split("@", 1)[0] == "/start":
             return BotStarted(profile, parameter.strip() or None, observed_at)
