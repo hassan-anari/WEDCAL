@@ -1,0 +1,25 @@
+{
+  "text": "🌌 <b>WELCOME TO DEXO LAND!</b> 🚀✨\n\nHey, Explorer! 👋\n\nA whole new universe is waiting for you! 🌍💫\n\nWelcome to <b>Dexo Land</b> — a world of adventure, evolution, challenges, and epic rewards!\n\nEvery great legend starts somewhere… and yours begins right here! ⚡\n\n🥚 <b>MEET YOUR DEXO!</b>\n\nYour journey begins with a little companion full of potential. Earn XP, level up, unlock new evolutions, and watch your Dexo grow from a tiny explorer into something LEGENDARY! 🌟\n\n🎮 <b>YOUR ADVENTURE AWAITS!</b>\n\n👆 Tap, interact, and power up your Dexo!\n\n🎯 Complete missions and daily challenges.\n\n⌨️ Put your skills to the test in the Typing Arena.\n\n🤝 Invite friends and grow your network.\n\n🏰 Join Clans, team up, and climb the rankings!\n\n🪙 <b>6 WEEKS. 6 DLX ALLOCATION ROUNDS. BIG OPPORTUNITIES!</b> 🎁\n\nEvery week brings a fresh <b>DLX allocation round</b>, giving eligible Explorers another opportunity to shine!\n\n🔥 Stay active. Complete challenges. Grow your community. Make every week count!\n\nYour qualifying performance throughout the season can help you compete for a share of the weekly DLX rewards.\n\nThe journey doesn't stop after one week — every new round is another chance to make your mark!\n\n💜 <b>ADVENTURES ARE BETTER TOGETHER!</b>\n\nJoin our official community, meet fellow Explorers, catch the latest announcements, and discover what's coming next!\n\nThe Dexo Land universe is just getting started… and YOU are part of its story!\n\n🚀 <b>READY TO AWAKEN YOUR DEXO?</b>\n\nYour adventure starts NOW!\n\n<b>LET'S GO, EXPLORER!</b> 🎮🔥\n\nDLX allocations depend on eligibility, are off-chain, and are not guaranteed earnings or an immediately withdrawable balance.",
+  "options": {
+    "parse_mode": "HTML",
+    "reply_markup": {
+      "inline_keyboard": [
+        [
+          {
+            "text": "🎮 Play Dexo Land",
+            "web_app": {
+              "url": "https://dalexio-game.vercel.app/"
+            }
+          },
+          {
+            "url": "https://t.me/Dalexio_Official",
+            "text": "💜 Join Community"
+          }
+        ]
+      ]
+    },
+    "link_preview_options": {
+      "is_disabled": true
+    }
+  }
+}

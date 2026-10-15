@@ -25,7 +25,11 @@ def request(method: str, parameters: dict[str, Any]) -> TelegramResult:
     token = settings.TELEGRAM_BOT_TOKEN
     if not token:
         return TelegramResult(False, category="configuration_error")
-    denial = reserve_bot_api_budget(method)
+    denial = reserve_bot_api_budget(
+        method,
+        fail_closed=method == "sendMessage",
+        chat_id=parameters.get("chat_id") if method == "sendMessage" else None,
+    )
     if denial is not None:
         return TelegramResult(False, category=denial.category, retry_after=denial.retry_after)
     req = urllib.request.Request(

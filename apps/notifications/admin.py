@@ -72,6 +72,10 @@ class BroadcastCampaignAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
         "created_by",
         "state",
         "materialization_cursor",
+        "group_materialization_cursor",
+        "estimated_users",
+        "estimated_groups",
+        "last_dispatch_at",
         "queued_at",
         "completed_at",
         "cancelled_at",
@@ -86,6 +90,10 @@ class BroadcastCampaignAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
             "created_by",
             "state",
             "materialization_cursor",
+            "group_materialization_cursor",
+            "estimated_users",
+            "estimated_groups",
+            "last_dispatch_at",
             "queued_at",
             "completed_at",
             "cancelled_at",
@@ -148,3 +156,40 @@ admin.site.register(Notification, ReadOnlyAdmin)
 admin.site.register(TelegramDelivery, ReadOnlyAdmin)
 admin.site.register(BroadcastRecipient, ReadOnlyAdmin)
 admin.site.register(OperatorAuditEvent, ReadOnlyAdmin)
+
+
+from apps.notifications.models import (  # noqa: E402
+    BotAdminOperator,
+    BotAdminSession,
+    GroupBroadcastConsentEvent,
+    GroupBroadcastSubscription,
+)
+
+
+@admin.register(BotAdminOperator)
+class BotAdminOperatorAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
+    list_display = ("telegram_user_id", "user", "enabled")
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return request.user.is_superuser
+
+    def has_change_permission(self, request: HttpRequest, obj: Any = None) -> bool:
+        return request.user.is_superuser
+
+    def has_delete_permission(self, request: HttpRequest, obj: Any = None) -> bool:
+        return False
+
+
+@admin.register(BotAdminSession)
+class BotAdminSessionAdmin(ReadOnlyAdmin):
+    list_display = ("operator", "step", "expires_at", "campaign")
+
+
+@admin.register(GroupBroadcastSubscription)
+class GroupBroadcastSubscriptionAdmin(ReadOnlyAdmin):
+    list_display = ("group", "enabled", "authorized_telegram_user_id", "consented_at", "revoked_at")
+
+
+@admin.register(GroupBroadcastConsentEvent)
+class GroupBroadcastConsentEventAdmin(ReadOnlyAdmin):
+    list_display = ("subscription", "actor_telegram_user_id", "enabled", "revision", "created_at")

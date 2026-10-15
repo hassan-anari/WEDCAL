@@ -93,7 +93,7 @@ def telegram_webhook(request: HttpRequest) -> Status[dict[str, Any]]:
     if not isinstance(body, dict):
         return Status(400, {"detail": "Malformed update"})
     try:
-        inbound, created = persist_inbound_update(body)
+        inbound, created = persist_inbound_update(body, authenticated=True)
     except InvalidWebhook:
         return Status(400, {"detail": "Invalid update"})
     if inbound.state in {

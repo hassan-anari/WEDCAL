@@ -1,0 +1,46 @@
+{
+  "auth_missing": {
+    "http_status": 401,
+    "response": {
+      "detail": "Telegram authentication is required",
+      "code": "AUTH_MISSING",
+      "request_id": "7498d2a8ae2e478492b39d0adf7083dc"
+    }
+  },
+  "mission_not_available": {
+    "http_status": 409,
+    "response": {
+      "code": "MISSION_UNAVAILABLE",
+      "detail": "mission unavailable",
+      "retryable": false,
+      "retry_after_seconds": null
+    }
+  },
+  "typing_key_required": {
+    "http_status": 422,
+    "response": {
+      "code": "IDEMPOTENCY_KEY_REQUIRED",
+      "detail": "idempotency key required",
+      "retryable": false,
+      "retry_after_seconds": null
+    }
+  },
+  "foreign_attempt": {
+    "http_status": 404,
+    "response": {
+      "code": "TYPING_ATTEMPT_NOT_FOUND",
+      "detail": "typing attempt not found",
+      "retryable": false,
+      "retry_after_seconds": null
+    }
+  },
+  "restricted_daily": {
+    "http_status": 403,
+    "response": {
+      "code": "PLAYER_RESTRICTED",
+      "detail": "player restricted",
+      "retryable": false,
+      "retry_after_seconds": null
+    }
+  }
+}

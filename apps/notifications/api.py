@@ -36,7 +36,11 @@ def list_notifications(
     player = getattr(request, "auth", None)
     assert isinstance(player, Player)
     limit = max(1, min(limit, 100))
-    query = Notification.objects.filter(recipient=player).order_by("-id")
+    query = (
+        Notification.objects.filter(recipient=player)
+        .exclude(event_key="BOT_PRIVATE")
+        .order_by("-id")
+    )
     if cursor is not None:
         query = query.filter(id__lt=cursor)
     rows = list(query[: limit + 1])

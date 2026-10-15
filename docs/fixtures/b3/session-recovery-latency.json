@@ -1,0 +1,38 @@
+{
+  "environment": "Local synthetic PostgreSQL + Redis, sequential service transactions; no WAN/WebView latency",
+  "samples_per_scenario": 20,
+  "passive_expiry_seconds": 120,
+  "cooldown_wait_seconds": 10,
+  "scenarios": {
+    "explicit_switch": {
+      "p50_ms": 43.747,
+      "p95_ms": 58.439,
+      "max_ms": 103.55
+    },
+    "release_and_regain": {
+      "p50_ms": 42.015,
+      "p95_ms": 53.261,
+      "max_ms": 64.205
+    },
+    "both_closed_new_client": {
+      "p50_ms": 26.625,
+      "p95_ms": 34.936,
+      "max_ms": 36.042
+    },
+    "both_closed_explicit_recovery": {
+      "p50_ms": 42.083,
+      "p95_ms": 57.267,
+      "max_ms": 62.512
+    },
+    "lost_response_replay": {
+      "p50_ms": 18.917,
+      "p95_ms": 26.401,
+      "max_ms": 34.101
+    },
+    "expired_lease_pending_batch": {
+      "p50_ms": 14.343,
+      "p95_ms": 22.479,
+      "max_ms": 35.427
+    }
+  }
+}

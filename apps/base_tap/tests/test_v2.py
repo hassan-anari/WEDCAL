@@ -149,7 +149,15 @@ def test_gap_replay_expiry_takeover_fencing_and_interrupted_burst(world: Any) ->
         submit_batch(player, batch(state, start=21, key="old"), at=AT)
     with error("LEASE_EXPIRED"):
         submit_batch(player, batch(taken, start=21, key="late"), at=AT + timedelta(seconds=120))
-    renewed = issue_lease(player, session=session, at=AT + timedelta(seconds=120))
+    with error("LEASE_REVOKED"):
+        issue_lease(player, session=session, at=AT + timedelta(seconds=120))
+    renewed = issue_lease(
+        player,
+        session=session,
+        at=AT + timedelta(seconds=120),
+        takeover=True,
+        expected_generation=taken["generation"],
+    )
     assert renewed["burst_remaining"] == 30 and renewed["lease"]["sequence_start"] == 21
 
 

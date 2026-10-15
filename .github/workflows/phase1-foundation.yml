@@ -36,6 +36,7 @@ jobs:
       - run: uv run mypy .
       - run: uv run python manage.py check
       - run: uv run python scripts/export_tap_v2_openapi.py --check
+      - run: uv run python scripts/export_b3_openapi.py --check
 
   test:
     name: test

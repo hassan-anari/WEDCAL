@@ -105,6 +105,7 @@ class TelegramDelivery(DeliveryFields):
         Notification, on_delete=models.PROTECT, related_name="telegram_delivery"
     )
     text_snapshot = models.TextField(max_length=4096, blank=True)
+    message_options = models.JSONField(default=dict)
 
 
 class BroadcastCampaign(models.Model):
@@ -118,6 +119,9 @@ class BroadcastCampaign(models.Model):
         FAILED = "FAILED", "Failed"
 
     class Audience(models.TextChoices):
+        USERS = "USERS", "Eligible private users"
+        GROUPS = "GROUPS", "Opted-in groups"
+        BOTH = "BOTH", "Users and groups"
         ALL = "ALL", "All players"
         TELEGRAM_REACHABLE = "TELEGRAM_REACHABLE", "Telegram reachable"
 
@@ -129,6 +133,10 @@ class BroadcastCampaign(models.Model):
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
     purpose = models.CharField(max_length=1000)
     materialization_cursor = models.PositiveBigIntegerField(default=0)
+    group_materialization_cursor = models.PositiveBigIntegerField(default=0)
+    estimated_users = models.PositiveBigIntegerField(default=0)
+    estimated_groups = models.PositiveBigIntegerField(default=0)
+    last_dispatch_at = models.DateTimeField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     queued_at = models.DateTimeField(null=True)
     completed_at = models.DateTimeField(null=True)
@@ -152,11 +160,85 @@ class BroadcastRecipient(DeliveryFields):
     campaign = models.ForeignKey(
         BroadcastCampaign, on_delete=models.PROTECT, related_name="recipients"
     )
-    player = models.ForeignKey("players.Player", on_delete=models.PROTECT)
+    player = models.ForeignKey("players.Player", on_delete=models.PROTECT, null=True, blank=True)
+    group_subscription = models.ForeignKey(
+        "GroupBroadcastSubscription", on_delete=models.PROTECT, null=True, blank=True
+    )
+    target_kind = models.CharField(
+        max_length=8, choices=[("USER", "User"), ("GROUP", "Group")], default="USER"
+    )
+    subscription_revision = models.PositiveBigIntegerField(null=True)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
                 fields=("campaign", "player"), name="broadcast_unique_recipient"
+            ),
+            models.UniqueConstraint(
+                fields=("campaign", "group_subscription"), name="broadcast_unique_group"
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        target_kind="USER", player__isnull=False, group_subscription__isnull=True
+                    )
+                    | models.Q(
+                        target_kind="GROUP", player__isnull=True, group_subscription__isnull=False
+                    )
+                ),
+                name="broadcast_exact_target",
+            ),
+        ]
+
+
+class GroupBroadcastSubscription(models.Model):
+    """Explicit consent, independent from Creator rewards and bot observation."""
+
+    group = models.OneToOneField("telegram.TelegramGroup", on_delete=models.PROTECT)
+    enabled = models.BooleanField(default=False)
+    authorized_telegram_user_id = models.BigIntegerField()
+    consented_at = models.DateTimeField(null=True)
+    verified_at = models.DateTimeField(null=True)
+    revoked_at = models.DateTimeField(null=True)
+    revision = models.PositiveBigIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class BotAdminOperator(models.Model):
+    telegram_user_id = models.BigIntegerField(unique=True)
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    enabled = models.BooleanField(default=False)
+
+
+class BotAdminSession(models.Model):
+    operator = models.OneToOneField(BotAdminOperator, on_delete=models.PROTECT)
+    step = models.CharField(max_length=20, default="MENU")
+    campaign = models.ForeignKey(BroadcastCampaign, on_delete=models.PROTECT, null=True)
+    expires_at = models.DateTimeField()
+    revision = models.PositiveBigIntegerField(default=0)
+    last_update_id = models.BigIntegerField(default=-1)
+
+
+class BotAdminInteraction(models.Model):
+    token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    session = models.ForeignKey(BotAdminSession, on_delete=models.PROTECT)
+    revision = models.PositiveBigIntegerField()
+    action = models.CharField(max_length=32)
+    expires_at = models.DateTimeField()
+    consumed_at = models.DateTimeField(null=True)
+
+
+class GroupBroadcastConsentEvent(models.Model):
+    subscription = models.ForeignKey(GroupBroadcastSubscription, on_delete=models.PROTECT)
+    actor_telegram_user_id = models.BigIntegerField()
+    enabled = models.BooleanField()
+    revision = models.PositiveBigIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("subscription", "revision"), name="group_consent_revision"
             )
         ]

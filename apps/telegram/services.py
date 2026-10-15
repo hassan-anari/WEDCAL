@@ -121,7 +121,9 @@ def verify_webhook_secret(supplied: str | None) -> None:
         raise InvalidWebhook("Invalid Telegram webhook credentials")
 
 
-def persist_inbound_update(payload: dict[str, Any]) -> tuple[TelegramInboundUpdate, bool]:
+def persist_inbound_update(
+    payload: dict[str, Any], *, authenticated: bool = False
+) -> tuple[TelegramInboundUpdate, bool]:
     update_id = payload.get("update_id")
     if isinstance(update_id, bool) or not isinstance(update_id, int) or update_id < 0:
         raise InvalidWebhook("Invalid Telegram update_id")
@@ -130,7 +132,11 @@ def persist_inbound_update(payload: dict[str, Any]) -> tuple[TelegramInboundUpda
         with transaction.atomic():
             inbound, created = TelegramInboundUpdate.objects.get_or_create(
                 update_id=update_id,
-                defaults={"payload": payload, "payload_expires_at": expires_at},
+                defaults={
+                    "payload": payload,
+                    "payload_expires_at": expires_at,
+                    "webhook_authenticated_at": timezone.now() if authenticated else None,
+                },
             )
     except IntegrityError:
         inbound = TelegramInboundUpdate.objects.get(update_id=update_id)
@@ -223,10 +229,13 @@ def _process_claimed_inbound(inbound_id: int, token: uuid.UUID) -> None:
     inbound = TelegramInboundUpdate.objects.select_for_update().get(pk=inbound_id)
     if inbound.state != TelegramInboundUpdate.State.PROCESSING or inbound.processing_token != token:
         return
-    event = normalize_update(inbound.payload)
+    from apps.notifications.bot_admin import handle_private_control
+
+    consumed = handle_private_control(inbound)
+    event = None if consumed else normalize_update(inbound.payload)
     inbound.state = (
         TelegramInboundUpdate.State.IGNORED
-        if event is None
+        if event is None and not consumed
         else TelegramInboundUpdate.State.PROCESSED
     )
     if event is not None:
@@ -404,6 +413,9 @@ def _apply_event(event: object, *, telegram_update_id: int) -> None:
         from apps.referrals.services import attribute_start
 
         attribute_start(resolution.player, event.parameter, at=event.observed_at)
+        from apps.telegram.welcome import queue_welcome
+
+        queue_welcome(resolution.player)
     elif isinstance(event, TelegramMessageObserved):
         _observe_message(event, telegram_update_id)
     elif isinstance(event, BotMembershipChanged):

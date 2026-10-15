@@ -8,21 +8,45 @@ from apps.arena.api import router as arena_router
 from apps.base_tap.api import router as base_tap_router
 from apps.base_tap.v2 import TapError
 from apps.clans.api import router as clans_router
+from apps.content.api import router as content_router
 from apps.core.api_errors import IntegrationError, IntegrationErrorOutput
+from apps.core.b3 import B3Error
 from apps.daily.api import router as daily_router
 from apps.game_config.services import GameConfigUnavailable
 from apps.missions.api import router as missions_router
 from apps.moderation.api import router as moderation_router
 from apps.network.api import router as network_router
 from apps.notifications.api import router as notifications_router
+from apps.players.models import Player
+from apps.players.services import reward_gameplay_allowed
 from apps.profile_collection.api import router as profile_router
 from apps.referrals.api import router as referrals_router
 from apps.rewards.api import bootstrap_router, rewards_router
+from apps.rewards.services import IdempotencyConflict, InvalidReward
 from apps.seasons.barrier import SeasonFinalizationEstablished
+from apps.seasons.services import NoActiveSeason, OutsideEconomicWindow, SeasonNotEligible
 from apps.telegram.api import auth_router, webhook_router
 from apps.typing_game.api import router as typing_router
 
 api = NinjaAPI(title="Dexo Land API", version="1.0.0", urls_namespace="api-v1")
+
+
+@api.exception_handler(B3Error)
+def b3_error(request: HttpRequest, exc: B3Error) -> HttpResponse:
+    response = api.create_response(
+        request,
+        {
+            "code": exc.code,
+            "detail": exc.code.replace("_", " ").lower(),
+            "retryable": exc.status in {429, 503},
+            "retry_after_seconds": exc.retry_after,
+        },
+        status=exc.status,
+    )
+    response["Cache-Control"] = "private, no-store"
+    if exc.retry_after:
+        response["Retry-After"] = str(exc.retry_after)
+    return response
 
 
 @api.exception_handler(TapError)
@@ -75,6 +99,30 @@ def integration_error(request: HttpRequest, exc: IntegrationError) -> HttpRespon
     return response
 
 
+@api.exception_handler(NoActiveSeason)
+@api.exception_handler(SeasonNotEligible)
+@api.exception_handler(OutsideEconomicWindow)
+def reward_season_unavailable(request: HttpRequest, exc: Exception) -> HttpResponse:
+    if request.path.startswith("/api/v1/base/v2/"):
+        return tap_error(request, TapError("SEASON_UNAVAILABLE"))
+    return b3_error(request, B3Error("SEASON_UNAVAILABLE"))
+
+
+@api.exception_handler(InvalidReward)
+def reward_unavailable(request: HttpRequest, exc: InvalidReward) -> HttpResponse:
+    player = getattr(request, "auth", None)
+    blocked = isinstance(player, Player) and not reward_gameplay_allowed(player)
+    return b3_error(
+        request,
+        B3Error("PLAYER_RESTRICTED" if blocked else "REWARD_UNAVAILABLE", 403 if blocked else 409),
+    )
+
+
+@api.exception_handler(IdempotencyConflict)
+def conflicting_reward(request: HttpRequest, exc: IdempotencyConflict) -> HttpResponse:
+    return b3_error(request, B3Error("IDEMPOTENCY_CONFLICT"))
+
+
 @api.exception_handler(GameConfigUnavailable)
 def configuration_unavailable(request: HttpRequest, exc: GameConfigUnavailable) -> HttpResponse:
     if request.path.startswith("/api/v1/base/v2/"):
@@ -93,6 +141,17 @@ def configuration_unavailable(request: HttpRequest, exc: GameConfigUnavailable) 
 def request_validation_error(request: HttpRequest, exc: ValidationError) -> HttpResponse:
     if request.path.startswith("/api/v1/base/v2/"):
         return tap_error(request, TapError("REQUEST_INVALID", 422))
+    if request.path.startswith(
+        (
+            "/api/v1/daily",
+            "/api/v1/missions",
+            "/api/v1/typing",
+            "/api/v1/network",
+            "/api/v1/referrals",
+            "/api/v1/content",
+        )
+    ):
+        return b3_error(request, B3Error("REQUEST_INVALID", 422))
     if request.path.rstrip("/") == "/api/v1/auth/telegram":
         # Do not echo credentials or Pydantic input values into client errors.
         return integration_error(
@@ -128,3 +187,5 @@ api.add_router("/clans", clans_router)
 api.add_router("/moderation", moderation_router)
 api.add_router("/arena", arena_router)
 api.add_router("/notifications", notifications_router)
+
+api.add_router("/content", content_router)

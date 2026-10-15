@@ -1,0 +1,51 @@
+{
+  "provenance": "Synthetic PostgreSQL test with mocked Telegram response",
+  "telegram_result": {
+    "ok": false,
+    "category": "rate_limited",
+    "retry_after": 17
+  },
+  "metrics": {
+    "state": "DRAFT",
+    "estimated_users": 0,
+    "estimated_groups": 0,
+    "users": {
+      "materialized": 1,
+      "pending": 0,
+      "processing": 0,
+      "retry_wait": 1,
+      "sent": 0,
+      "failed": 0,
+      "uncertain": 0,
+      "skipped": 0,
+      "oldest_pending_seconds": 0
+    },
+    "groups": {
+      "materialized": 1,
+      "pending": 0,
+      "processing": 0,
+      "retry_wait": 1,
+      "sent": 0,
+      "failed": 0,
+      "uncertain": 0,
+      "skipped": 0,
+      "oldest_pending_seconds": 0
+    }
+  },
+  "targets": [
+    {
+      "target_kind": "GROUP",
+      "state": "RETRY_WAIT",
+      "error_category": "rate_limited",
+      "attempt_count": 5,
+      "next_attempt_at": "2026-10-15 13:51:46.356984+00:00"
+    },
+    {
+      "target_kind": "USER",
+      "state": "RETRY_WAIT",
+      "error_category": "rate_limited",
+      "attempt_count": 5,
+      "next_attempt_at": "2026-10-15 13:52:04.509867+00:00"
+    }
+  ]
+}

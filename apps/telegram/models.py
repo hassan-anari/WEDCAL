@@ -2,6 +2,8 @@ from django.db import models
 
 
 class TelegramInboundUpdate(models.Model):
+    webhook_authenticated_at = models.DateTimeField(null=True, editable=False)
+
     class State(models.TextChoices):
         PENDING = "PENDING", "Pending"
         PROCESSED = "PROCESSED", "Processed"

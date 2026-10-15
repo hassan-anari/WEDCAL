@@ -97,7 +97,10 @@ def build_bootstrap(player: Player, now: datetime, *, request_id: str) -> dict[s
         and is_reward_earning_time(season, now)
         and reward_gameplay_allowed(player)
     )
+    from apps.core.b3 import canonical_state
+
     return {
+        "canonical": canonical_state(player, now),
         "contract_version": "1.1",
         "request_id": request_id,
         "server_time": now,

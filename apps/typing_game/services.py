@@ -8,6 +8,7 @@ import structlog
 from django.db import transaction
 from django.db.models import Max, Sum
 
+from apps.core.b3 import B3Error
 from apps.core.periods import resolve_daily_period
 from apps.game_config.models import GameConfigVersion
 from apps.game_config.services import resolve_effective_game_config
@@ -27,8 +28,9 @@ from apps.typing_game.models import (
 logger = structlog.get_logger(__name__)
 
 
-class TypingUnavailable(LookupError):
-    pass
+class TypingUnavailable(B3Error, LookupError):
+    def __init__(self, detail: str):
+        super().__init__("TYPING_UNAVAILABLE")
 
 
 class TypingQuotaExceeded(ValueError):
@@ -66,6 +68,8 @@ def start_attempt(player: Player, idempotency_key: str, at: datetime) -> tuple[T
 
         acquire_economic_write_barrier(season.pk)
         player = Player.objects.select_for_update().get(pk=player.pk)
+        if not reward_gameplay_allowed(player):
+            raise B3Error("PLAYER_RESTRICTED", 403)
         existing = TypingAttempt.objects.filter(
             player=player, start_idempotency_key=idempotency_key
         ).first()
@@ -405,7 +409,9 @@ def get_typing_state(player: Player, at: datetime) -> TypingState:
         resolved.typing.attempts_per_day,
         period.end,
         wallet.claimable_balance if wallet else 0,
-        attempts.filter(status=TypingAttempt.Status.STARTED).first(),
+        attempts.filter(status=TypingAttempt.Status.STARTED, expires_at__gt=at)
+        .select_related("phrase")
+        .first(),
         best["best_wpm"] or 0,
         best["best_accuracy"] or 0,
     )

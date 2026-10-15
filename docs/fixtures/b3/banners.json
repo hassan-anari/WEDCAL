@@ -1,0 +1,19 @@
+{
+  "active": {
+    "placement": "BASE",
+    "banner": {
+      "id": "141f2953-006c-4967-942c-95bdbc84f191",
+      "image_url": "https://assets.example.test/api/v1/content/banner-assets/10766756-2814-4061-be12-33a881745f9b/b63e5e296d1abf80e7de22b217c1f64ae9b013a3fdebcdf52c972749068a8815.webp",
+      "alt_text": "Dexo community",
+      "destination": "https://t.me/Dalexio_Official",
+      "destination_type": "TELEGRAM",
+      "width": 1200,
+      "height": 260,
+      "version": "b63e5e296d1abf80e7de22b217c1f64ae9b013a3fdebcdf52c972749068a8815"
+    }
+  },
+  "empty": {
+    "placement": "BASE",
+    "banner": null
+  }
+}

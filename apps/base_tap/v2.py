@@ -13,7 +13,12 @@ from django.db import connection, transaction
 from django.db.models import Max
 
 from apps.arena.models import PerformanceSourceFact
-from apps.base_tap.models import BaseTapDailyAccumulator, TapBurstState, TapLease
+from apps.base_tap.models import (
+    BaseTapDailyAccumulator,
+    TapBurstState,
+    TapGameplaySession,
+    TapLease,
+)
 from apps.base_tap.schemas import BatchInput
 from apps.game_config.services import (
     ResolvedGameConfig,
@@ -128,6 +133,33 @@ def _snapshot(
             "season_id": lease.season.code,
         }
     cursor = RewardLedger.objects.filter(player=player).aggregate(value=Max("pk"))["value"] or 0
+    active = (
+        TapLease.objects.filter(
+            player=player, generation=state.generation, revoked_at__isnull=True, expires_at__gt=at
+        ).first()
+        if state and same_season
+        else None
+    )
+    previous = (
+        (
+            TapGameplaySession.objects.filter(player=player, session_id=session).first()
+            or TapLease.objects.filter(player=player, session_id=session)
+            .order_by("-generation")
+            .first()
+        )
+        if session
+        else None
+    )
+    moved = bool(previous and state and previous.generation < state.generation)
+    ownership = (
+        "OWNED"
+        if lease
+        else "SESSION_MOVED"
+        if moved
+        else "ANOTHER_DEVICE"
+        if active
+        else "AVAILABLE"
+    )
     return {
         "contract_version": "2.0",
         "server_time": at,
@@ -157,6 +189,11 @@ def _snapshot(
             "levels": [asdict(x) for x in config.progression.levels],
             "dexo_stages": [asdict(x) for x in config.progression.dexo_stages],
             "clan_min_level": config.clan.min_level if config.clan else None,
+        },
+        "ownership": {
+            "status": ownership,
+            "active_until": active.expires_at if active else None,
+            "explicit_switch_required": moved or bool(active and not lease),
         },
     }
 
@@ -232,6 +269,15 @@ def issue_lease(
         active = TapLease.objects.filter(
             player=player, generation=state.generation, revoked_at__isnull=True, expires_at__gt=at
         ).first()
+        previous = (
+            TapGameplaySession.objects.filter(player=player, session_id=session).first()
+            or TapLease.objects.filter(player=player, session_id=session)
+            .order_by("-generation")
+            .first()
+        )
+        # A fenced device must never reclaim automatically, even after its successor expires.
+        if previous and previous.generation < state.generation and not takeover:
+            raise TapError("LEASE_REVOKED")
         if active and state.season_id == season.pk and state.remaining:
             if active.session_id == session:
                 return _snapshot(player, config, season, state, at, session)
@@ -287,10 +333,42 @@ def issue_lease(
             expires_at=expires,
             delete_after=expires + timedelta(days=bound.base_tap.receipt_retention_days),
         )
+        TapGameplaySession.objects.update_or_create(
+            player=player, session_id=session, defaults={"generation": state.generation}
+        )
         logger.info(
             "tap_lease_issued", player_id=player.pk, generation=state.generation, takeover=takeover
         )
         return _snapshot(player, config, season, state, at, session)
+
+
+def release_lease(
+    player: Player, *, lease_id: UUID, session: UUID, generation: int, at: datetime
+) -> dict[str, Any]:
+    """Best effort only. An old beacon cannot release a newer authorization."""
+    throttle(player, session, at)
+    with transaction.atomic():
+        player = Player.objects.select_for_update().get(pk=player.pk)
+        state = TapBurstState.objects.filter(player=player).first()
+        if state and state.generation == generation:
+            updated = TapLease.objects.filter(
+                pk=lease_id,
+                player=player,
+                session_id=session,
+                generation=generation,
+                revoked_at__isnull=True,
+            ).update(revoked_at=at)
+            if updated:
+                state.revision += 1
+                state.save(update_fields=("revision", "updated_at"))
+        return _snapshot(
+            player,
+            resolve_effective_game_config(at),
+            resolve_current_season(at=at, required=False),
+            state,
+            at,
+            session,
+        )
 
 
 def _request_identity(payload: BatchInput) -> dict[str, Any]:
@@ -476,5 +554,21 @@ def purge_expired_leases(*, at: datetime, limit: int = 1000) -> int:
         .order_by("delete_after")
         .values_list("pk", flat=True)[:limit]
     )
+    # Lease retention must not erase the fact that a device was fenced. Monotonic
+    # conditional updates cannot regress an identity while a new lease is issued.
+    histories = (
+        TapLease.objects.filter(pk__in=ids)
+        .values("player_id", "session_id")
+        .annotate(latest_generation=Max("generation"))
+    )
+    for history in histories:
+        marker, _ = TapGameplaySession.objects.get_or_create(
+            player_id=history["player_id"],
+            session_id=history["session_id"],
+            defaults={"generation": history["latest_generation"]},
+        )
+        TapGameplaySession.objects.filter(
+            pk=marker.pk, generation__lt=history["latest_generation"]
+        ).update(generation=history["latest_generation"])
     deleted, _ = TapLease.objects.filter(pk__in=ids).delete()
     return deleted

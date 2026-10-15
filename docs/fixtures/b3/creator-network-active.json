@@ -1,0 +1,20 @@
+{
+  "items": [
+    {
+      "public_id": "ce4b73ec-bd09-42e8-ae91-e8e934fbc5c4",
+      "title": "Synthetic fixture community",
+      "state": "ACTIVE",
+      "bot_admin": true,
+      "broadcast_opted_in": false,
+      "creator_verified_at": "2026-01-02 01:00:00+00:00",
+      "bot_verified_at": "2026-01-02 01:00:00+00:00",
+      "next_verification_at": "2026-10-15 08:12:25.766105+00:00",
+      "verification_retrying": false,
+      "earned_points": 1,
+      "qualified_characters": 600,
+      "unique_speakers": 3,
+      "last_activity_at": "2026-01-02 01:00:01+00:00"
+    }
+  ],
+  "next_offset": null
+}
