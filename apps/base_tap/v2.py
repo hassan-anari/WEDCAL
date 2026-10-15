@@ -128,6 +128,28 @@ def _snapshot(
             "season_id": lease.season.code,
         }
     cursor = RewardLedger.objects.filter(player=player).aggregate(value=Max("pk"))["value"] or 0
+    active = (
+        TapLease.objects.filter(
+            player=player, generation=state.generation, revoked_at__isnull=True, expires_at__gt=at
+        ).first()
+        if state and same_season
+        else None
+    )
+    previous = (
+        TapLease.objects.filter(player=player, session_id=session).order_by("-generation").first()
+        if session
+        else None
+    )
+    moved = bool(previous and state and previous.generation < state.generation)
+    ownership = (
+        "OWNED"
+        if lease
+        else "SESSION_MOVED"
+        if moved
+        else "ANOTHER_DEVICE"
+        if active
+        else "AVAILABLE"
+    )
     return {
         "contract_version": "2.0",
         "server_time": at,
@@ -157,6 +179,11 @@ def _snapshot(
             "levels": [asdict(x) for x in config.progression.levels],
             "dexo_stages": [asdict(x) for x in config.progression.dexo_stages],
             "clan_min_level": config.clan.min_level if config.clan else None,
+        },
+        "ownership": {
+            "status": ownership,
+            "active_until": active.expires_at if active else None,
+            "explicit_switch_required": moved or bool(active and not lease),
         },
     }
 
@@ -232,6 +259,14 @@ def issue_lease(
         active = TapLease.objects.filter(
             player=player, generation=state.generation, revoked_at__isnull=True, expires_at__gt=at
         ).first()
+        previous = (
+            TapLease.objects.filter(player=player, session_id=session)
+            .order_by("-generation")
+            .first()
+        )
+        # A fenced device must never reclaim automatically, even after its successor expires.
+        if previous and previous.generation < state.generation and not takeover:
+            raise TapError("LEASE_REVOKED")
         if active and state.season_id == season.pk and state.remaining:
             if active.session_id == session:
                 return _snapshot(player, config, season, state, at, session)
@@ -291,6 +326,35 @@ def issue_lease(
             "tap_lease_issued", player_id=player.pk, generation=state.generation, takeover=takeover
         )
         return _snapshot(player, config, season, state, at, session)
+
+
+def release_lease(
+    player: Player, *, lease_id: UUID, session: UUID, generation: int, at: datetime
+) -> dict[str, Any]:
+    """Best effort only. An old beacon cannot release a newer authorization."""
+    throttle(player, session, at)
+    with transaction.atomic():
+        player = Player.objects.select_for_update().get(pk=player.pk)
+        state = TapBurstState.objects.filter(player=player).first()
+        if state and state.generation == generation:
+            updated = TapLease.objects.filter(
+                pk=lease_id,
+                player=player,
+                session_id=session,
+                generation=generation,
+                revoked_at__isnull=True,
+            ).update(revoked_at=at)
+            if updated:
+                state.revision += 1
+                state.save(update_fields=("revision", "updated_at"))
+        return _snapshot(
+            player,
+            resolve_effective_game_config(at),
+            resolve_current_season(at=at, required=False),
+            state,
+            at,
+            session,
+        )
 
 
 def _request_identity(payload: BatchInput) -> dict[str, Any]:

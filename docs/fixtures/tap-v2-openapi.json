@@ -247,6 +247,103 @@
         ]
       }
     },
+    "/api/v1/base/v2/tap-release": {
+      "post": {
+        "operationId": "apps_base_tap_api_tap_release",
+        "summary": "Tap Release",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapStateOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapErrorOutput"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapErrorOutput"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapErrorOutput"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapErrorOutput"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapErrorOutput"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapErrorOutput"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "base"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "MiniAppAuth": []
+          }
+        ]
+      }
+    },
     "/api/v1/base/v2/tap-batches": {
       "post": {
         "operationId": "apps_base_tap_api_tap_batch",
@@ -576,6 +673,43 @@
         "title": "LeaseOutput",
         "type": "object"
       },
+      "SessionOwnership": {
+        "properties": {
+          "status": {
+            "enum": [
+              "AVAILABLE",
+              "OWNED",
+              "ANOTHER_DEVICE",
+              "SESSION_MOVED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "active_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Until"
+          },
+          "explicit_switch_required": {
+            "title": "Explicit Switch Required",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "status",
+          "active_until",
+          "explicit_switch_required"
+        ],
+        "title": "SessionOwnership",
+        "type": "object"
+      },
       "TapStateOutput": {
         "properties": {
           "contract_version": {
@@ -663,6 +797,9 @@
           },
           "progression_policy": {
             "$ref": "#/components/schemas/BootstrapProgressionPolicy"
+          },
+          "ownership": {
+            "$ref": "#/components/schemas/SessionOwnership"
           }
         },
         "required": [
@@ -680,7 +817,8 @@
           "lease",
           "progression",
           "season_points",
-          "progression_policy"
+          "progression_policy",
+          "ownership"
         ],
         "title": "TapStateOutput",
         "type": "object"
@@ -787,6 +925,33 @@
           "session_id"
         ],
         "title": "LeaseInput",
+        "type": "object"
+      },
+      "ReleaseInput": {
+        "additionalProperties": false,
+        "properties": {
+          "lease_id": {
+            "format": "uuid",
+            "title": "Lease Id",
+            "type": "string"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "generation": {
+            "minimum": 1,
+            "title": "Generation",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "lease_id",
+          "session_id",
+          "generation"
+        ],
+        "title": "ReleaseInput",
         "type": "object"
       },
       "BatchOutput": {

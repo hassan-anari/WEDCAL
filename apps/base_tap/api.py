@@ -12,6 +12,7 @@ from apps.base_tap.schemas import (
     BatchInput,
     BatchOutput,
     LeaseInput,
+    ReleaseInput,
     TapErrorOutput,
     TapStateOutput,
 )
@@ -83,6 +84,17 @@ def tap_lease(request: HttpRequest, payload: LeaseInput) -> Any:
         at=timezone.now(),
         takeover=payload.takeover,
         expected_generation=payload.expected_generation,
+    )
+
+
+@router.post("/v2/tap-release", response=V2_RESPONSES)
+def tap_release(request: HttpRequest, payload: ReleaseInput) -> Any:
+    return v2.release_lease(
+        authenticated_player(request),
+        lease_id=payload.lease_id,
+        session=payload.session_id,
+        generation=payload.generation,
+        at=timezone.now(),
     )
 
 

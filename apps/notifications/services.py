@@ -1,4 +1,5 @@
 # mypy: disable-error-code="return-value,union-attr,operator"
+import random
 import uuid
 from datetime import timedelta
 from typing import Any
@@ -222,14 +223,15 @@ def _deliver(row: Delivery, text: str) -> None:
             locked.state, locked.sent_at, locked.completed_at = DeliveryState.SENT, now, now
             message_id = (result.result or {}).get("message_id")
             locked.telegram_message_id = message_id if type(message_id) is int else None
-        elif (
-            result.category == "rate_limited"
-            and result.retry_after is not None
-            and locked.attempt_count < settings.NOTIFICATION_MAX_ATTEMPTS
-        ):
+        elif result.category in {"local_rate_limited", "rate_limited", "budget_unavailable"}:
+            # Admission refusal never dispatched a message and is not a delivery failure.
             locked.state = DeliveryState.RETRY_WAIT
-            locked.next_attempt_at = now + timedelta(seconds=result.retry_after)
-            locked.error_category = "rate_limited"
+            delay = result.retry_after or settings.TELEGRAM_API_DEFAULT_RETRY_SECONDS
+            locked.next_attempt_at = now + timedelta(
+                seconds=delay + random.uniform(0, settings.TELEGRAM_API_RETRY_JITTER_SECONDS)
+            )
+            locked.error_category = result.category
+            locked.attempt_count = max(0, locked.attempt_count - 1)
         elif result.ambiguous:
             locked.state, locked.completed_at = DeliveryState.UNCERTAIN, now
             locked.error_category = result.category or "ambiguous"

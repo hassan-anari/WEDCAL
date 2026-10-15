@@ -41,6 +41,19 @@ class LeaseOutput(Schema):
     season_id: str
 
 
+class SessionOwnership(Schema):
+    status: Literal["AVAILABLE", "OWNED", "ANOTHER_DEVICE", "SESSION_MOVED"]
+    active_until: datetime | None
+    explicit_switch_required: bool
+
+
+class ReleaseInput(Schema):
+    model_config = ConfigDict(extra="forbid")
+    lease_id: UUID
+    session_id: UUID
+    generation: int = Field(ge=1, strict=True)
+
+
 class TapStateOutput(Schema):
     contract_version: Literal["2.0"] = "2.0"
     server_time: datetime
@@ -58,6 +71,7 @@ class TapStateOutput(Schema):
     progression: BootstrapProgression
     season_points: int
     progression_policy: BootstrapProgressionPolicy
+    ownership: SessionOwnership
 
 
 class TapReceiptOutput(Schema):
