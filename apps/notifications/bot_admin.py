@@ -150,6 +150,8 @@ def handle_private_control(inbound: TelegramInboundUpdate) -> bool:
     callback = payload.get("callback_query")
     raw_message = payload.get("message", {})
     command = str(raw_message.get("text", "")).split(" ", 1)[0].split("@", 1)[0]
+    if command == "/start" and not isinstance(callback, dict):
+        return False  # Preserve welcome/referral routing even while an operator composes a draft.
     is_control = command in {"/admin", "/cancel"} or isinstance(callback, dict)
     identity = _identity(payload)
     if identity is None or inbound.webhook_authenticated_at is None:
@@ -174,7 +176,12 @@ def handle_private_control(inbound: TelegramInboundUpdate) -> bool:
         session is None or session.step != "COMPOSE" or session.expires_at <= now
     ):
         return False
-    if session and inbound.update_id <= session.last_update_id:
+    if (
+        session
+        and session.expires_at > now
+        and command != "/admin"
+        and inbound.update_id <= session.last_update_id
+    ):
         return True
     if command == "/admin":
         if session is None:

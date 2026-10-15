@@ -131,6 +131,20 @@ def test_user_and_group_temporary_throttling_never_permanently_fails(
     deliver_broadcasts()
     assert row.recipients.filter(state=DeliveryState.RETRY_WAIT).count() == 2
     assert not row.recipients.filter(next_attempt_at__lt=before + timedelta(seconds=17)).exists()
+    if os.getenv("B3_EXPORT_FIXTURES"):
+        report = {
+            "provenance": "Synthetic PostgreSQL test with mocked Telegram response",
+            "telegram_result": {"ok": False, "category": category, "retry_after": 17},
+            "metrics": audience_metrics(row),
+            "targets": list(
+                row.recipients.values(
+                    "target_kind", "state", "error_category", "attempt_count", "next_attempt_at"
+                )
+            ),
+        }
+        Path(f"docs/fixtures/b3/broadcast-retry-{category}.json").write_text(
+            json.dumps(report, default=str, indent=2) + "\n"
+        )
 
 
 def test_group_loses_send_permission_and_reconsent_does_not_revive_old_target(
@@ -166,6 +180,11 @@ def test_cancel_and_expired_dispatch_lease_do_not_resend(audience_world):
     assert row.recipients.filter(state=DeliveryState.UNCERTAIN).count() == 1
     assert row.recipients.filter(state=DeliveryState.SKIPPED).count() == 1
     assert deliver_broadcasts() == 0
+    if os.getenv("B3_EXPORT_FIXTURES"):
+        row.refresh_from_db()
+        Path("docs/fixtures/b3/broadcast-cancel-uncertain.json").write_text(
+            json.dumps(audience_metrics(row), indent=2) + "\n"
+        )
 
 
 def test_parallel_materializers_never_duplicate_targets(audience_world):
@@ -184,3 +203,48 @@ def test_parallel_materializers_never_duplicate_targets(audience_world):
     with ThreadPoolExecutor(max_workers=2) as pool:
         list(pool.map(run, range(2)))
     assert row.recipients.count() == 2
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "non_admin",
+        "wrong_identity",
+        "bot_left",
+        "not_a_group",
+        "no_send_permission",
+        "telegram_error",
+    ],
+)
+def test_group_opt_in_requires_real_authority_and_send_permission(
+    audience_world, monkeypatch, defect
+):
+    from django.core.exceptions import ValidationError
+
+    actor, p, group = audience_world
+
+    def member(chat, user):
+        if defect == "telegram_error":
+            return TelegramResult(False, category="rate_limited", retry_after=3)
+        status = "administrator"
+        returned = user
+        if defect == "non_admin" and user == p.telegram_user_id:
+            status = "member"
+        if defect == "wrong_identity" and user == p.telegram_user_id:
+            returned = user + 1
+        if defect == "bot_left" and user == 999:
+            status = "left"
+        if defect == "no_send_permission" and user == 999:
+            status = "member"
+        return TelegramResult(True, {"status": status, "user": {"id": returned}})
+
+    monkeypatch.setattr("apps.telegram.bot_api.get_chat_member", member)
+    monkeypatch.setattr(
+        "apps.telegram.bot_api.request",
+        lambda *_: TelegramResult(True, {"permissions": {"can_send_messages": False}}),
+    )
+    if defect == "not_a_group":
+        group.telegram_chat_id = 100
+    with pytest.raises(ValidationError):
+        set_group_consent(group, p.telegram_user_id, enabled=True)
+    assert not GroupBroadcastSubscription.objects.exists()

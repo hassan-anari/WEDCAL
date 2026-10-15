@@ -1,7 +1,11 @@
 # B3 backend handoff
 
 Draft PR: https://github.com/hassan-anari/WEDCAL/pull/28.
-Branch: `ai/b3-backend-integration`, targeting `main`. Final immutable SHA and exact-head CI evidence
+Branch: `ai/b3-backend-integration`, targeting `main`.
+Paired frontend: https://github.com/hassan-anari/FROCAL/pull/4, `ai/b3-frontend-integration`,
+inspected head `0edabe530ab0e373ef61ea29b1e2b9b07f7e2be8`. Its description still pins the initial
+incremental backend contract `b443eee`; FROCAL must repin to the final backend SHA and current
+implemented schemas/fixtures before completing B3. Final immutable SHA and exact-head CI evidence
 will be recorded in the PR and `docs/evidence/B3_VALIDATION.md`; never infer acceptance from this
 handoff alone. No merge, deployment, production mutation/reset, B3 activation or live mass send.
 
@@ -19,7 +23,8 @@ Read [B3_BACKEND_CONTRACT.md](B3_BACKEND_CONTRACT.md) and
 [the security matrix](B3_BOT_ADMIN_SECURITY.md). All listed APIs are implemented, not speculative.
 Exact schema: `docs/fixtures/b3/openapi.json`. Synthetic response fixtures: `earn-network.json`,
 `creator-network-active.json`, `errors.json`, `banners.json`, `session-switch.json`,
-`session-recovery-latency.json`, `start-welcome.json`, `broadcast-audiences.json`.
+`session-recovery-latency.json`, `start-welcome.json`, `broadcast-audiences.json`,
+`broadcast-retry-*.json` and `broadcast-cancel-uncertain.json`.
 
 Inventory by domain:
 

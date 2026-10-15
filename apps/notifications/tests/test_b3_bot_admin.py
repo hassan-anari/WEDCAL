@@ -196,6 +196,15 @@ def test_private_start_deduplication_welcome_html_and_keyboard(settings):
     assert Player.objects.count() == 1 and TelegramDelivery.objects.count() == 1
     delivery = TelegramDelivery.objects.get()
     assert delivery.text_snapshot == WELCOME and len(WELCOME) < 4096
+    from django.test import RequestFactory
+
+    from apps.notifications.api import list_notifications
+
+    request = RequestFactory().get("/api/v1/notifications")
+    request.auth = Player.objects.get()  # type: ignore[attr-defined]
+    assert list_notifications(request).items == []
+    assert delivery.notification.read_at is not None
+
     assert delivery.message_options["parse_mode"] == "HTML"
     options: dict = keyboard()  # type: ignore[type-arg]
     buttons = options["inline_keyboard"][0]
@@ -260,3 +269,27 @@ def test_webhook_secret_is_required_before_persisted_admin_callback(
     assert inbound.webhook_authenticated_at is not None
     process_inbound_update(inbound.pk)
     assert BotAdminSession.objects.count() == 1
+
+
+def test_start_is_not_swallowed_by_admin_composition(operator, settings):
+    settings.B3_BOT_WELCOME_ENABLED = True
+    process(message())
+    process(callback(2, token("compose")))
+    process(message(3, text="/start"))
+    assert BroadcastCampaign.objects.get().body_snapshot == ""
+    assert (
+        TelegramDelivery.objects.filter(
+            notification__idempotency_key__startswith="bot-welcome:"
+        ).count()
+        == 1
+    )
+    assert BotAdminSession.objects.get().step == "COMPOSE"
+
+
+def test_expired_admin_session_recovers_after_telegram_update_sequence_restart(operator):
+    process(message(100))
+    BotAdminSession.objects.update(expires_at=timezone.now() - timedelta(seconds=1))
+    process(message(1))
+    session = BotAdminSession.objects.get()
+    assert session.step == "MENU" and session.last_update_id == 1
+    assert session.expires_at > timezone.now()

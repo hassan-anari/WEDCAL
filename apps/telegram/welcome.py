@@ -5,6 +5,7 @@ from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 from apps.notifications.models import Notification, TelegramDelivery
 from apps.players.models import Player
@@ -88,6 +89,7 @@ def queue_private_message(
             "source_type": "PRIVATE_CONTROL",
             "source_id": key,
             "body": "",
+            "read_at": timezone.now(),
         },
     )
     delivery, _ = TelegramDelivery.objects.get_or_create(

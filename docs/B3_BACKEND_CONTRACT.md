@@ -195,7 +195,11 @@ FROCAL `integrations/api/tapV2.ts:118` always sends `takeover:false`; it exposes
 retries ACTIVE_SESSION as reauthorization/paused; generic presentation does not distinguish this
 from connectivity. Thus closing/switching can leave the backend's 120-second owner active while
 other clients repeatedly try ordinary acquisition. B2 then permitted previously fenced sessions
-to reacquire after expiry, creating the possibility of repeated ownership changes. B3 removes
+to reacquire after expiry, creating the possibility of repeated ownership changes. In addition,
+`tapV2/controller.ts` returns terminal before fetching state when a persisted journal contains a
+blocked batch; restarting the controller alone reads the same journal again. FROCAL recovery must
+reconcile those original requests/receipts and archive definitive rejection evidence explicitly,
+without deleting unresolved economic evidence. B3 removes
 that automatic reclaim and publishes the explicit recovery contract.
 These source-level failures are reproduced by paired PostgreSQL tests. The exact owner's live
 phone/desktop sequence cannot be reconstructed without its incident logs/device trace; no such
@@ -253,7 +257,8 @@ Workflow: menu → compose/edit plain text → Users/Groups/Both → exact outgo
 estimates → explicit one-use confirmation → progress/refresh/cancel. Sessions expire after configured
 900 seconds and retain durable drafts across restart. `/admin` recovers the menu; safe abandon never
 queues. Cancel skips pending/retry targets; already dispatched/uncertain messages are never resent.
-Callback acknowledgements also use the durable shared delivery path. The panel exposes no rewards,
+Callback acknowledgements also use the durable shared delivery path. Private bot delivery records
+are marked read and excluded from the in-app feed; they do not create blank game notifications. The panel exposes no rewards,
 wallet, SQL or general database administration.
 
 Users are eligible private contacts. Groups need explicit consent independent of Creator connection,
@@ -262,7 +267,8 @@ revision. No fake Player represents a group. Existing BroadcastCampaign/Recipien
 services perform bounded restart-safe user/group materialization, independent estimates/counts,
 round-robin campaign admission and bounded user/group shares within a batch. Progress includes
 materialized/sent/retry_wait/failed/uncertain/skipped and oldest pending age per audience.
-[Audience fixture](fixtures/b3/broadcast-audiences.json).
+[Audience fixture](fixtures/b3/broadcast-audiences.json). Explicit local/Telegram/budget retry and
+cancellation/uncertain fixtures are indexed in [the fixture README](fixtures/b3/README.md).
 
 All Bot API calls share global/method budgets and 429 pause. Sending additionally uses a conservative
 10 RPS sub-budget and per-chat spacing (private 1s; group 3s), leaving capacity for verification,
