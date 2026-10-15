@@ -27,7 +27,8 @@ Inventory by domain:
   read metadata and stable B3 error/schema helpers.
 - `apps/daily`, `missions`, `typing_game`, `referrals`, `network`: typed request/read/claim
   contracts, API completion and regression fixes; existing settlement primitives retained.
-- `apps/base_tap`: ownership read state, safe release, explicit-recovery semantics and paired tests.
+- `apps/base_tap`: ownership read state, safe release, durable fencing history surviving lease cleanup, explicit-recovery semantics and paired tests.
+- `apps/players/avatars.py`: octet-stream MIME admission hotfix parity; existing decoding, bounds, SSRF controls and JPEG sanitization retained.
 - `apps/content`: banner models/admin/storage/validation/read API and storage-fake tests.
 - `apps/telegram`: authenticated ingress provenance, private welcome, stricter start normalization,
   shared sending/per-chat budgets and private callback ingress dispatch.
@@ -40,7 +41,9 @@ New forward migrations:
 1. `content/0001_initial`: independent banner asset/content tables, schedule constraint/index.
 2. `telegram/0008_telegraminboundupdate_webhook_authenticated_at`: nullable provenance column;
    historical ingress is preserved, never retroactively authenticated for admin.
-3. `notifications/0003_broadcastcampaign_estimated_groups_and_more`: audience/cursor/metrics,
+3. `base_tap/0003_tapgameplaysession`: durable player/session generation markers; lease cleanup
+   preserves fencing history with monotonic updates. No existing economic row is rewritten.
+4. `notifications/0003_broadcastcampaign_estimated_groups_and_more`: audience/cursor/metrics,
    message options, nullable player + real group target with exactly-one-target check and
    campaign-group uniqueness, private operator/session/one-use interaction state, consent history.
 
@@ -122,3 +125,14 @@ outbound Telegram call is reported as live delivery proof. No physical-device tr
 incident logs were available to reconstruct the owner's precise live lockout sequence; source-level
 recovery defects and paired server transitions are reproduced. Independent review must inspect the
 actual diff and required checks, then STOP awaiting owner review. No next batch is authorized.
+
+
+## Owner-requested avatar cache hotfix parity
+
+The owner reports the live Telegram → Backblaze B2 → API → Mini App path already passed and that
+some real Telegram JPEGs use `application/octet-stream`. B3 commits that narrow MIME allowlist
+addition in `apps/players/avatars.py`. Real bytes still pass Pillow format/pixel validation and
+JPEG re-encoding; response-size/time/path/IP/redirect protections are unchanged. Regression cases
+exercise valid octet-stream JPEG, invalid bytes, HTML labelled octet-stream, explicit HTML MIME,
+and existing JPEG/PNG/WebP, including metadata stripping and thumbnail bounds. No new avatar
+architecture, credentials, storage configuration, deployment or live read/write was performed.

@@ -116,3 +116,18 @@ class TapLease(models.Model):
         constraints = [
             models.UniqueConstraint(fields=("player", "generation"), name="tap_lease_generation")
         ]
+
+
+class TapGameplaySession(models.Model):
+    """Fencing history outlives disposable lease metadata and client restarts."""
+
+    player = models.ForeignKey("players.Player", on_delete=models.PROTECT)
+    session_id = models.UUIDField()
+    generation = models.PositiveBigIntegerField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("player", "session_id"), name="tap_gameplay_session_identity"
+            )
+        ]

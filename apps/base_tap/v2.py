@@ -13,7 +13,12 @@ from django.db import connection, transaction
 from django.db.models import Max
 
 from apps.arena.models import PerformanceSourceFact
-from apps.base_tap.models import BaseTapDailyAccumulator, TapBurstState, TapLease
+from apps.base_tap.models import (
+    BaseTapDailyAccumulator,
+    TapBurstState,
+    TapGameplaySession,
+    TapLease,
+)
 from apps.base_tap.schemas import BatchInput
 from apps.game_config.services import (
     ResolvedGameConfig,
@@ -136,7 +141,12 @@ def _snapshot(
         else None
     )
     previous = (
-        TapLease.objects.filter(player=player, session_id=session).order_by("-generation").first()
+        (
+            TapGameplaySession.objects.filter(player=player, session_id=session).first()
+            or TapLease.objects.filter(player=player, session_id=session)
+            .order_by("-generation")
+            .first()
+        )
         if session
         else None
     )
@@ -260,7 +270,8 @@ def issue_lease(
             player=player, generation=state.generation, revoked_at__isnull=True, expires_at__gt=at
         ).first()
         previous = (
-            TapLease.objects.filter(player=player, session_id=session)
+            TapGameplaySession.objects.filter(player=player, session_id=session).first()
+            or TapLease.objects.filter(player=player, session_id=session)
             .order_by("-generation")
             .first()
         )
@@ -321,6 +332,9 @@ def issue_lease(
             issued_at=at,
             expires_at=expires,
             delete_after=expires + timedelta(days=bound.base_tap.receipt_retention_days),
+        )
+        TapGameplaySession.objects.update_or_create(
+            player=player, session_id=session, defaults={"generation": state.generation}
         )
         logger.info(
             "tap_lease_issued", player_id=player.pk, generation=state.generation, takeover=takeover
@@ -540,5 +554,21 @@ def purge_expired_leases(*, at: datetime, limit: int = 1000) -> int:
         .order_by("delete_after")
         .values_list("pk", flat=True)[:limit]
     )
+    # Lease retention must not erase the fact that a device was fenced. Monotonic
+    # conditional updates cannot regress an identity while a new lease is issued.
+    histories = (
+        TapLease.objects.filter(pk__in=ids)
+        .values("player_id", "session_id")
+        .annotate(latest_generation=Max("generation"))
+    )
+    for history in histories:
+        marker, _ = TapGameplaySession.objects.get_or_create(
+            player_id=history["player_id"],
+            session_id=history["session_id"],
+            defaults={"generation": history["latest_generation"]},
+        )
+        TapGameplaySession.objects.filter(
+            pk=marker.pk, generation__lt=history["latest_generation"]
+        ).update(generation=history["latest_generation"])
     deleted, _ = TapLease.objects.filter(pk__in=ids).delete()
     return deleted

@@ -130,28 +130,33 @@ def test_admin_upload_validates_before_save_and_can_publish_new_image(content_wo
     from django.contrib import admin
     from django.core.files.uploadedfile import SimpleUploadedFile
     from django.test import RequestFactory
+    from django.utils.datastructures import MultiValueDict
 
     from apps.content.admin import BannerAdmin, BannerForm
 
     actor, _, _ = content_world
     bad = BannerForm(
         data={"placement": "BASE", "enabled": True, "alt_text": "Accessible", "priority": 0},
-        files={
-            "image_upload": SimpleUploadedFile(
-                "bad.png", b"<svg>bad</svg>", content_type="image/png"
-            )
-        },
+        files=MultiValueDict(
+            {
+                "image_upload": [
+                    SimpleUploadedFile("bad.png", b"<svg>bad</svg>", content_type="image/png")
+                ]
+            }
+        ),
     )
     assert not bad.is_valid() and "image_upload" in bad.errors
     stream = io.BytesIO()
     Image.new("RGB", (1200, 260), "blue").save(stream, format="PNG")
     good = BannerForm(
         data={"placement": "BASE", "enabled": True, "alt_text": "Accessible", "priority": 0},
-        files={
-            "image_upload": SimpleUploadedFile(
-                "banner.png", stream.getvalue(), content_type="image/png"
-            )
-        },
+        files=MultiValueDict(
+            {
+                "image_upload": [
+                    SimpleUploadedFile("banner.png", stream.getvalue(), content_type="image/png")
+                ]
+            }
+        ),
     )
     assert good.is_valid(), good.errors
     request = RequestFactory().post("/admin/content/promotionalbanner/add/")

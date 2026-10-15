@@ -155,7 +155,8 @@ B2 routes, economic invariants and immutable receipts remain as documented in
    generation before returning the new lease. The remaining allowance and policy stay pinned.
 4. A racing switch loser gets GENERATION_STALE/409. Read state and require a new user decision;
    never loop takeover automatically. A fenced session attempting normal acquisition gets
-   LEASE_REVOKED/409 even after the successor's lease expires.
+   LEASE_REVOKED/409 even after the successor's lease expires or lease metadata is purged;
+   durable session-generation markers preserve that history.
 5. `POST /base/v2/tap-release` accepts exactly `{lease_id,session_id,generation}`. Authenticated,
    rate limited, exact-generation best effort; returns a current snapshot. A stale release cannot
    revoke a successor. Flush/persist outstanding batches first. `pagehide`/closing/suspension and

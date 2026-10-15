@@ -332,3 +332,24 @@ def test_daily_and_mission_settlement_parallel_with_takeover_stay_canonical(worl
     final = state_snapshot(player, session=desktop, at=AT + timedelta(seconds=9))
     assert final["progression"]["lifetime_points"] == 207 and final["season_points"] == 207
     assert final["burst_remaining"] == 43 and final["ownership"]["status"] == "OWNED"
+
+
+def test_lease_cleanup_cannot_erase_fenced_session_history(world):  # noqa: F811
+    from apps.base_tap.models import TapGameplaySession
+    from apps.base_tap.v2 import purge_expired_leases
+
+    player, phone, state, _, _ = world
+    desktop = uuid4()
+    switched = issue_lease(
+        player, session=desktop, at=AT, takeover=True, expected_generation=state["generation"]
+    )
+    # Exercise retention of a B2-era lease whose durable marker was not yet created.
+    TapGameplaySession.objects.filter(player=player, session_id=phone).delete()
+    later = AT + timedelta(days=8)
+    assert purge_expired_leases(at=later) == 2
+    with pytest.raises(TapError, match="LEASE_REVOKED"):
+        issue_lease(player, session=phone, at=later)
+    restored = issue_lease(
+        player, session=phone, at=later, takeover=True, expected_generation=switched["generation"]
+    )
+    assert restored["ownership"]["status"] == "OWNED"

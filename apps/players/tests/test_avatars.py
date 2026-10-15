@@ -214,3 +214,91 @@ def test_avatar_celery_tasks_are_discoverable() -> None:
     app.autodiscover_tasks(force=True)
     assert "apps.players.tasks.refresh_due_avatars" in app.tasks
     assert "apps.players.tasks.purge_avatars" in app.tasks
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("mime", "image_format", "body", "expected_error"),
+    [
+        ("application/octet-stream", "JPEG", None, None),
+        ("image/jpeg", "JPEG", None, None),
+        ("image/png", "PNG", None, None),
+        ("image/webp", "WEBP", None, None),
+        ("application/octet-stream", "JPEG", b"invalid image bytes", UnidentifiedImageError),
+        (
+            "application/octet-stream",
+            "JPEG",
+            b"<html><script>bad</script></html>",
+            UnidentifiedImageError,
+        ),
+        ("text/html", "JPEG", b"<html>not a Telegram photo</html>", ValueError),
+    ],
+)
+def test_telegram_octet_stream_still_requires_sanitized_real_image(
+    cache_world: Any,
+    monkeypatch: Any,
+    settings: Any,
+    mime: str,
+    image_format: str,
+    body: bytes | None,
+    expected_error: Any,
+) -> None:
+    from email.message import Message
+
+    player, _ = cache_world
+    settings.TELEGRAM_BOT_TOKEN = "123456:test-token"
+    if body is None:
+        original = Image.new("RGB", (600, 600), "blue")
+        exif = original.getexif()
+        exif[270] = "synthetic metadata must be stripped"
+        encoded = io.BytesIO()
+        original.save(encoded, format=image_format, exif=exif)
+        body = encoded.getvalue()
+    assert body is not None
+    stream = io.BytesIO(body)
+    headers = Message()
+    headers["Content-Type"] = mime
+    headers["Content-Length"] = str(len(body))
+
+    class Response:
+        status = 200
+
+        def __init__(self) -> None:
+            self.headers = headers
+
+        def __enter__(self) -> Any:
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            pass
+
+        def read(self, limit: int) -> bytes:
+            return stream.read(limit)
+
+    class Opener:
+        def open(self, *args: Any, **kwargs: Any) -> Any:
+            return Response()
+
+    monkeypatch.setattr(
+        socket, "getaddrinfo", lambda *args, **kwargs: [(2, 1, 6, "", ("149.154.167.220", 443))]
+    )
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *args: Opener())
+    monkeypatch.setattr(
+        avatars,
+        "bot_call",
+        lambda method, params: (
+            {"photos": [[{"file_id": "trusted"}]]}
+            if method == "getUserProfilePhotos"
+            else {"file_path": "photos/valid.jpg"}
+        ),
+    )
+    if expected_error:
+        with pytest.raises(expected_error):
+            avatars.retrieve_photo(player)
+    else:
+        sanitized = avatars.retrieve_photo(player)
+        assert sanitized is not None
+        with Image.open(io.BytesIO(sanitized)) as output:
+            assert output.format == "JPEG"
+            assert max(output.size) <= 512
+            assert not output.getexif()

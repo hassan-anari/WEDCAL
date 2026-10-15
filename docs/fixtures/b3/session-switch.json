@@ -14,8 +14,8 @@
     "burst_remaining": 50,
     "cooldown_until": null,
     "lease": {
-      "lease_id": "10cf78ec-9434-4170-9ff0-97536eb33e37",
-      "session_id": "bf45e6e2-c6e9-4d38-89b7-7b7a0f0dc2a2",
+      "lease_id": "da416bc5-102f-44cc-a74f-0207453dea2f",
+      "session_id": "d16c3d7c-a679-4ff2-a753-5f6707eff851",
       "generation": 1,
       "authorized_allowance": 50,
       "reward_per_tap": 1,
@@ -377,7 +377,7 @@
     }
   },
   "switch_request": {
-    "session_id": "15aca787-64d1-47ea-aa3f-60da3ba52064",
+    "session_id": "fc94b1f8-9164-4d9a-994c-189ec4b5d8e6",
     "takeover": true,
     "expected_generation": 1
   },
@@ -395,8 +395,8 @@
     "burst_remaining": 50,
     "cooldown_until": null,
     "lease": {
-      "lease_id": "22685c40-0062-48fa-96da-a7c58e015f40",
-      "session_id": "15aca787-64d1-47ea-aa3f-60da3ba52064",
+      "lease_id": "41a0301c-c092-4c5b-b7b2-8b340ac8482d",
+      "session_id": "fc94b1f8-9164-4d9a-994c-189ec4b5d8e6",
       "generation": 2,
       "authorized_allowance": 50,
       "reward_per_tap": 1,

@@ -133,7 +133,12 @@ def _telegram_request(
             if response.status != 200:
                 raise ValueError("source_status")
             mime = response.headers.get_content_type()
-            if image and mime not in {"image/jpeg", "image/png", "image/webp"}:
+            if image and mime not in {
+                "image/jpeg",
+                "image/png",
+                "image/webp",
+                "application/octet-stream",
+            }:
                 raise ValueError("source_mime")
             length = response.headers.get("Content-Length")
             if length and int(length) > limit:
