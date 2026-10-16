@@ -211,6 +211,10 @@ class WelcomeTemplateAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     def get_readonly_fields(self, request, obj=None):  # type: ignore[no-untyped-def]
         return self.readonly_fields + (("version", "body", "keyboard") if obj else ())
 
+    def has_change_permission(self, request, obj=None):  # type: ignore[no-untyped-def]
+        # Existing versions are view-only; activation uses its separately permissioned control.
+        return obj is None and super().has_change_permission(request, obj)
+
     def has_delete_permission(self, request, obj=None):  # type: ignore[no-untyped-def]
         return False
 

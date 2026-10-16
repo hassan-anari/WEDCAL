@@ -1350,3 +1350,47 @@ No unrelated hardening items were closed. PH-037 and PH-043 remain owner launch 
 Same unmerged Draft #27; no deployment/config activation. Typed `lease.cooldown_seconds` now exposes immutable burst policy. Ledger-derived `receipt` binds retries to exact original request/counts; the existing all-source `(receipt_cursor, revision)` ordering remains valid after Daily/Missions settlements. Contract/OpenAPI/JSON fixtures and semantic/transport regression enforce the frontend handoff. No schema migration or ledger/config rewrite.
 
 **PH-B2-002 code correction:** Avatar `getUserProfilePhotos`, `getFile` and file download requests share the existing global/method Telegram admission budget and atomically extended bot-wide 429 pause. Avatars fail closed on budget storage loss. PostgreSQL advisory slots bound refresh concurrency across workers; persistent due-time/jitter retries honor Telegram delays and survive Bootstrap/profile changes. Cache remains disabled; private storage configuration and filtered-network origin tests remain operational prerequisites. All workers must share one Redis budget namespace and the same slot setting; use direct/session-pooled PostgreSQL connections. Existing critical Bot API calls retain their pre-existing fail-open behavior on Redis loss (an availability tradeoff, not an avatar bypass).
+
+
+## B4 production QA hardening delta — 2026-10-16
+
+Baseline merged main `1fa937af4628a10cec384b711210755ff28a6a8a`; backend Draft #29,
+paired FROCAL Draft #5. Initial runtime publication
+`9a43048079bfc20bc5a030a88f84216c9451e4a8`; final evidence in
+[handoff](docs/B4_BACKEND_HANDOFF.md) and [security review](docs/B4_SECURITY_REVIEW.md).
+
+- **PH-004 IMPLEMENTED / VERIFYING:** Model/Admin publication rejects absent or incompatible
+  effective Mission rules and unsafe/missing timed-external destination URLs. Runtime list and
+  Bootstrap quarantine malformed historical definitions, including invalid JSON. Original verified
+  obligations retain config/reward/idempotency. Tests prove invalid Mission cannot break Bootstrap
+  or rewrite existing 150 XP/RewardLedger history. Direct SQL/bulk ORM bypass is quarantined rather
+  than treated as valid publication. Hosted final check evidence required before acceptance.
+- **PH-019 WATCH:** Existing global/method budgets, rate-limit pause and scanner remain. Owned-group
+  reads coalesce due verification; intentional one-use Add Bot authorization is verified against
+  current creator/bot authority. No historical enrollment or auto-renewal of revoked consent. Every
+  group send rechecks authorizing creator authority and subscription revision after verification.
+  Launch-scale Telegram throughput remains measured operational work.
+- **PH-020 IMPLEMENTED SLICE / OPEN OVERALL:** Profile and canonical progression share an effective
+  instant; actual Typing history and confirmed ledger reveal receipts are typed, actor-scoped and
+  paginated. Typing current-period history uses its independent reset policy and rejects stale
+  period cursors; exact-boundary/empty/pagination fixtures prevent TODAY leakage. Profile failures
+  never grant demo entitlements or local XP. New history/feed indexes
+  are concurrent. Broader Bootstrap query-budget/load measurement remains open.
+- **PH-034 IMPLEMENTED SLICE / OPEN OVERALL:** Delivery rows dispatch through Celery immediately
+  after commit; callback ACK is independently durable. Periodic recovery retains leases,
+  rate-limit retries and ambiguity safety. End-to-end/queue/delivery timing logs and real prefork
+  worker synthetic-transport proof target p95 under 5 s. Production queue-capacity SLO, WAN/Telegram
+  latency and alert thresholds still require operational measurement.
+- **PH-B2-002 EXTENDED / OPERATIONAL PREREQUISITE:** Invitees reuse private avatar cache including
+  start-only Players; no raw Telegram metadata fallback in the private invitee field. Group cache
+  defaults disabled and requires separate explicitly scoped group-images credentials. Shared
+  sanitization, refresh slots and Telegram budgets apply. Private bucket lifecycle/orphan cleanup,
+  filtered-network delivery and credential scoping must be verified before enablement.
+- **PH-B4-001 NEW / OWNER ACTIVATION GATE:** Welcome versions are immutable and permissioned,
+  validated HTML/URLs/buttons, previewed with explicit activation/rollback/test confirmation and
+  audit. No seeded active version. BOTH B3 and B4 public gates are required; B4 defaults false.
+  Version changes send nothing to existing Players. No real test-send or public activation in B4.
+
+No economic policy, existing XP ledger, wallet/on-chain feature or Season 2 rule changed. Historical
+rankings and DLX presentation remain owner-owned frontend decisions. PH-037/PH-043 and unrelated
+launch prerequisites are unchanged. No merge/deployment/production write is implied by code/tests.

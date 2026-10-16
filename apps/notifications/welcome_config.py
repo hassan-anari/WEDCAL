@@ -97,6 +97,16 @@ class TelegramHTML(HTMLParser):
         except ValueError as exc:
             raise ValidationError("Invalid HTML character reference") from exc
 
+    def handle_data(self, data: str) -> None:
+        if any(char in data for char in "<>&"):
+            raise ValidationError("Escape literal <, > and & as Telegram HTML entities")
+
+    def handle_pi(self, data: str) -> None:
+        raise ValidationError("HTML processing instructions are unsupported")
+
+    def unknown_decl(self, data: str) -> None:
+        raise ValidationError("HTML declarations are unsupported")
+
     def handle_comment(self, data: str) -> None:
         raise ValidationError("HTML comments are unsupported")
 
@@ -115,6 +125,8 @@ def validate_template(body: str, keyboard: Any) -> None:
         raise ValidationError(
             "Welcome must be 1–4096 Telegram characters with no template interpolation"
         )
+    if re.search(r"&(?!lt;|gt;|amp;|quot;|#[0-9]+;|#x[0-9a-fA-F]+;)", body):
+        raise ValidationError("HTML entities must be escaped and terminated with a semicolon")
     parser = TelegramHTML()
     parser.feed(body)
     parser.close()

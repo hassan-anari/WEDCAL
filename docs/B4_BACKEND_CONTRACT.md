@@ -33,7 +33,20 @@ Paired consumer: https://github.com/hassan-anari/FROCAL/pull/5.
 Baseline inspected consumer head `fe7e93c56303d4b02125a974fa29efde9d59031e`.
 Keep its historical B3 source/fixture pin intact; add a separate exact B4 pin.
 
-- `GET /typing/history?cursor=<positive integer>&limit=20`: `items`, `next_cursor`.
+- `GET /typing/history?period=all|current&cursor=<positive integer>&limit=20`:
+  `items`, `next_cursor`, `period`, `period_key`, `period_start`, `period_end`.
+  Default `period=all` preserves historical pagination; its period key/boundaries are null.
+  The existing **TODAY** UI MUST request `period=current`. The server resolves the effective
+  **Typing** `reset_timezone` independently from Daily and matches persisted attempt
+  `reset_period` to that key. Returned UTC boundaries and key are authoritative; every run
+  also carries its actual `reset_period`. Do not infer local dates or reuse Daily boundaries.
+  An attempt started before reset remains in its original period even when submitted after reset.
+  Current-period cursor anchors must belong to this player and be submitted: invalid/foreign
+  anchors are REQUEST_INVALID/422. A cursor from a previous period returns
+  TYPING_PERIOD_CHANGED/409; discard accumulated TODAY pages and fetch current page one.
+  This is cache reconciliation inside the existing view, not a new visible control/state.
+  Scope cached pages by player, period key and config/Season as applicable; revalidate on the
+  existing focus/resume/reset path. Empty current period remains an honest empty list.
   Limit 1–100. Descending internal run cursor is scoped to authenticated player; stable run
   identity is `attempt_id` UUID. Each submitted run includes `status`, `started_at`,
   `submitted_at`, `accuracy_bps`, `wpm`, `reward_amount`, source `season`, `config_version`,
@@ -90,7 +103,8 @@ career maximum/unlock history persists. Wallet/account and S2 Warfront remain un
 B4 retains B3 `{code,detail,retryable,retry_after_seconds}` and B1 auth/initialization errors.
 New errors: `PROFILE_UNAVAILABLE`/503; `CUSTOMIZATION_INVALID`/422;
 `RANKING_UNAVAILABLE`/503; `RANKING_RECONCILING`/503 (Retry-After: 2);
-`SEASON_UNAVAILABLE`/409. Unsupported pagination is REQUEST_INVALID/422 (Ninja validation
+`SEASON_UNAVAILABLE`/409; `NOTIFICATION_NOT_FOUND`/404;
+`TYPING_PERIOD_CHANGED`/409 (restart current-period pagination). Unsupported pagination is REQUEST_INVALID/422 (Ninja validation
 on newer routes may retain B1 request_id envelope). Error detail never returns raw exceptions.
 All personalized reads/mutations are private/no-store and vary by Authorization; image bytes
 retain private bounded caching. Existing clients ignore additive fields; request paths and

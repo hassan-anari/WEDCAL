@@ -1394,6 +1394,20 @@
               "type": "integer"
             },
             "required": false
+          },
+          {
+            "in": "query",
+            "name": "period",
+            "schema": {
+              "default": "all",
+              "enum": [
+                "all",
+                "current"
+              ],
+              "title": "Period",
+              "type": "string"
+            },
+            "required": false
           }
         ],
         "responses": {
@@ -2114,11 +2128,18 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/IntentInput"
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/IntentInput"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             }
           },
-          "required": true
+          "required": false
         },
         "security": [
           {
@@ -3953,6 +3974,92 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorOutput"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/B3ErrorOutput"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ThrottleOutput"
+                    }
+                  ],
+                  "title": "Response"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/B3ErrorOutput"
+                    },
+                    {
+                      "$ref": "#/components/schemas/IntegrationErrorOutput"
+                    }
+                  ],
+                  "title": "Response"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -3977,6 +4084,92 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ReadAllOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorOutput"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/B3ErrorOutput"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ThrottleOutput"
+                    }
+                  ],
+                  "title": "Response"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/B3ErrorOutput"
+                    },
+                    {
+                      "$ref": "#/components/schemas/IntegrationErrorOutput"
+                    }
+                  ],
+                  "title": "Response"
                 }
               }
             }
@@ -4015,6 +4208,92 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/NotificationOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorOutput"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/B3ErrorOutput"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ThrottleOutput"
+                    }
+                  ],
+                  "title": "Response"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/B3ErrorOutput"
+                    },
+                    {
+                      "$ref": "#/components/schemas/IntegrationErrorOutput"
+                    }
+                  ],
+                  "title": "Response"
                 }
               }
             }
@@ -4720,6 +4999,49 @@
       },
       "HistoryOutput": {
         "properties": {
+          "period": {
+            "enum": [
+              "all",
+              "current"
+            ],
+            "title": "Period",
+            "type": "string"
+          },
+          "period_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period Key"
+          },
+          "period_start": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period Start"
+          },
+          "period_end": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period End"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/RunOutput"
@@ -4740,6 +5062,10 @@
           }
         },
         "required": [
+          "period",
+          "period_key",
+          "period_start",
+          "period_end",
           "items",
           "next_cursor"
         ],
@@ -5521,6 +5847,10 @@
       },
       "RunOutput": {
         "properties": {
+          "reset_period": {
+            "title": "Reset Period",
+            "type": "string"
+          },
           "score": {
             "anyOf": [
               {
@@ -5591,6 +5921,7 @@
           }
         },
         "required": [
+          "reset_period",
           "score",
           "attempt_id",
           "status",

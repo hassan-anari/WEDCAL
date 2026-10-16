@@ -1,4 +1,4 @@
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from django.db import transaction
@@ -8,6 +8,8 @@ from ninja import Query, Router, Schema
 from pydantic import Field
 
 from apps.core.b3 import B3Error, b3_responses, canonical_state
+from apps.core.periods import resolve_daily_period
+from apps.game_config.services import resolve_effective_game_config
 from apps.players.models import Player
 from apps.rewards.models import RewardLedger
 from apps.rewards.reveals import confirmed_reward
@@ -161,9 +163,29 @@ def history(
     request: HttpRequest,
     cursor: Annotated[int | None, Query(ge=1)] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    period: Literal["all", "current"] = "all",
 ) -> dict[str, Any]:
+    window = None
+    if period == "current":
+        at = timezone.now()
+        config = resolve_effective_game_config(at)
+        window = resolve_daily_period(at, config.typing.reset_timezone)
     rows = TypingAttempt.objects.filter(player=_player(request), submitted_at__isnull=False)
+    if window:
+        rows = rows.filter(reset_period=window.key)
     if cursor is not None:
+        if window:
+            anchor = (
+                TypingAttempt.objects.filter(
+                    player=_player(request), pk=cursor, submitted_at__isnull=False
+                )
+                .values_list("reset_period", flat=True)
+                .first()
+            )
+            if anchor is None:
+                raise B3Error("REQUEST_INVALID", 422)
+            if anchor != window.key:
+                raise B3Error("TYPING_PERIOD_CHANGED", 409)
         rows = rows.filter(pk__lt=cursor)
     batch = list(
         rows.select_related("season", "config_version", "wallet_credit").order_by("-pk")[
@@ -171,12 +193,17 @@ def history(
         ]
     )
     return {
+        "period": period,
+        "period_key": window.key if window else None,
+        "period_start": window.start if window else None,
+        "period_end": window.end if window else None,
         "items": [
             {
                 "attempt_id": row.public_id,
                 "status": row.status,
                 "started_at": row.started_at,
                 "submitted_at": row.submitted_at,
+                "reset_period": row.reset_period,
                 "score": display_score(row.accuracy_bps, row.wpm),
                 "accuracy_bps": row.accuracy_bps,
                 "wpm": row.wpm,

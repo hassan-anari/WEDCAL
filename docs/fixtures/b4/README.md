@@ -9,8 +9,12 @@ HTTP fixtures are generated using isolated PostgreSQL tests in
 configuration, identities and timestamps; numbers are not production economy policy:
 
 - `profile-earn.json`: authenticated Profile, claim/canonical progression and confirmed receipts.
+- `typing-periods.json`: server current Typing period in Pacific/Honolulu versus Daily UTC,
+  exact reset, empty period, pagination, stale cursor rejection and cross-reset submission.
 - `typing-history.json`: real valid/rejected submissions, keyset pagination and omitted unfinished run.
 - `rankings.json`: real projected pages, drift failure and immutable archive behavior.
+- `private-images.json`: actor-scoped invitee/group private capabilities and start-only metadata.
+- `notifications-errors.json`: confirmed read-all, safe navigation and actual typed error bodies.
 - `dlx-confirmed.json`: settled allocation and audited hold/release/forfeit/reversal, no XP mutation.
 
 UUIDs, timestamps and cache capabilities are examples, never production identifiers or live

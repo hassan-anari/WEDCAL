@@ -1394,6 +1394,20 @@
               "type": "integer"
             },
             "required": false
+          },
+          {
+            "in": "query",
+            "name": "period",
+            "schema": {
+              "default": "all",
+              "enum": [
+                "all",
+                "current"
+              ],
+              "title": "Period",
+              "type": "string"
+            },
+            "required": false
           }
         ],
         "responses": {
@@ -2114,11 +2128,18 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/IntentInput"
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/IntentInput"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             }
           },
-          "required": true
+          "required": false
         },
         "security": [
           {
@@ -3526,6 +3547,49 @@
       },
       "HistoryOutput": {
         "properties": {
+          "period": {
+            "enum": [
+              "all",
+              "current"
+            ],
+            "title": "Period",
+            "type": "string"
+          },
+          "period_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period Key"
+          },
+          "period_start": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period Start"
+          },
+          "period_end": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period End"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/RunOutput"
@@ -3546,6 +3610,10 @@
           }
         },
         "required": [
+          "period",
+          "period_key",
+          "period_start",
+          "period_end",
           "items",
           "next_cursor"
         ],
@@ -4327,6 +4395,10 @@
       },
       "RunOutput": {
         "properties": {
+          "reset_period": {
+            "title": "Reset Period",
+            "type": "string"
+          },
           "score": {
             "anyOf": [
               {
@@ -4397,6 +4469,7 @@
           }
         },
         "required": [
+          "reset_period",
           "score",
           "attempt_id",
           "status",

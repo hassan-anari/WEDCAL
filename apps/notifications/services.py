@@ -259,6 +259,7 @@ def _private_control_permitted(row: TelegramDelivery) -> bool:
 def _deliver(row: Delivery, text: str) -> None:
     if transaction.get_connection().in_atomic_block:
         raise RuntimeError("Telegram delivery must run outside business transactions")
+    started_at = timezone.now()
     token = row.lease_token
     if isinstance(row, TelegramDelivery) and not _private_control_permitted(row):
         TelegramDelivery.objects.filter(
@@ -372,7 +373,8 @@ def _deliver(row: Delivery, text: str) -> None:
                 method=locked.message_options.get("_method", "sendMessage"),
                 outcome=locked.state,
                 attempt=locked.attempt_count,
-                queue_ms=round((now - locked.created_at).total_seconds() * 1000),
+                queue_ms=round((started_at - locked.created_at).total_seconds() * 1000),
+                delivery_ms=round((now - started_at).total_seconds() * 1000),
                 end_to_end_ms=round((now - origin).total_seconds() * 1000),
             )
 

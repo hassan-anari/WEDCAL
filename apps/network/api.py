@@ -55,7 +55,7 @@ class IntentInput(Schema):
 
 
 @router.post("/groups/intents", response=b3_responses(IntentOutput))
-def intent(request: HttpRequest, payload: IntentInput) -> dict[str, Any]:
+def intent(request: HttpRequest, payload: IntentInput | None = None) -> dict[str, Any]:
     if not network_summary(_player(request))["can_register"]:
         raise B3Error("CREATOR_UNAVAILABLE")
     from django.conf import settings
@@ -63,7 +63,8 @@ def intent(request: HttpRequest, payload: IntentInput) -> dict[str, Any]:
     if not settings.TELEGRAM_BOT_USERNAME:
         raise B3Error("BOT_UNCONFIGURED", 503)
     row, link = create_registration_intent(
-        _player(request), authorize_group_messages=payload.authorize_group_messages
+        _player(request),
+        authorize_group_messages=payload.authorize_group_messages if payload else False,
     )
     return {"startgroup_url": link, "expires_at": row.expires_at}
 

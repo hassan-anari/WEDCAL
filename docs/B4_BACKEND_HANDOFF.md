@@ -16,6 +16,12 @@ only and must not be used as the implementation pin. Final CI and paired accepta
 - Existing authenticated Profile/Arena/Notifications/Daily/Missions/Typing/Referral/Network
   paths remain. Added fields are compatible; new history/read-all and optional Season queries
   are documented. Do not introduce UI controls from backend capabilities.
+- Typing TODAY uses `/typing/history?period=current`, with server `period_key`, `period_start`,
+  `period_end` and per-run `reset_period`. Typing's reset timezone is independent of Daily.
+  Default `period=all` keeps historical paging. A stale current-period cursor gets
+  `TYPING_PERIOD_CHANGED`/409: clear accumulated TODAY pages and refetch page one; never infer
+  client calendar dates. Exact-reset, cross-boundary submit, paging, empty and differing-timezone
+  HTTP fixtures are in `typing-periods.json`.
 - Typing score preserves the existing display formula using authoritative submitted metrics;
   it is separate from wallet credit and canonical XP. Use nullable values honestly.
 - Archive/DLX visible presentation remains an owner decision. Backend returns actual archives
@@ -77,13 +83,27 @@ before reverting workers. Migration SQL and final verification evidence will acc
 
 ## Verification status at implementation publication
 
-Isolated PostgreSQL/Redis/RabbitMQ regression run: 830 passed, one opt-in benchmark skipped;
-subsequent contract additions are undergoing final rerun. Real prefork Celery/webhook test uses
+Isolated PostgreSQL/Redis/RabbitMQ regression run: 842 passed, one opt-in benchmark skipped;
+that benchmark passed separately. Final current-period/bodyless/permission additions are
+undergoing the full rerun; the deterministic current-period HTTP/real-run regression passed. Real prefork Celery/webhook test uses
 an isolated queue/test database and replaces only the HTTP transport with a synthetic recorder.
-It contacts no Telegram users. Measured reply p95 1.34 s, webhook ACK p95 34 ms and callback ACK
-87 ms; duplicate/unauthorized sends remain zero. Final CI, benchmark, migration and security
+It contacts no Telegram users. Measured reply p95 1.38 s, webhook ACK p95 32 ms and callback ACK
+101 ms; duplicate/unauthorized sends remain zero. Final CI, benchmark, migration and security
 scan evidence will be recorded before claiming completion. These are isolated healthy-system
 measurements, not a production latency guarantee.
+
+Initial published implementation `9a43048079bfc20bc5a030a88f84216c9451e4a8` passed all hosted
+[Contract](https://github.com/hassan-anari/WEDCAL/actions/runs/38866870624),
+[Foundation](https://github.com/hassan-anari/WEDCAL/actions/runs/38866870485) and
+[Release Scans](https://github.com/hassan-anari/WEDCAL/actions/runs/38866870368) checks:
+831 tests, separately executed opt-in benchmark, migration/drift, quality, Docker runtime/Admin
+static. Final correction CI is required separately. Release Scans passed the existing actionable
+vulnerability gate but retained 44 unfixed finding instances; final review will enumerate them.
+
+Unchanged FROCAL `fe7e93c56303d4b02125a974fa29efde9d59031e` paired compatibility against the
+initial B4 implementation passed 29 API/controller + 13 browser scenarios in a separate local
+PostgreSQL database, with external HTTP blocked and synthetic identities. This does not replace
+the consumer's final B4 pin or new B4 binding tests. Historical B3 pins were not modified.
 
 No merge, deployment, production data modification or public message. Keep this PR Draft and
 stop for independent review after required checks and paired contract verification.

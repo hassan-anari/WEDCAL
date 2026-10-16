@@ -7,8 +7,8 @@ from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import DatabaseError, close_old_connections, connection, transaction
 from django.test import RequestFactory
-from ninja.errors import HttpError
 
+from apps.core.b3 import B3Error
 from apps.notifications.api import list_notifications, read_all, read_notification
 from apps.notifications.models import (
     BotAdminOperator,
@@ -185,7 +185,7 @@ def test_notification_links_are_server_owned_and_read_state_is_scoped():
     assert list_notifications(request).unread_count == 1
     request.auth = other  # type: ignore[attr-defined]
     assert list_notifications(request).items == []
-    with pytest.raises(HttpError):
+    with pytest.raises(B3Error):
         read_notification(request, row.public_id)
     request.auth = recipient  # type: ignore[attr-defined]
     assert read_all(request).updated_count == 1
@@ -202,6 +202,11 @@ def test_notification_links_are_server_owned_and_read_state_is_scoped():
         '<b onclick="bad()">x</b>',
         "{username}",
         "&bogus;",
+        "bare & ampersand",
+        "unterminated &amp",
+        "bare > delimiter",
+        "<?processing?>",
+        "<![CDATA[hidden]]>",
         "<!--x-->",
         "<b/>",
         "<bad",
@@ -290,6 +295,13 @@ def test_welcome_admin_preview_get_and_invalid_confirmation_send_nothing(client)
     assert (
         client.get(f"/admin/notifications/welcometemplate/{template.pk}/change/").status_code == 200
     )
+    assert (
+        client.post(
+            f"/admin/notifications/welcometemplate/{template.pk}/change/",
+            {"body": "Unsafe overwrite"},
+        ).status_code
+        == 403
+    )
     base = f"/admin/notifications/welcometemplate/{template.pk}/control"
     for action in ["preview", "activate", "test"]:
         assert client.get(f"{base}/{action}/").status_code == 200
@@ -310,3 +322,21 @@ def test_old_b3_flag_alone_cannot_activate_public_dynamic_welcome(settings):
     settings.B4_PUBLIC_WELCOME_ENABLED = False
     queue_welcome(player())
     assert not TelegramDelivery.objects.exists()
+
+
+def test_welcome_html_allows_escaped_literals_emojis_and_safe_multirow_buttons():
+    validate_template("👋 <b>Explorer</b> &amp; friends &lt;3 &#128640; <i>Welcome</i>", KEYBOARD)
+
+
+def test_unprivileged_or_inactive_actor_cannot_activate_welcome():
+    owner = User.objects.create_superuser("welcome-version-author")
+    template = WelcomeTemplate.objects.create(
+        version=1, body="Hello", keyboard=KEYBOARD, created_by=owner
+    )
+    for actor in [User.objects.create_user("unprivileged"), owner]:
+        if actor == owner:
+            actor.is_active = False
+            actor.save()
+        with pytest.raises(PermissionDenied):
+            activate_welcome(template, actor, reason="No authorization")
+    assert not WelcomeConfiguration.objects.exists() and not TelegramDelivery.objects.exists()

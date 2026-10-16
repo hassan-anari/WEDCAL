@@ -1,0 +1,64 @@
+{
+  "notifications": {
+    "items": [
+      {
+        "deep_link": {
+          "path": "/clan"
+        },
+        "id": "fe0265ac-8350-43ea-b430-2c959313f726",
+        "type": "CLAN_ACCESS_LOST",
+        "title": "Clan access changed",
+        "body": "Your access needs review.",
+        "payload": {
+          "url": "javascript:alert(1)"
+        },
+        "created_at": "2026-10-16T07:43:55.487Z",
+        "read_at": null,
+        "unread": true
+      }
+    ],
+    "next_cursor": null,
+    "unread_count": 1
+  },
+  "read_all": {
+    "updated_count": 1,
+    "unread_count": 0
+  },
+  "errors": [
+    {
+      "status": 401,
+      "body": {
+        "detail": "Telegram authentication is required",
+        "code": "AUTH_MISSING",
+        "request_id": "ec4c28b8b92a414e822ad9af79bc7f32"
+      }
+    },
+    {
+      "status": 422,
+      "body": {
+        "code": "REQUEST_INVALID",
+        "detail": "request invalid",
+        "retryable": false,
+        "retry_after_seconds": null
+      }
+    },
+    {
+      "status": 409,
+      "body": {
+        "code": "SEASON_UNAVAILABLE",
+        "detail": "season unavailable",
+        "retryable": false,
+        "retry_after_seconds": null
+      }
+    },
+    {
+      "status": 404,
+      "body": {
+        "code": "NOTIFICATION_NOT_FOUND",
+        "detail": "notification not found",
+        "retryable": false,
+        "retry_after_seconds": null
+      }
+    }
+  ]
+}

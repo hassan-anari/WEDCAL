@@ -203,13 +203,13 @@ Target:
 
 ### P-08 — Profile, Achievements, Collection, Notifications
 
-**Status:** PLANNED. **Depends:** P-04, canonical rewards.  
+**Status:** BACKEND_IMPLEMENTED / PAIRED_PENDING (B4 Draft #29 / FROCAL #5). **Depends:** P-04, canonical rewards.
 **Scope:** Profile overview, `lifetime_points` (not merely current XP), level/Dexo stage, achievements, medal/collection, customization/review; notification read/unread and safe deep links. Remove demo store as production authority. Keep wallet/account unavailable where Season 1 explicitly excludes them.  
 **Gate:** refresh/device consistency, authenticated data isolation, unlock boundary, idempotent edits, UI no demo fallback on errors.
 
 ### P-09 — Arena Player/Clan Rankings and DLX presentation
 
-**Status:** PLANNED. **Depends:** P-04, relevant Clan snapshots; can split Player rankings earlier and Clan rankings later.  
+**Status:** BACKEND_IMPLEMENTED / PAIRED_PENDING (B4 Draft #29 / FROCAL #5). **Depends:** P-04, relevant Clan snapshots; can split Player rankings earlier and Clan rankings later.
 **Scope:** Replace fixture ranks with server `/arena/rankings/players`, `/clans`, `/arena/state`, `/arena/dlx`; respect frozen/settled epoch accounting; show DLX as confirmed off-chain allocation only, not claimable/on-chain or a USD price. Preserve S2 Warfront locked.  
 **Gate:** tie/rank ordering, paging, archived season, stale projection invalidation, no fake DLX balance.
 
@@ -290,7 +290,7 @@ All migrations are forward-safe and rollback-tested on backups/synthetic copies.
 | B1 | IN_PROGRESS | Backend [Draft PR #26](https://github.com/hassan-anari/WEDCAL/pull/26); frontend B1 PR pending | Backend PR_OPEN; initial implementation `90bf6930a5036ea6cd720605ef4f1d6079153eda`; latest head/CI evidence in PR #26. P-01/P-04 contract and regression delivery: [handoff](docs/B1_BACKEND_HANDOFF.md). Frontend/paired Telegram and cache verification pending; no batch acceptance or next-batch approval. |
 | B2 | BACKEND_DRAFT | Backend [Draft #27](https://github.com/hassan-anari/WEDCAL/pull/27), branch `ai/b2-backend`; paired frontend [Draft #3](https://github.com/hassan-anari/FROCAL/pull/3)/E2E pending | [wire contract](docs/B2_TAP_V2_CONTRACT.md), [handoff](docs/B2_BACKEND_HANDOFF.md), immediate atomic leases, exactly-once legacy drain; no deployment/activation acceptance |
 | B3 | BACKEND_DRAFT | Backend [Draft #28](https://github.com/hassan-anari/WEDCAL/pull/28), `ai/b3-backend-integration`; paired FROCAL [Draft #4](https://github.com/hassan-anari/FROCAL/pull/4) | [implemented contract](docs/B3_BACKEND_CONTRACT.md), [handoff](docs/B3_BACKEND_HANDOFF.md); P-05/P-06/P-07 plus owner-authorized session/banner/bot/broadcast extensions; independent review and paired frontend/device acceptance pending |
-| B4 | PLANNED | — | Profile/collection/notifications/Arena/DLX |
+| B4 | BACKEND_VERIFYING | Backend [Draft #29](https://github.com/hassan-anari/WEDCAL/pull/29); frontend [Draft #5](https://github.com/hassan-anari/FROCAL/pull/5) | Runtime implementation `9a43048079bfc20bc5a030a88f84216c9451e4a8`; [contract](docs/B4_BACKEND_CONTRACT.md), [handoff](docs/B4_BACKEND_HANDOFF.md), generated fixtures. P-08/P-09 plus owner B3 corrections; final CI/consumer pin/paired gate pending. No activation or next batch approval. |
 | B5 | PLANNED | — | Clan lifecycle/governance/Recovery/Treasury/Shop |
 | B6 | PLANNED | — | Staging E2E, measured load, release gates/rollback |
 
@@ -305,8 +305,8 @@ All migrations are forward-safe and rollback-tested on backups/synthetic copies.
 | P-05 | BACKEND_IMPLEMENTED | Backend Draft #28, unmerged | Typed Daily/Missions + canonical claim state; frontend binding/review pending |
 | P-06 | BACKEND_IMPLEMENTED | Backend Draft #28, unmerged | Server attempts/resume/scoring/wallet contracts and fixtures; frontend/device review pending |
 | P-07 | BACKEND_IMPLEMENTED | Backend Draft #28, unmerged | Actual referral/creator/network read contracts; frontend integration pending |
-| P-08 | PLANNED | — | Profile/Collection/Notifications |
-| P-09 | PLANNED | — | Arena rankings/off-chain DLX |
+| P-08 | BACKEND_IMPLEMENTED | WEDCAL Draft #29 / FROCAL Draft #5 | Authenticated entitlement/customization/progression; real read state, safe links; CI/paired frontend gate pending. |
+| P-09 | BACKEND_IMPLEMENTED | WEDCAL Draft #29 / FROCAL Draft #5 | Typed live/frozen archive pages and projection consistency, actual off-chain DLX. Archive/DLX visible UI choices remain owner-owned. |
 | P-10 | PLANNED | — | Clan core |
 | P-11 | PLANNED | — | Clan governance/recovery/emergency exits |
 | P-12 | PLANNED | — | Clan economics |
@@ -374,3 +374,19 @@ and session recovery, banners, private welcome/Admin and audience/retry reliabil
 `docs/fixtures/b3/`; delivery, migrations and rollout gates are in `docs/B3_BACKEND_HANDOFF.md`.
 No B3 merge, deployment/activation or next-batch acceptance is authorized. Stop for independent
 review after required checks. PH-043 remains explicit; do not fabricate Season-brief completion.
+
+### B4 implementation coordination — 2026-10-16
+
+WEDCAL baseline `1fa937af4628a10cec384b711210755ff28a6a8a` and FROCAL main
+`ae91624f23a48d8a9973154520284706a9df1c21` were verified. Consumer requirements and
+UI preservation were read at FROCAL #5 head `fe7e93c56303d4b02125a974fa29efde9d59031e`.
+The runtime/schema/fixture implementation was published at
+`9a43048079bfc20bc5a030a88f84216c9451e4a8`, superseding docs-only `2d2a856`, and
+shared on both PRs. Latest implementation and final verification pins live in the handoff/PR
+comments. Preserve B3 historical pins and add B4 separately. No invented UI/active-day evidence,
+no public Welcome, production modifications or real Telegram test/broadcast sends. B5 remains
+unauthorized; independent review and paired frontend checks are still required.
+
+Owner-confirmed Typing TODAY follow-up: current-period filtering and authoritative reset keys/
+boundaries use Typing policy independently from Daily; stale cursors return a typed reset conflict.
+See `typing-periods.json` and the B4 contract. No frontend calendar inference or new UI controls.

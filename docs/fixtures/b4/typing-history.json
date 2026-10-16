@@ -1,12 +1,17 @@
 {
   "first_page": {
+    "period": "all",
+    "period_key": null,
+    "period_start": null,
+    "period_end": null,
     "items": [
       {
+        "reset_period": "2026-10-16T00:00:00+00:00",
         "score": 5700,
-        "attempt_id": "60ad8f92-c09d-4808-b97e-124767011bc0",
+        "attempt_id": "378d71cb-602e-4db5-916b-735e6e841cb4",
         "status": "VALID",
-        "started_at": "2026-10-16T07:21:55.164Z",
-        "submitted_at": "2026-10-16T07:22:00.164Z",
+        "started_at": "2026-10-16T07:43:48.411Z",
+        "submitted_at": "2026-10-16T07:43:53.411Z",
         "accuracy_bps": 10000,
         "wpm": 57,
         "reward_amount": 70,
@@ -18,13 +23,18 @@
     "next_cursor": 3
   },
   "last_page": {
+    "period": "all",
+    "period_key": null,
+    "period_start": null,
+    "period_end": null,
     "items": [
       {
+        "reset_period": "2026-10-16T00:00:00+00:00",
         "score": 0,
-        "attempt_id": "8400d060-cba2-4932-842a-86d61f8c8032",
+        "attempt_id": "1d27a678-00cb-4d61-bae9-6c09521edf01",
         "status": "REJECTED",
-        "started_at": "2026-10-16T07:21:50.164Z",
-        "submitted_at": "2026-10-16T07:21:55.164Z",
+        "started_at": "2026-10-16T07:43:43.411Z",
+        "submitted_at": "2026-10-16T07:43:48.411Z",
         "accuracy_bps": 0,
         "wpm": 57,
         "reward_amount": 0,
@@ -35,6 +45,6 @@
     ],
     "next_cursor": null
   },
-  "unfinished_is_omitted": "4b41375f-7d36-4413-a1de-14c6749283ab",
+  "unfinished_is_omitted": "053d1649-8b64-4ecd-b5fb-ea3aee5d040a",
   "duplicate_created": false
 }

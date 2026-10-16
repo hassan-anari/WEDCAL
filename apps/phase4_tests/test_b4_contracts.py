@@ -2,7 +2,7 @@
 # mypy: disable-error-code="no-untyped-def,no-untyped-call"
 import json
 import os
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -381,3 +381,271 @@ def test_dlx_api_reports_only_confirmed_allocation_and_audited_adjustments(
     assert other.json()["confirmed"] == 0
     if os.getenv("B4_EXPORT_FIXTURES"):
         Path("docs/fixtures/b4/dlx-confirmed.json").write_text(json.dumps(values, indent=2) + "\n")
+
+
+def test_invitee_and_group_images_return_only_private_capabilities_and_actor_data(
+    phase4_api, settings, player_factory
+):
+    from apps.network.models import CreatorGroupRegistration
+    from apps.players.avatars import avatar_url, fingerprint
+    from apps.players.models import GroupAvatar, PlayerAvatar
+    from apps.referrals.models import ReferralRelation
+    from apps.telegram.models import TelegramGroup
+
+    client, token, config, season = phase4_api
+    headers = auth(token)
+    client.get("/api/v1/bootstrap", **headers)
+    creator = Player.objects.get(telegram_user_id=9001)
+    invitee = player_factory(10001)
+    invitee.photo_url = "https://t.me/i/userpic/unsafe-direct-fallback.jpg"
+    invitee.save(update_fields=["photo_url"])
+    ReferralRelation.objects.create(inviter=creator, invitee=invitee, attributed_at=timezone.now())
+    settings.AVATAR_CACHE_ENABLED = True
+    settings.AVATAR_S3_BUCKET = "isolated-private"
+    settings.AVATAR_PUBLIC_API_ORIGIN = "https://api.example.com"
+    # Metadata is never returned in the private invitee field, including during cache misses.
+    assert avatar_url(invitee, private_only=True) == ""
+    response = client.get("/api/v1/referrals/invitees", **headers)
+    assert response.json()["items"][0]["photo_url"] == ""
+    image = PlayerAvatar.objects.get(player=invitee)
+    image.object_key = "avatars/isolated.jpg"
+    image.expires_at = timezone.now() + timedelta(hours=1)
+    image.source_fingerprint = fingerprint(invitee)
+    image.save()
+    # A /start-only invitee needs no Mini App metadata for its cached photo.
+    invitee.photo_url = ""
+    invitee.save(update_fields=["photo_url"])
+    image.source_fingerprint = fingerprint(invitee)
+    image.save()
+    assert invitee.first_mini_app_at is None
+    invitees = client.get("/api/v1/referrals/invitees", **headers).json()
+    assert invitees["items"][0]["photo_url"].startswith(
+        "https://api.example.com/api/v1/profile/avatar/"
+    )
+    settings.GROUP_IMAGE_CACHE_ENABLED = True
+    settings.GROUP_IMAGE_S3_ENDPOINT_URL = "https://s3.example.com"
+    settings.GROUP_IMAGE_S3_BUCKET = "isolated-groups"
+    settings.GROUP_IMAGE_S3_ACCESS_KEY_ID = "synthetic-group-key"
+    settings.GROUP_IMAGE_S3_SECRET_ACCESS_KEY = "synthetic-group-secret"
+    group = TelegramGroup.objects.create(
+        telegram_chat_id=-10001,
+        title="Synthetic connected community",
+        chat_type="supergroup",
+        first_seen_at=timezone.now(),
+        last_seen_at=timezone.now(),
+    )
+    CreatorGroupRegistration.objects.create(
+        creator=creator, group=group, next_verification_at=timezone.now() + timedelta(hours=1)
+    )
+    GroupAvatar.objects.create(
+        group=group,
+        object_key="group-images/12345678.jpg",
+        expires_at=timezone.now() + timedelta(hours=1),
+        refresh_after=timezone.now() + timedelta(hours=1),
+    )
+    groups = client.get("/api/v1/network/groups", **headers).json()
+    assert groups["items"][0]["photo_url"].startswith(
+        "https://api.example.com/api/v1/profile/group-avatar/"
+    )
+    for path in ["/referrals/invitees", "/network/groups"]:
+        foreign = client.get("/api/v1" + path, **auth(token, 9002))
+        assert foreign.status_code == 200 and foreign.json()["items"] == []
+    if os.getenv("B4_EXPORT_FIXTURES"):
+        Path("docs/fixtures/b4/private-images.json").write_text(
+            json.dumps({"invitees": invitees, "groups": groups}, indent=2) + "\n"
+        )
+
+
+def test_notification_http_navigation_read_state_and_typed_errors(phase4_api):
+    from apps.notifications.models import Notification
+
+    client, token, config, season = phase4_api
+    headers = auth(token)
+    client.get("/api/v1/bootstrap", **headers)
+    player = Player.objects.get(telegram_user_id=9001)
+    notification = Notification.objects.create(
+        recipient=player,
+        event_key="CLAN_ACCESS_LOST",
+        source_domain="CLAN",
+        source_type="SYNTHETIC_REVIEW",
+        source_id="b4-fixture",
+        idempotency_key="b4-notification-fixture",
+        title="Clan access changed",
+        body="Your access needs review.",
+        payload={"url": "javascript:alert(1)"},
+    )
+    page = client.get("/api/v1/notifications", **headers)
+    assert page.status_code == 200 and page.json()["unread_count"] == 1
+    assert page.json()["items"][0]["deep_link"] == {"path": "/clan"}
+    foreign = client.post(
+        f"/api/v1/notifications/{notification.public_id}/read", **auth(token, 9002)
+    )
+    assert foreign.status_code == 404
+    read = client.post("/api/v1/notifications/read-all", **headers)
+    assert read.json() == {"updated_count": 1, "unread_count": 0}
+    assert client.post("/api/v1/notifications/read-all", **headers).json()["updated_count"] == 0
+    auth_error = client.get("/api/v1/typing/history")
+    bad_page = client.get("/api/v1/typing/history?cursor=-1", **headers)
+    bad_season = client.get("/api/v1/arena/dlx?season=missing", **headers)
+    assert auth_error.status_code == 401
+    assert bad_page.status_code == 422
+    assert bad_season.status_code == 409
+    if os.getenv("B4_EXPORT_FIXTURES"):
+        Path("docs/fixtures/b4/notifications-errors.json").write_text(
+            json.dumps(
+                {
+                    "notifications": page.json(),
+                    "read_all": read.json(),
+                    "errors": [
+                        {"status": response.status_code, "body": response.json()}
+                        for response in [auth_error, bad_page, bad_season, foreign]
+                    ],
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+
+
+def test_add_bot_intent_keeps_bodyless_compatibility_and_requires_real_boolean(
+    phase4_api, settings
+):
+    from apps.network.models import CreatorRegistrationIntent
+
+    client, token, config, season = phase4_api
+    settings.TELEGRAM_BOT_USERNAME = "SyntheticB4Bot"
+    headers = auth(token)
+    response = client.generic("POST", "/api/v1/network/groups/intents", data=b"", **headers)
+    assert response.status_code == 200, response.content
+    assert not CreatorRegistrationIntent.objects.get().authorize_group_messages
+    invalid = client.post(
+        "/api/v1/network/groups/intents",
+        data=json.dumps({"authorize_group_messages": "true"}),
+        content_type="application/json",
+        **headers,
+    )
+    assert invalid.status_code == 422
+    accepted = client.post(
+        "/api/v1/network/groups/intents",
+        data=json.dumps({"authorize_group_messages": True}),
+        content_type="application/json",
+        **headers,
+    )
+    assert accepted.status_code == 200
+    assert CreatorRegistrationIntent.objects.filter(authorize_group_messages=True).count() == 1
+
+
+def test_typing_current_history_reset_pagination_and_independent_timezone(
+    client, settings, monkeypatch, phase4_config_factory, season_factory, player_factory
+):
+    from apps.core.periods import resolve_daily_period
+    from apps.telegram.auth import verify_init_data
+    from apps.typing_game.models import TypingPhrase
+    from apps.typing_game.services import start_attempt, submit_attempt
+
+    clock = [datetime(2026, 1, 2, 9, 59, 50, tzinfo=UTC)]
+    monkeypatch.setattr(timezone, "now", lambda: clock[0])
+    # Retain real HMAC/auth verification, injecting only the deterministic server clock.
+    monkeypatch.setattr(
+        "apps.telegram.mini_app_auth.verify_init_data",
+        lambda raw, **kwargs: verify_init_data(raw, now=clock[0], **kwargs),
+    )
+    settings.TELEGRAM_BOT_TOKEN = "123:isolated-period-history"
+
+    def policy(payload):
+        payload["typing"]["reset_timezone"] = "Pacific/Honolulu"
+        payload["daily"]["reset_timezone"] = "UTC"
+
+    config = phase4_config_factory(effective_at=clock[0] - timedelta(days=4), mutate=policy)
+    season_factory(
+        config, starts_at=clock[0] - timedelta(days=3), ends_at=clock[0] + timedelta(days=42)
+    )
+    player = player_factory(9001)
+    TypingPhrase.objects.create(
+        key="period-history", version=1, text="Dexo explorers type", enabled=True
+    )
+    period = resolve_daily_period(clock[0], "Pacific/Honolulu")
+    daily = resolve_daily_period(clock[0], "UTC")
+    assert period.start != daily.start
+
+    def run(key, at):
+        attempt, _ = start_attempt(player, key, at)
+        submitted, _ = submit_attempt(
+            player, attempt.public_id, attempt.phrase.text, at + timedelta(seconds=5)
+        )
+        return submitted
+
+    previous = run("previous-period", period.start - timedelta(seconds=10))
+    early = run("current-early", daily.start + timedelta(seconds=1))
+    recent = run("current-recent", clock[0] - timedelta(seconds=10))
+
+    def get(user=9001, query=""):
+        response = client.get(
+            "/api/v1/typing/history?period=current" + query,
+            **auth(settings.TELEGRAM_BOT_TOKEN, user),
+        )
+        assert response.status_code == 200, response.content
+        return response.json()
+
+    first = get(query="&limit=1")
+    assert first["period"] == "current" and first["period_key"] == period.key
+    assert first["items"][0]["attempt_id"] == str(recent.public_id)
+    assert first["items"][0]["reset_period"] == period.key
+    second = get(query=f"&limit=1&cursor={first['next_cursor']}")
+    assert [row["attempt_id"] for row in second["items"]] == [str(early.public_id)]
+    assert second["next_cursor"] is None
+    empty = get(user=9002)
+    assert empty["items"] == [] and empty["period_key"] == period.key
+    foreign = client.get(
+        f"/api/v1/typing/history?period=current&cursor={first['next_cursor']}",
+        **auth(settings.TELEGRAM_BOT_TOKEN, 9002),
+    )
+    assert foreign.status_code == 422
+    assert previous.reset_period != period.key
+    # A real run started just before reset retains its original quota/reward provenance.
+    clock[0] = period.end - timedelta(seconds=1)
+    crossing, _ = start_attempt(player, "crosses-reset", clock[0])
+    clock[0] = period.end
+    boundary = get()
+    assert boundary["items"] == [] and boundary["period_key"] != first["period_key"]
+    stale = client.get(
+        f"/api/v1/typing/history?period=current&cursor={first['next_cursor']}",
+        **auth(settings.TELEGRAM_BOT_TOKEN),
+    )
+    assert stale.status_code == 409 and stale.json()["code"] == "TYPING_PERIOD_CHANGED"
+    clock[0] += timedelta(seconds=4)
+    submit_attempt(player, crossing.public_id, crossing.phrase.text, clock[0])
+    assert get()["items"] == []  # Submitted after reset, but belongs to previous Typing period.
+    clock[0] += timedelta(seconds=1)
+    new = run("new-period", clock[0])
+    clock[0] += timedelta(seconds=5)
+    after = get()
+    assert [row["attempt_id"] for row in after["items"]] == [str(new.public_id)]
+    all_runs = client.get(
+        "/api/v1/typing/history?period=all", **auth(settings.TELEGRAM_BOT_TOKEN)
+    ).json()
+    assert len(all_runs["items"]) == 5 and all_runs["period_key"] is None
+    assert all_runs["period_start"] is None and all_runs["period_end"] is None
+    assert (
+        client.get(
+            "/api/v1/typing/history?period=guessed", **auth(settings.TELEGRAM_BOT_TOKEN)
+        ).status_code
+        == 422
+    )
+    assert not RewardLedger.objects.exists()  # Wallet credit is still separate from canonical XP.
+    if os.getenv("B4_EXPORT_FIXTURES"):
+        Path("docs/fixtures/b4/typing-periods.json").write_text(
+            json.dumps(
+                {
+                    "first_page": first,
+                    "last_page": second,
+                    "empty": empty,
+                    "exact_reset": boundary,
+                    "stale_cursor": stale.json(),
+                    "new_period": after,
+                    "all": all_runs,
+                },
+                indent=2,
+            )
+            + "\n"
+        )

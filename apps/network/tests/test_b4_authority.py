@@ -125,3 +125,40 @@ def test_creator_authority_loss_prevents_later_broadcast_send(audience_world, mo
     deliver_broadcasts()
     target = row.recipients.get()
     assert target.state == "SKIPPED" and not calls
+
+
+@pytest.mark.parametrize(
+    "interleaving", ["registration_inactive", "bot_removed", "consent_revoked"]
+)
+def test_registration_consent_rechecks_state_after_external_verification(
+    registration_world, monkeypatch, interleaving
+):
+    creator, group = registration_world
+    intent, link = create_registration_intent(creator, authorize_group_messages=True)
+    registration = consume_registration_token(link.split("startgroup=", 1)[1], creator, group)
+    assert registration
+    CreatorGroupRegistration.objects.filter(pk=registration.pk).update(state="ACTIVE")
+
+    def verify(*args):
+        # Deterministically interleave a committed authority/revocation change during network I/O.
+        if interleaving == "registration_inactive":
+            CreatorGroupRegistration.objects.filter(pk=registration.pk).update(state="INACTIVE")
+        elif interleaving == "bot_removed":
+            TelegramGroup.objects.filter(pk=group.pk).update(
+                bot_is_admin=False,
+                bot_membership_status="left",
+                bot_membership_last_update_id=123,
+            )
+        else:
+            GroupBroadcastSubscription.objects.create(
+                group=group,
+                enabled=False,
+                revision=1,
+                authorized_telegram_user_id=creator.telegram_user_id,
+                revoked_at=timezone.now(),
+            )
+        return True
+
+    monkeypatch.setattr("apps.notifications.audiences.verify_group", verify)
+    grant_registration_consent(registration.pk)
+    assert not GroupBroadcastSubscription.objects.filter(enabled=True).exists()

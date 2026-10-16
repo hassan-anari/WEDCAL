@@ -5,8 +5,8 @@ from typing import Literal
 from django.http import HttpRequest
 from django.utils import timezone
 from ninja import Router, Schema
-from ninja.errors import HttpError
 
+from apps.core.b3 import B3Error, b3_responses
 from apps.notifications.models import Notification
 from apps.notifications.services import mark_read
 from apps.players.models import Player
@@ -46,7 +46,7 @@ class NotificationPage(Schema):
     unread_count: int
 
 
-@router.get("", response=NotificationPage)
+@router.get("", response=b3_responses(NotificationPage))
 def list_notifications(
     request: HttpRequest, cursor: int | None = None, limit: int = 20
 ) -> NotificationPage:
@@ -88,7 +88,7 @@ class ReadAllOutput(Schema):
     unread_count: int
 
 
-@router.post("/read-all", response=ReadAllOutput)
+@router.post("/read-all", response=b3_responses(ReadAllOutput))
 def read_all(request: HttpRequest) -> ReadAllOutput:
     player = getattr(request, "auth", None)
     assert isinstance(player, Player)
@@ -105,14 +105,14 @@ def read_all(request: HttpRequest) -> ReadAllOutput:
     return ReadAllOutput(updated_count=updated, unread_count=unread)
 
 
-@router.post("/{notification_id}/read", response=NotificationOut)
+@router.post("/{notification_id}/read", response=b3_responses(NotificationOut))
 def read_notification(request: HttpRequest, notification_id: uuid.UUID) -> NotificationOut:
     player = getattr(request, "auth", None)
     assert isinstance(player, Player)
     try:
         n = mark_read(recipient=player, public_id=notification_id)
     except Notification.DoesNotExist as exc:
-        raise HttpError(404, "Notification not found") from exc
+        raise B3Error("NOTIFICATION_NOT_FOUND", 404) from exc
     return NotificationOut(
         deep_link=deep_link(n),
         id=n.public_id,

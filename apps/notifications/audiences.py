@@ -125,7 +125,19 @@ def grant_registration_consent(registration_id: int) -> None:
         if not verify_group(registration.group, registration.creator.telegram_user_id):
             return
         with transaction.atomic():
-            TelegramGroup.objects.select_for_update().get(pk=registration.group_id)
+            locked_group = TelegramGroup.objects.select_for_update().get(pk=registration.group_id)
+            current = CreatorGroupRegistration.objects.select_for_update().get(pk=registration_id)
+            if (
+                current.state != "ACTIVE"
+                or current.creator_id != registration.creator_id
+                or current.authorization_intent_id != intent.pk
+                or (
+                    locked_group.bot_membership_last_update_id
+                    != registration.group.bot_membership_last_update_id
+                    and not locked_group.bot_is_admin
+                )
+            ):
+                return
             if GroupBroadcastSubscription.objects.filter(group=registration.group).exists():
                 return
             row = GroupBroadcastSubscription.objects.create(

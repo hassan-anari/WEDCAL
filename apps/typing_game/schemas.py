@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from ninja import Schema
@@ -51,6 +52,7 @@ class TypingClaimOutput(Schema):
 
 
 class RunOutput(Schema):
+    reset_period: str
     score: int | None
     attempt_id: UUID
     status: str
@@ -65,5 +67,9 @@ class RunOutput(Schema):
 
 
 class HistoryOutput(Schema):
+    period: Literal["all", "current"]
+    period_key: str | None
+    period_start: datetime | None
+    period_end: datetime | None
     items: list[RunOutput]
     next_cursor: int | None

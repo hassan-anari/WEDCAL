@@ -32,7 +32,7 @@
     "streak": 1,
     "cycle_day": 1,
     "reward_amount": 80,
-    "claimed_at": "2026-10-16T07:21:57.311Z",
+    "claimed_at": "2026-10-16T07:43:50.521Z",
     "daily": {
       "claimable": false,
       "already_claimed": true,
@@ -51,10 +51,10 @@
       "period_start": "2026-10-16T00:00:00Z",
       "period_end": "2026-10-17T00:00:00Z",
       "next_reset": "2026-10-17T00:00:00Z",
-      "last_claim_time": "2026-10-16T07:21:57.311Z"
+      "last_claim_time": "2026-10-16T07:43:50.521Z"
     },
     "canonical": {
-      "server_time": "2026-10-16T07:21:57.352Z",
+      "server_time": "2026-10-16T07:43:50.556Z",
       "player_id": "9001",
       "season_id": "phase4-s1",
       "config_version": "api-config",
@@ -104,7 +104,7 @@
     "streak": 1,
     "cycle_day": 1,
     "reward_amount": 80,
-    "claimed_at": "2026-10-16T07:21:57.311Z",
+    "claimed_at": "2026-10-16T07:43:50.521Z",
     "daily": {
       "claimable": false,
       "already_claimed": true,
@@ -123,10 +123,10 @@
       "period_start": "2026-10-16T00:00:00Z",
       "period_end": "2026-10-17T00:00:00Z",
       "next_reset": "2026-10-17T00:00:00Z",
-      "last_claim_time": "2026-10-16T07:21:57.311Z"
+      "last_claim_time": "2026-10-16T07:43:50.521Z"
     },
     "canonical": {
-      "server_time": "2026-10-16T07:21:57.420Z",
+      "server_time": "2026-10-16T07:43:50.612Z",
       "player_id": "9001",
       "season_id": "phase4-s1",
       "config_version": "api-config",
@@ -149,13 +149,13 @@
     "state": "IN_PROGRESS",
     "open_token": "23f316e831e89c9b44e9b6d20c91c7129c8ee242d7cfb2ce781d8cd0705c1f2a",
     "destination_url": "https://example.com",
-    "opened_at": "2026-10-16T07:21:57.444Z"
+    "opened_at": "2026-10-16T07:43:50.632Z"
   },
   "mission_verify": {
     "key": "visit-dalexio",
     "version": 1,
     "state": "REWARD_READY",
-    "verified_at": "2026-10-16T07:21:57.463Z"
+    "verified_at": "2026-10-16T07:43:50.648Z"
   },
   "mission_claim": {
     "reward": {
@@ -190,9 +190,9 @@
     "state": "CLAIMED",
     "created": true,
     "reward_amount": 120,
-    "claimed_at": "2026-10-16T07:21:57.497Z",
+    "claimed_at": "2026-10-16T07:43:50.677Z",
     "canonical": {
-      "server_time": "2026-10-16T07:21:57.527Z",
+      "server_time": "2026-10-16T07:43:50.701Z",
       "player_id": "9001",
       "season_id": "phase4-s1",
       "config_version": "api-config",
@@ -211,18 +211,18 @@
   },
   "typing_start": {
     "created": true,
-    "attempt_id": "0de03d02-1dd7-4be4-b928-8a1c578796ce",
+    "attempt_id": "762024ae-25c1-4e02-afb9-835ac741b85d",
     "phrase_key": "api-phrase",
     "phrase_version": 1,
     "phrase_text": "Dexo typing arena phrase",
-    "started_at": "2026-10-16T07:21:57.546Z",
-    "expires_at": "2026-10-16T07:22:27.546Z",
+    "started_at": "2026-10-16T07:43:50.718Z",
+    "expires_at": "2026-10-16T07:44:20.718Z",
     "challenge_seconds": 30
   },
   "typing_result": {
     "score": 5700,
     "created": true,
-    "attempt_id": "0de03d02-1dd7-4be4-b928-8a1c578796ce",
+    "attempt_id": "762024ae-25c1-4e02-afb9-835ac741b85d",
     "status": "VALID",
     "accuracy_bps": 10000,
     "wpm": 57,
@@ -240,13 +240,18 @@
     }
   },
   "typing_history_unclaimed": {
+    "period": "all",
+    "period_key": null,
+    "period_start": null,
+    "period_end": null,
     "items": [
       {
+        "reset_period": "2026-10-16T00:00:00+00:00",
         "score": 5700,
-        "attempt_id": "0de03d02-1dd7-4be4-b928-8a1c578796ce",
+        "attempt_id": "762024ae-25c1-4e02-afb9-835ac741b85d",
         "status": "VALID",
-        "started_at": "2026-10-16T07:21:52.564Z",
-        "submitted_at": "2026-10-16T07:21:57.572Z",
+        "started_at": "2026-10-16T07:43:45.736Z",
+        "submitted_at": "2026-10-16T07:43:50.745Z",
         "accuracy_bps": 10000,
         "wpm": 57,
         "reward_amount": 70,
@@ -287,7 +292,7 @@
     },
     "created": true,
     "amount": 70,
-    "claimed_at": "2026-10-16T07:21:57.630Z",
+    "claimed_at": "2026-10-16T07:43:50.800Z",
     "typing": {
       "attempts_used": 1,
       "attempts_remaining": 4,
@@ -300,7 +305,7 @@
       "active_attempt_detail": null
     },
     "canonical": {
-      "server_time": "2026-10-16T07:21:57.667Z",
+      "server_time": "2026-10-16T07:43:50.833Z",
       "player_id": "9001",
       "season_id": "phase4-s1",
       "config_version": "api-config",
@@ -318,13 +323,18 @@
     }
   },
   "typing_history_claimed": {
+    "period": "all",
+    "period_key": null,
+    "period_start": null,
+    "period_end": null,
     "items": [
       {
+        "reset_period": "2026-10-16T00:00:00+00:00",
         "score": 5700,
-        "attempt_id": "0de03d02-1dd7-4be4-b928-8a1c578796ce",
+        "attempt_id": "762024ae-25c1-4e02-afb9-835ac741b85d",
         "status": "VALID",
-        "started_at": "2026-10-16T07:21:52.564Z",
-        "submitted_at": "2026-10-16T07:21:57.572Z",
+        "started_at": "2026-10-16T07:43:45.736Z",
+        "submitted_at": "2026-10-16T07:43:50.745Z",
         "accuracy_bps": 10000,
         "wpm": 57,
         "reward_amount": 70,
@@ -365,7 +375,7 @@
     },
     "created": false,
     "amount": 70,
-    "claimed_at": "2026-10-16T07:21:57.630Z",
+    "claimed_at": "2026-10-16T07:43:50.800Z",
     "typing": {
       "attempts_used": 1,
       "attempts_remaining": 4,
@@ -378,7 +388,7 @@
       "active_attempt_detail": null
     },
     "canonical": {
-      "server_time": "2026-10-16T07:21:57.717Z",
+      "server_time": "2026-10-16T07:43:50.881Z",
       "player_id": "9001",
       "season_id": "phase4-s1",
       "config_version": "api-config",
@@ -399,7 +409,7 @@
     "reward": null,
     "created": true,
     "amount": 0,
-    "claimed_at": "2026-10-16T07:21:57.748Z",
+    "claimed_at": "2026-10-16T07:43:50.916Z",
     "typing": {
       "attempts_used": 1,
       "attempts_remaining": 4,
@@ -412,7 +422,7 @@
       "active_attempt_detail": null
     },
     "canonical": {
-      "server_time": "2026-10-16T07:21:57.752Z",
+      "server_time": "2026-10-16T07:43:50.920Z",
       "player_id": "9001",
       "season_id": "phase4-s1",
       "config_version": "api-config",
@@ -431,7 +441,7 @@
   },
   "profile_overview": {
     "canonical": {
-      "server_time": "2026-10-16T07:21:57.776Z",
+      "server_time": "2026-10-16T07:43:50.946Z",
       "player_id": "9001",
       "season_id": "phase4-s1",
       "config_version": "api-config",
@@ -480,7 +490,7 @@
         "key": "first-mission",
         "available_s1": true,
         "unlocked": true,
-        "unlocked_at": "2026-10-16T07:21:57.776Z",
+        "unlocked_at": "2026-10-16T07:43:50.946Z",
         "current_progress": 1,
         "target": 1,
         "point_reward": 0
@@ -741,16 +751,16 @@
       "code": "phase4-s1",
       "title": "Phase 4",
       "status": "ACTIVE",
-      "starts_at": "2026-10-15T07:21:57.227Z",
-      "ends_at": "2026-11-29T07:21:57.227Z"
+      "starts_at": "2026-10-15T07:43:50.442Z",
+      "ends_at": "2026-11-29T07:43:50.442Z"
     },
     "seasons": [
       {
         "code": "phase4-s1",
         "title": "Phase 4",
         "status": "ACTIVE",
-        "starts_at": "2026-10-15T07:21:57.227Z",
-        "ends_at": "2026-11-29T07:21:57.227Z"
+        "starts_at": "2026-10-15T07:43:50.442Z",
+        "ends_at": "2026-11-29T07:43:50.442Z"
       }
     ],
     "warfront": {

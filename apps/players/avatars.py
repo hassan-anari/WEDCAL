@@ -55,9 +55,9 @@ def fingerprint(player: Player) -> str:
     return hashlib.sha256(player.photo_url.encode()).hexdigest()
 
 
-def avatar_url(player: Player) -> str:
+def avatar_url(player: Player, *, private_only: bool = False) -> str:
     if not configured():
-        return player.photo_url
+        return "" if private_only else player.photo_url
     row = PlayerAvatar.objects.filter(player=player).first()
     now = timezone.now()
     if row is None:
@@ -81,7 +81,7 @@ def avatar_url(player: Player) -> str:
     ):
         origin = settings.AVATAR_PUBLIC_API_ORIGIN.rstrip("/")
         return f"{origin}/api/v1/profile/avatar/{row.delivery_id}"
-    return player.photo_url
+    return "" if private_only else player.photo_url
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
