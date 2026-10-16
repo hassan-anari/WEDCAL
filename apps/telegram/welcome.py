@@ -6,7 +6,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from apps.notifications.models import Notification, TelegramDelivery
+from apps.notifications.models import BroadcastSource, Notification, TelegramDelivery
 from apps.players.models import Player
 
 
@@ -18,6 +18,7 @@ def queue_private_message(
     text: str,
     options: dict[str, object] | None = None,
     received_at: datetime | None = None,
+    copy_source: BroadcastSource | None = None,
 ) -> TelegramDelivery:
     notification, _ = Notification.objects.get_or_create(
         idempotency_key=key,
@@ -38,6 +39,7 @@ def queue_private_message(
             "text_snapshot": text,
             "source_received_at": received_at,
             "message_options": options or {},
+            "copy_source": copy_source,
         },
     )
     return delivery

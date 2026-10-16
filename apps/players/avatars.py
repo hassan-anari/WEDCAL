@@ -27,7 +27,23 @@ from apps.players.models import Player, PlayerAvatar
 from apps.telegram.budget import defer_bot_api, reserve_bot_api_budget, retry_after_from_payload
 
 logger = structlog.get_logger(__name__)
-FILE_PATH = re.compile(r"^photos/[A-Za-z0-9_/-]+\.(?:jpg|jpeg|png|webp)$")
+FILE_PATH = re.compile(
+    r"^(?:photos|profile_photos)/[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*\.(?:jpg|jpeg|png|webp)$"
+)
+
+
+class AvatarSourceError(ValueError):
+    """Only literal, server-owned categories may cross the logging boundary."""
+
+    def __init__(self, category: str) -> None:
+        self.category = category
+        super().__init__(category)
+
+
+def error_category(exc: Exception) -> str:
+    if isinstance(exc, (AvatarSourceError, AvatarRetry)):
+        return exc.category
+    return type(exc).__name__[:40]
 
 
 def configured() -> bool:
@@ -111,13 +127,13 @@ def _telegram_request(
     if not settings.TELEGRAM_BOT_TOKEN or not re.fullmatch(
         r"[0-9]+:[A-Za-z0-9_-]+", settings.TELEGRAM_BOT_TOKEN
     ):
-        raise ValueError("bot_configuration")
+        raise AvatarSourceError("bot_configuration")
     denial = reserve_bot_api_budget("avatarFileDownload" if image else path, fail_closed=True)
     if denial is not None:
         raise AvatarRetry(denial.category, denial.retry_after)
     for addr in socket.getaddrinfo("api.telegram.org", 443, type=socket.SOCK_STREAM):
         if not ipaddress.ip_address(addr[4][0]).is_global:
-            raise ValueError("source_address")
+            raise AvatarSourceError("source_address")
     prefix = "file/bot" if image else "bot"
     url = f"https://api.telegram.org/{prefix}{settings.TELEGRAM_BOT_TOKEN}/{path}"
     req = urllib.request.Request(
@@ -131,7 +147,7 @@ def _telegram_request(
     try:
         with opener.open(req, timeout=5) as response:
             if response.status != 200:
-                raise ValueError("source_status")
+                raise AvatarSourceError("source_status")
             mime = response.headers.get_content_type()
             if image and mime not in {
                 "image/jpeg",
@@ -139,10 +155,10 @@ def _telegram_request(
                 "image/webp",
                 "application/octet-stream",
             }:
-                raise ValueError("source_mime")
+                raise AvatarSourceError("source_mime")
             length = response.headers.get("Content-Length")
-            if length and int(length) > limit:
-                raise ValueError("source_size")
+            if length and (not length.isdigit() or int(length) > limit):
+                raise AvatarSourceError("source_size")
             result = bytearray()
             while len(result) <= limit:
                 chunk = response.read(min(65536, limit + 1 - len(result)))
@@ -150,9 +166,9 @@ def _telegram_request(
                     break
                 result.extend(chunk)
                 if monotonic() - started > 10:
-                    raise ValueError("source_timeout")
+                    raise AvatarSourceError("source_timeout")
             if len(result) > limit:
-                raise ValueError("source_size")
+                raise AvatarSourceError("source_size")
             return bytes(result)
     except urllib.error.HTTPError as exc:
         if exc.code != 429:
@@ -168,7 +184,7 @@ def _telegram_request(
 
 def bot_call(method: str, parameters: dict[str, Any]) -> dict[str, Any]:
     if method not in {"getUserProfilePhotos", "getFile", "getChat"}:
-        raise ValueError("source_method")
+        raise AvatarSourceError("source_method")
     payload = json.loads(_telegram_request(method, parameters=parameters))
     if isinstance(payload, dict) and payload.get("error_code") == 429:
         raise _rate_limit(retry_after_from_payload(payload))
@@ -177,7 +193,7 @@ def bot_call(method: str, parameters: dict[str, Any]) -> dict[str, Any]:
         or payload.get("ok") is not True
         or not isinstance(payload.get("result"), dict)
     ):
-        raise ValueError("bot_response")
+        raise AvatarSourceError("bot_response")
     return payload["result"]  # type: ignore[no-any-return]
 
 
@@ -189,28 +205,31 @@ def retrieve_photo(player: Player) -> bytes | None:
         return None
     photo = photos[0][-1]
     if photo.get("file_size", 0) > settings.AVATAR_CACHE_MAX_BYTES:
-        raise ValueError("source_size")
+        raise AvatarSourceError("source_size")
     return retrieve_file(photo["file_id"])
 
 
 def retrieve_file(file_id: str) -> bytes:
     remote = bot_call("getFile", {"file_id": file_id})
+    size = remote.get("file_size", 0)
+    if type(size) is not int or size < 0 or size > settings.AVATAR_CACHE_MAX_BYTES:
+        raise AvatarSourceError("source_size")
     path = remote.get("file_path", "")
     if not isinstance(path, str) or not FILE_PATH.fullmatch(path) or ".." in path or "//" in path:
-        raise ValueError("source_path")
+        raise AvatarSourceError("source_path")
     content = _telegram_request(path, image=True)
     return sanitize_image(content)
 
 
 def sanitize_image(content: bytes) -> bytes:
     if len(content) > settings.AVATAR_CACHE_MAX_BYTES:
-        raise ValueError("source_size")
+        raise AvatarSourceError("source_size")
     with Image.open(io.BytesIO(content)) as image:
         if (
             image.format not in {"JPEG", "PNG", "WEBP"}
             or image.width * image.height > settings.AVATAR_CACHE_MAX_PIXELS
         ):
-            raise ValueError("image_format_or_pixels")
+            raise AvatarSourceError("image_format_or_pixels")
         image.load()
         normalized = image.convert("RGB")
         normalized.thumbnail((512, 512))
@@ -218,7 +237,7 @@ def sanitize_image(content: bytes) -> bytes:
         normalized.save(output, format="JPEG", quality=85)
         result = output.getvalue()
         if len(result) > settings.AVATAR_CACHE_MAX_BYTES:
-            raise ValueError("image_size")
+            raise AvatarSourceError("image_size")
         return result
 
 
@@ -289,7 +308,7 @@ def _refresh_player_avatar(player_id: int, *, at: datetime) -> None:
             exc.retry_after if isinstance(exc, AvatarRetry) else 0,
         )
         delay += random.randint(0, max(0, settings.TELEGRAM_API_RETRY_JITTER_SECONDS))
-        category = exc.category if isinstance(exc, AvatarRetry) else type(exc).__name__[:40]
+        category = error_category(exc)
         PlayerAvatar.objects.filter(player_id=player_id, refresh_token=token).update(
             refresh_token=None,
             last_error_category=category,

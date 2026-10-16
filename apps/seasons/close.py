@@ -178,6 +178,16 @@ def _clan_windows(season: Season, cutoff: datetime) -> DrainEvidence:
     return _evidence("clan_windows", qs, time_field="window_start")
 
 
+@drain_provider("clan_mission_signals")
+def _clan_mission_signals(season: Season, cutoff: datetime) -> DrainEvidence:
+    from apps.clans.models import ClanMissionSignal
+
+    qs = ClanMissionSignal.objects.filter(
+        membership__season=season, occurred_at__lt=cutoff, processed_at__isnull=True
+    )
+    return _evidence("clan_mission_signals", qs, time_field="occurred_at")
+
+
 @drain_provider("clan_open_work")
 def _clan_open_work(season: Season, cutoff: datetime) -> DrainEvidence:
     open_cases = ClanGovernanceCase.objects.filter(

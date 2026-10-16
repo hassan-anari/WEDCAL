@@ -97,7 +97,7 @@ def operator(settings, monkeypatch):
     return row
 
 
-def test_full_private_panel_draft_preview_confirm_progress_cancel_and_replay(operator):
+def test_full_private_panel_draft_preview_confirm_progress_cancel_and_replay(operator, monkeypatch):
     process(message())
     process(callback(2, token("compose")))
     process(message(3, text="Exact plain text <b>stays literal</b>"))
@@ -106,6 +106,19 @@ def test_full_private_panel_draft_preview_confirm_progress_cancel_and_replay(ope
     assert campaign.state == "DRAFT" and campaign.audience_type == "BOTH"
     preview = TelegramDelivery.objects.get(notification__idempotency_key="bot-panel:4:preview")
     assert preview.text_snapshot == campaign.body_snapshot and preview.message_options == {}
+    from apps.notifications.services import deliver_one_notification
+    from apps.telegram.bot_api import TelegramResult
+
+    calls = []
+
+    def native_preview(method, parameters):
+        calls.append((method, parameters))
+        return TelegramResult(True, {"message_id": 999})
+
+    monkeypatch.setattr("apps.telegram.bot_api.request", native_preview)
+    assert preview.copy_source_id == campaign.copy_source_id
+    deliver_one_notification(preview.pk)
+    assert calls[0][0] == "copyMessage"
     confirmation = token("confirm")
     process(callback(5, confirmation))
     campaign.refresh_from_db()

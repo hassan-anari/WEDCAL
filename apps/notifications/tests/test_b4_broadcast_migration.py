@@ -61,6 +61,9 @@ def test_upgrade_preserves_legacy_targets_preferences_and_confirmation_scope():
         original = Subscription.objects.filter(pk=subscription.pk).values().get()
         executor = MigrationExecutor(connection)
         executor.migrate([current])
+        # B5 adds source columns; restore current leaves before using runtime models.
+        executor = MigrationExecutor(connection)
+        executor.migrate(executor.loader.graph.leaf_nodes())
         legacy = BroadcastCampaign.objects.get(pk=campaign.pk)
         assert legacy.audience_policy_version == 1
         assert (
@@ -82,4 +85,5 @@ def test_upgrade_preserves_legacy_targets_preferences_and_confirmation_scope():
             == 2
         )
     finally:
-        MigrationExecutor(connection).migrate([current])
+        executor = MigrationExecutor(connection)
+        executor.migrate(executor.loader.graph.leaf_nodes())

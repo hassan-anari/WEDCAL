@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal, cast
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import models
@@ -7,6 +8,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import Router, Schema
 from ninja.errors import HttpError
+from pydantic import Field
 
 from apps.clans.governance import cast_vote, open_case, request_dissolution
 from apps.clans.models import (
@@ -29,6 +31,7 @@ from apps.clans.services import (
     request_join,
     voluntary_leave,
 )
+from apps.core.b3 import B3Error, b3_responses
 from apps.game_config.services import (
     ResolvedGameConfig,
     resolve_effective_game_config,
@@ -44,7 +47,7 @@ router = Router(tags=["clans"], auth=mini_app_auth)
 
 
 class RoleIn(Schema):
-    role: str
+    role: Literal["CAPTAIN", "SOLDIER"]
 
 
 class RoleOut(Schema):
@@ -55,13 +58,18 @@ class GroupOut(Schema):
     id: int
     title: str
     username: str
+    verification_state: Literal["CANDIDATE", "VERIFIED"] = "CANDIDATE"
+    member_count: int | None = None
+    image_url: str | None = None
 
 
 class ClanCreateIn(Schema):
-    telegram_group_id: int
-    name: str
-    tag: str
-    motto: str = ""
+    telegram_group_id: int = Field(
+        gt=0, description="Internal group ID from eligible-groups; never a raw Telegram chat ID"
+    )
+    name: str = Field(min_length=2, max_length=64)
+    tag: str = Field(min_length=2, max_length=12)
+    motto: str = Field(default="", max_length=160)
 
 
 class ClanOut(Schema):
@@ -73,6 +81,10 @@ class ClanOut(Schema):
     capacity: int
     accepting_members: bool
     rank: int | None = None
+    level: int = 1
+    score: int = 0
+    state: str = "ACTIVE"
+    image_url: str | None = None
 
 
 class DecisionIn(Schema):
@@ -100,6 +112,9 @@ class InviteOut(Schema):
 
 
 class MembershipOut(Schema):
+    membership_id: int
+    clan_season_id: int
+    access_rejoin_deadline: datetime | None
     clan_id: int
     clan_name: str
     role: str
@@ -113,6 +128,10 @@ class StateOut(Schema):
     role: str | None
     cooldown_until: datetime | None
     voluntary_leave_count: int
+    unlock_level: int | None
+    max_voluntary_leaves: int
+    leave_cooldown_hours: int
+    owner_decisions_pending: list[str] = ["PH-045", "PH-048"]
 
 
 class RemovalCaseIn(Schema):
@@ -121,7 +140,7 @@ class RemovalCaseIn(Schema):
 
 
 class VoteIn(Schema):
-    choice: str
+    choice: Literal["YES", "NO"]
 
 
 class GovernanceOut(Schema):
@@ -129,6 +148,9 @@ class GovernanceOut(Schema):
     case_type: str
     status: str
     voting_deadline: datetime
+    quorum_bps: int
+    approval_bps: int
+    minimum_eligible_voters: int
     eligible_count: int
     reason: str
     target_membership_id: int | None
@@ -198,7 +220,7 @@ class ShopItemOut(Schema):
 
 
 class IdempotencyIn(Schema):
-    idempotency_key: str
+    idempotency_key: str = Field(min_length=1, max_length=200)
 
 
 class InventoryOut(Schema):
@@ -221,6 +243,19 @@ class ClanMissionOut(Schema):
     ends_at: datetime
     progress_units: int
     completed: bool
+    requirement: str
+    availability: Literal["AVAILABLE", "UNAVAILABLE"]
+    blocked_reason: str | None
+    participant_gross_points: int | None
+    direct_hq_xp: int | None
+    reward_state: str
+    own_player_reward: int | None
+
+
+def own_mission_reward(participation) -> int | None:  # type: ignore[no-untyped-def]
+    if participation is None or participation.reward_settlement is None:
+        return None
+    return int(participation.reward_settlement.player_amount)
 
 
 def player(request: HttpRequest) -> Player:
@@ -239,6 +274,9 @@ def governance_out(row: ClanGovernanceCase, viewer: Player) -> GovernanceOut:
         case_type=row.case_type,
         status=row.status,
         voting_deadline=row.voting_deadline,
+        quorum_bps=row.quorum_bps,
+        approval_bps=row.approval_bps,
+        minimum_eligible_voters=row.minimum_eligible_voters,
         eligible_count=row.eligible_count,
         reason=row.reason,
         target_membership_id=row.target_membership_id,
@@ -258,14 +296,24 @@ def context() -> tuple[Season, ResolvedGameConfig]:
     try:
         season = resolve_current_season(at=now)
     except (NoActiveSeason, SeasonNotEligible) as exc:
-        raise HttpError(409, "No current Clan Season is available") from exc
+        raise B3Error("SEASON_UNAVAILABLE") from exc
     if season is None:
-        raise HttpError(409, "No current Clan Season is available")
+        raise B3Error("SEASON_UNAVAILABLE")
     return season, resolve_effective_game_config(now)
 
 
-def fail(exc: Exception) -> HttpError:
-    return HttpError(403 if isinstance(exc, PermissionDenied) else 409, str(exc))
+def fail(exc: Exception) -> B3Error:
+    if isinstance(exc, PermissionDenied):
+        return B3Error("CLAN_FORBIDDEN", 403)
+    if isinstance(exc, IdempotencyConflict):
+        return B3Error("IDEMPOTENCY_CONFLICT")
+    if isinstance(
+        exc, (ClanSeason.DoesNotExist, ClanMembership.DoesNotExist, ClanGovernanceCase.DoesNotExist)
+    ):
+        return B3Error("CLAN_NOT_FOUND", 404)
+    if isinstance(exc, ValidationError) and any("PH-045" in message for message in exc.messages):
+        return B3Error("CLAN_OWNER_DECISION_REQUIRED")
+    return B3Error("CLAN_STATE_CONFLICT")
 
 
 def clan_out(row: ClanSeason, policy=None) -> ClanOut:  # type: ignore[no-untyped-def]
@@ -276,7 +324,14 @@ def clan_out(row: ClanSeason, policy=None) -> ClanOut:  # type: ignore[no-untype
 
     policy = policy or resolve_game_config_version(row.config_version_id).clan
     assert policy is not None
+    from apps.clans.economy import hq_rule
+    from apps.players.group_avatars import group_avatar_url
+
     return ClanOut(
+        image_url=group_avatar_url(row.clan.telegram_group) or None,
+        level=hq_rule(policy, row.hq_xp).level,
+        score=row.competitive_score,
+        state=row.state,
         id=row.clan_id,
         name=row.clan.name,
         tag=row.clan.tag,
@@ -287,7 +342,7 @@ def clan_out(row: ClanSeason, policy=None) -> ClanOut:  # type: ignore[no-untype
     )
 
 
-@router.get("/state", response=StateOut)
+@router.get("/state", response=b3_responses(StateOut))
 def state(request: HttpRequest) -> StateOut:
     season, config = context()
     p = player(request)
@@ -302,6 +357,9 @@ def state(request: HttpRequest) -> StateOut:
         role=row.role if row else None,
         cooldown_until=row.leave_cooldown_until if row else None,
         voluntary_leave_count=row.voluntary_leave_count if row else 0,
+        unlock_level=config.clan.min_level if config.clan else None,
+        max_voluntary_leaves=config.clan.max_voluntary_leaves_per_season if config.clan else 0,
+        leave_cooldown_hours=config.clan.leave_cooldown_hours if config.clan else 0,
     )
 
 
@@ -315,7 +373,7 @@ def current_membership(request: HttpRequest) -> ClanMembership:
     )
 
 
-@router.get("/home", response=ClanHomeOut)
+@router.get("/home", response=b3_responses(ClanHomeOut))
 def home(request: HttpRequest) -> ClanHomeOut:
     membership = current_membership(request)
     cs = membership.clan_season
@@ -345,7 +403,7 @@ def home(request: HttpRequest) -> ClanHomeOut:
     )
 
 
-@router.get("/contributions", response=list[ContributionOut])
+@router.get("/contributions", response=b3_responses(list[ContributionOut]))
 def contributions(request: HttpRequest) -> list[ContributionOut]:
     cs = current_membership(request).clan_season
     return [
@@ -359,7 +417,7 @@ def contributions(request: HttpRequest) -> list[ContributionOut]:
     ]
 
 
-@router.get("/treasury", response=TreasuryOut)
+@router.get("/treasury", response=b3_responses(TreasuryOut))
 def treasury(request: HttpRequest) -> TreasuryOut:
     cs = current_membership(request).clan_season
     history = [
@@ -376,7 +434,7 @@ def treasury(request: HttpRequest) -> TreasuryOut:
     )
 
 
-@router.get("/shop", response=list[ShopItemOut])
+@router.get("/shop", response=b3_responses(list[ShopItemOut]))
 def shop(request: HttpRequest) -> list[ShopItemOut]:
     current_membership(request)
     _, config = context()
@@ -394,7 +452,7 @@ def shop(request: HttpRequest) -> list[ShopItemOut]:
     ]
 
 
-@router.post("/shop/{item_id}/purchase", response=MutationOut)
+@router.post("/shop/{item_id}/purchase", response=b3_responses(MutationOut))
 def purchase(request: HttpRequest, item_id: str, payload: IdempotencyIn) -> MutationOut:
     membership = current_membership(request)
     _, config = context()
@@ -413,7 +471,7 @@ def purchase(request: HttpRequest, item_id: str, payload: IdempotencyIn) -> Muta
         raise fail(exc) from exc
 
 
-@router.get("/inventory", response=list[InventoryOut])
+@router.get("/inventory", response=b3_responses(list[InventoryOut]))
 def inventory(request: HttpRequest) -> list[InventoryOut]:
     return [
         InventoryOut(item_id=x.item_id, quantity=x.quantity)
@@ -421,7 +479,7 @@ def inventory(request: HttpRequest) -> list[InventoryOut]:
     ]
 
 
-@router.post("/inventory/{item_id}/activate", response=MutationOut)
+@router.post("/inventory/{item_id}/activate", response=b3_responses(MutationOut))
 def activate(request: HttpRequest, item_id: str, payload: IdempotencyIn) -> MutationOut:
     membership = current_membership(request)
     _, config = context()
@@ -440,24 +498,47 @@ def activate(request: HttpRequest, item_id: str, payload: IdempotencyIn) -> Muta
         raise fail(exc) from exc
 
 
-@router.get("/missions", response=list[ClanMissionOut])
+@router.get("/missions", response=b3_responses(list[ClanMissionOut]))
 def clan_missions(request: HttpRequest) -> list[ClanMissionOut]:
     membership = current_membership(request)
     from apps.clans.models import ClanMissionDefinition, ClanMissionProgress
 
     now = timezone.now()
-    definitions = ClanMissionDefinition.objects.filter(
-        enabled=True,
-        starts_at__lte=now,
-        ends_at__gt=now,
-        config_version_id=membership.clan_season.config_version_id,
-    ).order_by("ends_at")[:100]
+    definitions = (
+        ClanMissionDefinition.objects.filter(
+            enabled=True,
+            starts_at__lte=now,
+            config_version_id=membership.clan_season.config_version_id,
+        )
+        .filter(
+            models.Q(ends_at__gt=now)
+            | models.Q(
+                clanmissionprogress__clan_season=membership.clan_season,
+                clanmissionprogress__completed_at__isnull=False,
+            )
+        )
+        .distinct()
+        .order_by("-ends_at", "pk")[:100]
+    )
     progress = {
         x.definition_id: x
         for x in ClanMissionProgress.objects.filter(clan_season=membership.clan_season).filter(
             models.Q(membership=membership) | models.Q(membership__isnull=True)
         )
     }
+    from apps.clans.missions import SUPPORTED_REQUIREMENTS
+
+    policy = resolve_game_config_version(membership.clan_season.config_version_id).clan
+    bands = {band.key: band for band in policy.mission_bands} if policy else {}
+    from apps.clans.models import ClanMissionParticipant
+
+    participations = {
+        p.progress.definition_id: p
+        for p in ClanMissionParticipant.objects.filter(
+            membership=membership, progress__clan_season=membership.clan_season
+        ).select_related("progress", "reward_settlement")
+    }
+
     return [
         ClanMissionOut(
             key=row.key,
@@ -469,12 +550,33 @@ def clan_missions(request: HttpRequest) -> list[ClanMissionOut]:
             ends_at=row.ends_at,
             progress_units=progress[row.pk].units if row.pk in progress else 0,
             completed=bool(row.pk in progress and progress[row.pk].completed_at),
+            requirement=row.requirement,
+            availability="AVAILABLE"
+            if row.requirement in SUPPORTED_REQUIREMENTS
+            else "UNAVAILABLE",
+            blocked_reason=None
+            if row.requirement in SUPPORTED_REQUIREMENTS
+            else "MISSION_REQUIREMENT_UNSUPPORTED",
+            participant_gross_points=bands[row.reward_band].participant_gross_points
+            if row.reward_band in bands
+            else None,
+            direct_hq_xp=bands[row.reward_band].direct_hq_xp if row.reward_band in bands else None,
+            reward_state=(
+                "SETTLED"
+                if row.pk in participations and participations[row.pk].reward_settlement_id
+                else "INELIGIBLE"
+                if row.pk in participations and participations[row.pk].reward_eligible is False
+                else "NOT_PARTICIPATING"
+                if row.pk in progress and progress[row.pk].completed_at
+                else "NOT_COMPLETED"
+            ),
+            own_player_reward=own_mission_reward(participations.get(row.pk)),
         )
         for row in definitions
     ]
 
 
-@router.post("/role", response=RoleOut)
+@router.post("/role", response=b3_responses(RoleOut))
 def role(request: HttpRequest, payload: RoleIn) -> RoleOut:
     season, config = context()
     try:
@@ -487,7 +589,7 @@ def role(request: HttpRequest, payload: RoleIn) -> RoleOut:
         raise fail(exc) from exc
 
 
-@router.get("/eligible-groups", response=list[GroupOut])
+@router.get("/eligible-groups", response=b3_responses(list[GroupOut]))
 def groups(request: HttpRequest) -> list[GroupOut]:
     season, config = context()
     try:
@@ -499,7 +601,7 @@ def groups(request: HttpRequest) -> list[GroupOut]:
         raise fail(exc) from exc
 
 
-@router.post("/", response=ClanOut)
+@router.post("/", response=b3_responses(ClanOut))
 def create(request: HttpRequest, payload: ClanCreateIn) -> ClanOut:
     season, config = context()
     try:
@@ -518,14 +620,14 @@ def create(request: HttpRequest, payload: ClanCreateIn) -> ClanOut:
         raise fail(exc) from exc
 
 
-@router.get("/", response=list[ClanOut])
+@router.get("/", response=b3_responses(list[ClanOut]))
 def discover(request: HttpRequest, q: str = "", limit: int = 20, offset: int = 0) -> list[ClanOut]:
     season, _ = context()
     limit = min(max(limit, 1), 100)
     offset = max(offset, 0)
     rows = (
         ClanSeason.objects.filter(season=season, state=ClanSeason.State.ACTIVE)
-        .select_related("clan")
+        .select_related("clan__telegram_group")
         .annotate(
             current_member_count=models.Count(
                 "memberships", filter=models.Q(memberships__ended_at__isnull=True)
@@ -542,7 +644,43 @@ def discover(request: HttpRequest, q: str = "", limit: int = 20, offset: int = 0
     return [clan_out(row, policies[row.config_version_id]) for row in page]
 
 
-@router.post("/join-requests/{request_id}/decision", response=RequestOut)
+class OwnRequestOut(Schema):
+    id: int
+    clan_id: int
+    clan_name: str
+    state: str
+    created_at: datetime
+    decided_at: datetime | None
+    invite_state: str | None
+    delivery_state: str | None
+    cancellation_pending: bool
+
+
+@router.get("/join-requests/current", response=b3_responses(list[OwnRequestOut]))
+def own_requests(request: HttpRequest, limit: int = 20) -> list[OwnRequestOut]:
+    season, _ = context()
+    rows = (
+        ClanJoinRequest.objects.filter(applicant=player(request), clan_season__season=season)
+        .select_related("clan_season__clan", "invite")
+        .order_by("-pk")[: max(1, min(limit, 100))]
+    )
+    return [
+        OwnRequestOut(
+            id=r.pk,
+            clan_id=r.clan_season.clan_id,
+            clan_name=r.clan_season.clan.name,
+            state=r.state,
+            created_at=r.created_at,
+            decided_at=r.decided_at,
+            invite_state=r.invite.state if hasattr(r, "invite") else None,
+            delivery_state=r.invite.delivery_state if hasattr(r, "invite") else None,
+            cancellation_pending=bool(hasattr(r, "invite") and r.invite.desired_terminal_state),
+        )
+        for r in rows
+    ]
+
+
+@router.post("/join-requests/{request_id}/decision", response=b3_responses(RequestOut))
 def decision(request: HttpRequest, request_id: int, payload: DecisionIn) -> RequestOut:
     try:
         row = decide_request(player(request), request_id, accept=payload.accept)
@@ -555,7 +693,7 @@ def decision(request: HttpRequest, request_id: int, payload: DecisionIn) -> Requ
         raise HttpError(404, "Join request not found") from exc
 
 
-@router.delete("/join-requests/{request_id}", response=RequestOut)
+@router.delete("/join-requests/{request_id}", response=b3_responses(RequestOut))
 def cancel(request: HttpRequest, request_id: int) -> RequestOut:
     try:
         row = cancel_request(player(request), request_id)
@@ -566,7 +704,7 @@ def cancel(request: HttpRequest, request_id: int) -> RequestOut:
         raise HttpError(404, "Join request not found") from exc
 
 
-@router.post("/join-requests/{request_id}/revoke", response=RequestOut)
+@router.post("/join-requests/{request_id}/revoke", response=b3_responses(RequestOut))
 def revoke_accepted(request: HttpRequest, request_id: int) -> RequestOut:
     try:
         row = captain_cancel_accepted_request(player(request), request_id)
@@ -577,7 +715,7 @@ def revoke_accepted(request: HttpRequest, request_id: int) -> RequestOut:
         raise HttpError(404, "Join request not found") from exc
 
 
-@router.get("/applicants", response=list[ApplicantOut])
+@router.get("/applicants", response=b3_responses(list[ApplicantOut]))
 def applicants(request: HttpRequest, limit: int = 50) -> list[ApplicantOut]:
     season, _ = context()
     rows = (
@@ -607,7 +745,7 @@ def applicants(request: HttpRequest, limit: int = 50) -> list[ApplicantOut]:
     return result
 
 
-@router.get("/invite/current", response=InviteOut)
+@router.get("/invite/current", response=b3_responses(InviteOut))
 def invite(request: HttpRequest) -> InviteOut:
     owner = player(request)
     row = (
@@ -645,7 +783,9 @@ def invite(request: HttpRequest) -> InviteOut:
     )
 
 
-@router.get("/membership/current", response=MembershipOut | None)
+@router.get(
+    "/membership/current", response={**b3_responses(MembershipOut), 200: MembershipOut | None}
+)
 def membership(request: HttpRequest) -> MembershipOut | None:
     season, _ = context()
     row = (
@@ -657,6 +797,9 @@ def membership(request: HttpRequest) -> MembershipOut | None:
         None
         if row is None
         else MembershipOut(
+            membership_id=row.pk,
+            clan_season_id=row.clan_season_id,
+            access_rejoin_deadline=row.access_rejoin_deadline,
             clan_id=row.clan_season.clan_id,
             clan_name=row.clan_season.clan.name,
             role=row.role,
@@ -666,7 +809,7 @@ def membership(request: HttpRequest) -> MembershipOut | None:
     )
 
 
-@router.post("/leave", response={204: None})
+@router.post("/leave", response={**b3_responses(StateOut), 204: None})
 def leave(request: HttpRequest) -> tuple[int, None]:
     season, config = context()
     try:
@@ -676,7 +819,7 @@ def leave(request: HttpRequest) -> tuple[int, None]:
     return 204, None
 
 
-@router.get("/governance", response=list[GovernanceOut])
+@router.get("/governance", response=b3_responses(list[GovernanceOut]))
 def governance(request: HttpRequest) -> list[GovernanceOut]:
     season, _ = context()
     membership = ClanMembership.objects.filter(
@@ -693,7 +836,7 @@ def governance(request: HttpRequest) -> list[GovernanceOut]:
     return [governance_out(row, viewer) for row in rows]
 
 
-@router.post("/removal-cases", response=GovernanceOut)
+@router.post("/removal-cases", response=b3_responses(GovernanceOut))
 def removal_case(request: HttpRequest, payload: RemovalCaseIn) -> GovernanceOut:
     season, _ = context()
     try:
@@ -718,7 +861,7 @@ def removal_case(request: HttpRequest, payload: RemovalCaseIn) -> GovernanceOut:
         raise fail(exc) from exc
 
 
-@router.post("/governance/{case_id}/vote", response=GovernanceOut)
+@router.post("/governance/{case_id}/vote", response=b3_responses(GovernanceOut))
 def vote(request: HttpRequest, case_id: int, payload: VoteIn) -> GovernanceOut:
     try:
         ballot = cast_vote(case_id=case_id, voter=player(request), choice=payload.choice)
@@ -728,7 +871,7 @@ def vote(request: HttpRequest, case_id: int, payload: VoteIn) -> GovernanceOut:
         raise fail(exc) from exc
 
 
-@router.post("/dissolution", response={204: None, 200: GovernanceOut})
+@router.post("/dissolution", response={**b3_responses(GovernanceOut), 204: None})
 def dissolution(request: HttpRequest):  # type: ignore[no-untyped-def]
     season, _ = context()
     try:
@@ -743,7 +886,7 @@ def dissolution(request: HttpRequest):  # type: ignore[no-untyped-def]
         raise fail(exc) from exc
 
 
-@router.get("/recovery", response=RecoveryOut)
+@router.get("/recovery", response=b3_responses(RecoveryOut))
 def recovery(request: HttpRequest) -> RecoveryOut:
     from apps.clans.governance import clan_home_integrity_available
 
@@ -761,17 +904,258 @@ def recovery(request: HttpRequest) -> RecoveryOut:
     )
 
 
-# Ninja resolves routes in registration order. Keep dynamic identifiers last so
-# static Phase 7A operations are never parsed as integer Clan identifiers.
-@router.get("/{clan_id}", response=ClanOut)
-def details(request: HttpRequest, clan_id: int) -> ClanOut:
-    season, _ = context()
-    return clan_out(
-        get_object_or_404(ClanSeason.objects.select_related("clan"), clan_id=clan_id, season=season)
+class RosterMemberOut(Schema):
+    membership_id: int
+    player_id: int
+    first_name: str
+    username: str
+    level: int | None
+    avatar_url: str
+    role: Literal["CAPTAIN", "SOLDIER"]
+    access_state: str
+    contribution: int
+    started_at: datetime
+    own: bool
+
+
+class RosterPage(Schema):
+    items: list[RosterMemberOut]
+    total_count: int
+    next_offset: int | None
+
+
+@router.get("/roster", response=b3_responses(RosterPage))
+def roster(request: HttpRequest, offset: int = 0, limit: int = 50) -> RosterPage:
+    viewer = player(request)
+    cs = current_membership(request).clan_season
+    offset, limit = max(0, offset), max(1, min(100, limit))
+    query = (
+        cs.memberships.filter(ended_at__isnull=True)
+        .select_related("player__progression")
+        .order_by("-contribution_total", "pk")
+    )
+    rows = list(query[offset : offset + limit + 1])
+    from apps.players.avatars import avatar_url
+
+    return RosterPage(
+        items=[
+            RosterMemberOut(
+                membership_id=m.pk,
+                player_id=m.player_id,
+                first_name=m.player.first_name,
+                username=m.player.username,
+                level=m.player.progression.level if hasattr(m.player, "progression") else None,
+                avatar_url=avatar_url(m.player, private_only=True),
+                role=cast(Literal["CAPTAIN", "SOLDIER"], m.role),
+                access_state=m.access_state,
+                contribution=m.contribution_total,
+                started_at=m.started_at,
+                own=m.player_id == viewer.pk,
+            )
+            for m in rows[:limit]
+        ],
+        total_count=query.count(),
+        next_offset=offset + limit if len(rows) > limit else None,
     )
 
 
-@router.post("/{clan_id}/join-requests", response=RequestOut)
+class EffectRuleOut(Schema):
+    category: str
+    value: int
+
+
+class ItemRuleOut(Schema):
+    item_id: str
+    name: str
+    price: int
+    activation: str | None
+    duration_minutes: int | None
+    effects: list[EffectRuleOut]
+    quantity: int
+    max_uses_per_season: int | None
+    uses_this_season: int
+    can_purchase: bool
+    can_activate: bool
+    blocked_reason: str | None
+
+
+class EffectOut(Schema):
+    id: int
+    item_id: str
+    category: str
+    value: int
+    starts_at: datetime
+    expires_at: datetime
+    effective: bool
+
+
+class EquipmentOut(Schema):
+    config_version: str
+    server_time: datetime
+    items: list[ItemRuleOut]
+    active_effects: list[EffectOut]
+
+
+@router.get("/equipment", response=b3_responses(EquipmentOut))
+def equipment(request: HttpRequest) -> EquipmentOut:
+    membership = current_membership(request)
+    cs = membership.clan_season
+    _, config = context()
+    if config.clan is None:
+        raise B3Error("CLAN_UNAVAILABLE")
+    from apps.clans.economy import _captain, effective_capacity
+
+    now = timezone.now()
+    permitted = config.clan.enabled
+    try:
+        _captain(cs, player(request))
+    except (PermissionDenied, ValidationError):
+        permitted = False
+    quantities = dict(cs.inventory.values_list("item_id", "quantity"))
+    uses = {
+        x["item_id"]: x["n"] for x in cs.item_uses.values("item_id").annotate(n=models.Count("id"))
+    }
+    items = []
+    for item in config.clan.inventory_items:
+        if not item.available_s1:
+            continue
+        count, used = quantities.get(item.item_id, 0), uses.get(item.item_id, 0)
+        reason = None
+        if not permitted:
+            reason = "CAPTAIN_OR_CLAN_STATE_REQUIRED"
+        elif count == 0:
+            reason = "NOT_OWNED"
+        elif item.max_uses_per_season is not None and used >= item.max_uses_per_season:
+            reason = "SEASON_USE_LIMIT"
+        elif any(
+            e.category == "SEASON_CAPACITY_ADD"
+            and effective_capacity(cs, config.clan) + e.value
+            > config.clan.max_capacity_including_items
+            for e in item.effects
+        ):
+            reason = "CAPACITY_LIMIT"
+        items.append(
+            ItemRuleOut(
+                item_id=item.item_id,
+                name=item.name,
+                price=item.price,
+                activation=item.activation,
+                duration_minutes=item.duration_minutes,
+                effects=[EffectRuleOut(category=e.category, value=e.value) for e in item.effects],
+                quantity=count,
+                max_uses_per_season=item.max_uses_per_season,
+                uses_this_season=used,
+                can_purchase=permitted and cs.treasury_balance >= item.price,
+                can_activate=reason is None,
+                blocked_reason=reason,
+            )
+        )
+    effects = list(
+        cs.active_effects.filter(starts_at__lte=now, expires_at__gt=now)
+        .select_related("item_use")
+        .order_by("category", "-value", "pk")
+    )
+    seen = set()
+    output = []
+    for effect in effects:
+        output.append(
+            EffectOut(
+                id=effect.pk,
+                item_id=effect.item_use.item_id,
+                category=effect.category,
+                value=effect.value,
+                starts_at=effect.starts_at,
+                expires_at=effect.expires_at,
+                effective=effect.category not in seen,
+            )
+        )
+        seen.add(effect.category)
+    return EquipmentOut(
+        config_version=config.version, server_time=now, items=items, active_effects=output
+    )
+
+
+class TrophyOut(Schema):
+    key: str
+    current: int | None
+    target: int | None
+    unlocked: bool
+    unlocked_at: datetime | None
+    available: bool
+    blocked_reason: str | None = None
+
+
+@router.get("/trophies", response=b3_responses(list[TrophyOut]))
+def trophies(request: HttpRequest) -> list[TrophyOut]:
+    cs = current_membership(request).clan_season
+    policy = resolve_game_config_version(cs.config_version_id).clan
+    if policy is None:
+        raise B3Error("CLAN_UNAVAILABLE")
+    unlocks = {r.key: r for r in cs.achievement_unlocks.all()}
+    result = [
+        TrophyOut(
+            key="banner-raised",
+            current=None,
+            target=None,
+            unlocked=False,
+            unlocked_at=None,
+            available=False,
+            blocked_reason="PH-048_PRODUCT_DECISION_REQUIRED",
+        )
+    ]
+    for key, current, target in [
+        ("united-front", cs.contribution_total, policy.united_front_threshold),
+        ("treasury-keeper", cs.treasury_earned_total, policy.treasury_keeper_threshold),
+    ]:
+        unlock = unlocks.get(key)
+        result.append(
+            TrophyOut(
+                key=key,
+                current=current,
+                target=target,
+                unlocked=bool(unlock),
+                unlocked_at=unlock.unlocked_at if unlock else None,
+                available=True,
+            )
+        )
+    return result
+
+
+@router.post("/eligible-groups/{group_id}/verify", response=b3_responses(GroupOut))
+def verify_group_candidate(request: HttpRequest, group_id: int) -> GroupOut:
+    season, config = context()
+    try:
+        candidate = eligible_groups(player(request), season, config).filter(pk=group_id).first()
+        if candidate is None:
+            raise PermissionDenied
+        from apps.clans.services import _fresh_authority
+
+        _fresh_authority(player(request), candidate)
+        return GroupOut(
+            id=candidate.pk,
+            title=candidate.title,
+            username=candidate.username,
+            verification_state="VERIFIED",
+        )
+    except (ValidationError, PermissionDenied) as exc:
+        raise fail(exc) from exc
+
+
+# Ninja resolves routes in registration order. Keep dynamic identifiers last so
+# static Phase 7A operations are never parsed as integer Clan identifiers.
+@router.get("/{clan_id}", response=b3_responses(ClanOut))
+def details(request: HttpRequest, clan_id: int) -> ClanOut:
+    season, _ = context()
+    return clan_out(
+        get_object_or_404(
+            ClanSeason.objects.select_related("clan__telegram_group"),
+            clan_id=clan_id,
+            season=season,
+        )
+    )
+
+
+@router.post("/{clan_id}/join-requests", response=b3_responses(RequestOut))
 def join(request: HttpRequest, clan_id: int) -> RequestOut:
     season, config = context()
     cs = get_object_or_404(ClanSeason, clan_id=clan_id, season=season)

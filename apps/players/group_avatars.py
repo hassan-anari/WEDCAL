@@ -12,7 +12,13 @@ from django.utils import timezone
 
 from apps.players.avatar_budget import avatar_refresh_slot
 from apps.players.avatar_storage import S3GroupAvatarStorage
-from apps.players.avatars import AvatarRetry, bot_call, retrieve_file
+from apps.players.avatars import (
+    AvatarRetry,
+    AvatarSourceError,
+    bot_call,
+    error_category,
+    retrieve_file,
+)
 from apps.players.models import GroupAvatar
 from apps.telegram.models import TelegramGroup
 
@@ -58,9 +64,15 @@ def group_avatar_url(group: TelegramGroup) -> str:
 def refresh_group_avatar(group_id: int) -> None:
     if not configured():
         return
+    from apps.clans.models import ClanSeason
     from apps.network.models import CreatorGroupRegistration
 
-    if not CreatorGroupRegistration.objects.filter(group_id=group_id).exists():
+    if not (
+        CreatorGroupRegistration.objects.filter(group_id=group_id).exists()
+        or ClanSeason.objects.filter(
+            clan__telegram_group_id=group_id, state__in=["ACTIVE", "RECOVERY"]
+        ).exists()
+    ):
         return
     now, token = timezone.now(), uuid4()
     with avatar_refresh_slot() as available:
@@ -82,7 +94,7 @@ def refresh_group_avatar(group_id: int) -> None:
             storage = S3GroupAvatarStorage()
             chat = bot_call("getChat", {"chat_id": group.telegram_chat_id})
             if chat.get("id") != group.telegram_chat_id:
-                raise ValueError("group_identity")
+                raise AvatarSourceError("group_identity")
             photo = chat.get("photo") or {}
             file_id = photo.get("big_file_id")
             if file_id:
@@ -109,12 +121,10 @@ def refresh_group_avatar(group_id: int) -> None:
             GroupAvatar.objects.filter(group_id=group_id, refresh_token=token).update(
                 refresh_token=None,
                 refresh_after=now + timedelta(seconds=delay),
-                last_error_category=exc.category
-                if isinstance(exc, AvatarRetry)
-                else type(exc).__name__[:40],
+                last_error_category=error_category(exc),
             )
             structlog.get_logger(__name__).warning(
-                "group_avatar_refresh_failed", group_id=group_id, category=type(exc).__name__
+                "group_avatar_refresh_failed", group_id=group_id, category=error_category(exc)
             )
 
 

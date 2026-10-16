@@ -114,7 +114,10 @@ def emit_notification(
     title: str = "",
     body: str = "",
     telegram: bool = False,
+    template_snapshot: NotificationTemplate | None = None,
 ) -> tuple[Notification, bool]:
+    if template_snapshot is not None and (telegram or template_snapshot.channel != "IN_APP"):
+        raise ValidationError("Explicit announcement snapshots are In-App only")
     safe_payload = payload or {}
     existing = Notification.objects.filter(idempotency_key=idempotency_key).first()
     if existing is not None:
@@ -133,14 +136,14 @@ def emit_notification(
             with transaction.atomic():
                 _ensure_telegram_delivery(existing, recipient)
         return existing, False
-    template = (
+    template = template_snapshot or (
         NotificationTemplate.objects.filter(
             event_key=event_key, channel=NotificationTemplate.Channel.IN_APP, enabled=True
         )
         .order_by("-version")
         .first()
     )
-    if template:
+    if template and template_snapshot is None:
         title, body = template.title, template.body
     try:
         with transaction.atomic():
@@ -273,6 +276,15 @@ def _deliver(row: Delivery, text: str) -> None:
         )
         return
     options = row.message_options if isinstance(row, TelegramDelivery) else {}
+
+    def send_content() -> bot_api.TelegramResult:
+        source = row.copy_source if isinstance(row, TelegramDelivery) else row.campaign.copy_source
+        if source is not None:
+            from apps.notifications.broadcast_content import copy
+
+            return copy(source, row.telegram_user_id)
+        return bot_api.send_message(row.telegram_user_id, text)
+
     if isinstance(row, BroadcastRecipient) and row.target_kind == "GROUP":
         group_id = row.group_id
         if group_id is None and row.group_subscription_id:
@@ -297,7 +309,7 @@ def _deliver(row: Delivery, text: str) -> None:
                     lease_expires_at=None,
                 )
                 return
-            result = bot_api.send_message(row.telegram_user_id, text)
+            result = send_content()
     elif (
         isinstance(row, BroadcastRecipient)
         and not eligible_users()
@@ -312,6 +324,8 @@ def _deliver(row: Delivery, text: str) -> None:
             error_category="private_contact_unavailable",
         )
         return
+    elif isinstance(row, TelegramDelivery) and row.copy_source_id:
+        result = send_content()
     elif options.get("_method") == "answerCallbackQuery":
         result = bot_api.request(
             "answerCallbackQuery", {"callback_query_id": options["callback_query_id"]}
@@ -321,7 +335,7 @@ def _deliver(row: Delivery, text: str) -> None:
             "sendMessage", {"chat_id": row.telegram_user_id, "text": text, **options}
         )
     else:
-        result = bot_api.send_message(row.telegram_user_id, text)
+        result = send_content()
     now = timezone.now()
     with transaction.atomic():
         locked = type(row).objects.select_for_update().get(pk=row.pk)
@@ -331,6 +345,7 @@ def _deliver(row: Delivery, text: str) -> None:
         retry_deadline_passed = (
             now - locked.created_at
         ).total_seconds() > settings.NOTIFICATION_MAX_QUEUE_AGE_SECONDS
+        locked.telegram_message_ids = (result.result or {}).get("message_ids", [])
         if result.ok:
             locked.state, locked.sent_at, locked.completed_at = DeliveryState.SENT, now, now
             message_id = (result.result or {}).get("message_id")
@@ -417,6 +432,9 @@ def queue_campaign(*, campaign: BroadcastCampaign, actor: Any, reason: str) -> B
         and not settings.B3_BROADCAST_AUDIENCES_ENABLED
     ):
         raise ValidationError("B3 broadcast audiences are not enabled")
+    from apps.notifications.broadcast_content import validate_campaign_source
+
+    validate_campaign_source(campaign)
     estimates = estimated_targets(campaign.audience_type)
     campaign.estimated_users, campaign.estimated_groups = estimates["users"], estimates["groups"]
     campaign.audience_policy_version = 2

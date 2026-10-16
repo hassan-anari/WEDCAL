@@ -2,6 +2,7 @@ from datetime import datetime
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import Q
 
 from apps.clans.activity import context_owned_at, home_integrity_at, membership_access_at
 from apps.clans.economy import (
@@ -194,3 +195,141 @@ def record_mission_progress(
         update_fields=("units", "progress_remainder", "completed_at", "reward_settlement")
     )
     return progress
+
+
+SUPPORTED_REQUIREMENTS = {"VALID_CLAN_ACTIVITY", "CLAN_CONTRIBUTION", "VALID_TYPING_RUN"}
+
+
+def queue_mission_signal(
+    *,
+    membership: ClanMembership,
+    source_key: str,
+    requirement: str,
+    units: int,
+    occurred_at: datetime,
+) -> None:
+    from apps.clans.models import ClanMissionSignal
+
+    if requirement not in SUPPORTED_REQUIREMENTS or units <= 0:
+        return
+    signal, created = ClanMissionSignal.objects.get_or_create(
+        source_key=source_key,
+        defaults={
+            "membership": membership,
+            "requirement": requirement,
+            "units": units,
+            "occurred_at": occurred_at,
+        },
+    )
+    if not created and (
+        signal.membership_id,
+        signal.requirement,
+        signal.units,
+        signal.occurred_at,
+    ) != (membership.pk, requirement, units, occurred_at):
+        raise IdempotencyConflict("Clan mission signal identity conflict")
+
+
+def process_mission_signals(*, limit: int = 100) -> int:
+    from datetime import timedelta
+
+    from django.conf import settings
+    from django.db.models import Q
+    from django.utils import timezone
+
+    from apps.clans.models import ClanMissionSignal
+
+    ids = list(
+        ClanMissionSignal.objects.filter(
+            processed_at__isnull=True,
+            next_attempt_at__lte=timezone.now(),
+            attempts__lt=settings.CLAN_MISSION_SIGNAL_MAX_ATTEMPTS,
+        )
+        .order_by("next_attempt_at", "pk")
+        .values_list("pk", flat=True)[: min(max(limit, 1), 500)]
+    )
+    count = 0
+    for pk in ids:
+        try:
+            with transaction.atomic():
+                signal = (
+                    ClanMissionSignal.objects.select_for_update(skip_locked=True, of=("self",))
+                    .select_related("membership__clan_season")
+                    .filter(pk=pk, processed_at__isnull=True)
+                    .first()
+                )
+                if signal is None:
+                    continue
+                from apps.seasons.barrier import acquire_economic_write_barrier
+
+                acquire_economic_write_barrier(signal.membership.season_id)
+                member = signal.membership
+                definitions = ClanMissionDefinition.objects.filter(
+                    enabled=True,
+                    requirement=signal.requirement,
+                    starts_at__lte=signal.occurred_at,
+                    ends_at__gt=signal.occurred_at,
+                    config_version_id=member.clan_season.config_version_id,
+                ).order_by("pk")
+                for definition in definitions:
+                    progress = (
+                        ClanMissionProgress.objects.filter(
+                            definition=definition, clan_season=member.clan_season
+                        )
+                        .filter(Q(membership=member) | Q(membership__isnull=True))
+                        .first()
+                    )
+                    if progress and progress.completed_at:
+                        continue
+                    record_mission_progress(
+                        definition=definition,
+                        membership=member,
+                        source_id=signal.source_key,
+                        units=signal.units,
+                        occurred_at=signal.occurred_at,
+                    )
+                signal.processed_at = timezone.now()
+                signal.error_category = ""
+                signal.save(update_fields=("processed_at", "error_category"))
+                count += 1
+        except Exception:
+            # Preserve the obligation, expose a category, and bound poison-source retry.
+            with transaction.atomic():
+                signal = ClanMissionSignal.objects.select_for_update().get(pk=pk)
+                signal.attempts += 1
+                signal.error_category = "mission_signal_failed"
+                signal.next_attempt_at = timezone.now() + timedelta(
+                    seconds=min(300, 2**signal.attempts)
+                )
+                signal.save(update_fields=("attempts", "error_category", "next_attempt_at"))
+    return count
+
+
+def queue_valid_typing_run(attempt_id: int) -> None:
+    from apps.typing_game.models import TypingAttempt
+
+    attempt = TypingAttempt.objects.get(pk=attempt_id)
+    if attempt.status != TypingAttempt.Status.VALID or not attempt.submitted_at:
+        return
+    member = (
+        ClanMembership.objects.filter(
+            player_id=attempt.player_id,
+            season_id=attempt.season_id,
+            started_at__lte=attempt.submitted_at,
+        )
+        .filter(Q(ended_at__isnull=True) | Q(ended_at__gt=attempt.submitted_at))
+        .first()
+    )
+    if (
+        member
+        and membership_access_at(member, attempt.submitted_at)
+        and home_integrity_at(member.clan_season, attempt.submitted_at)
+        and context_owned_at(member.clan_season, attempt.submitted_at)
+    ):
+        queue_mission_signal(
+            membership=member,
+            source_key=f"typing-run:{attempt.public_id}",
+            requirement="VALID_TYPING_RUN",
+            units=1,
+            occurred_at=attempt.submitted_at,
+        )

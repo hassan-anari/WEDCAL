@@ -1,4 +1,4 @@
-# B5 Backend — implementation in progress
+# B5 Backend — Draft PR #30
 
 Owner-authorized batch: P-10/P-11/P-12 together, post-B4 avatar/Welcome/In-App announcement/banner corrections, and native multimedia Telegram Broadcast. One Draft PR; no merge, deployment, live send or B6 work.
 
@@ -34,4 +34,14 @@ PH-048: `banner-raised` has no concrete server-owned first shared milestone pred
 
 ## Validation / delivery state
 
-Implementation, migrations, fixtures, full PostgreSQL regression, concurrency, compatibility, quality/security CI and paired FROCAL acceptance are pending. No completed behavior or passing test is claimed by this initial handoff.
+Implementation is present in this branch: [actual contract](B5_BACKEND_CONTRACT.md), [operator guide](B5_OPERATOR_GUIDE.md), [generated schema/fixtures](fixtures/b5/).
+
+The targeted B4 corrections passed (62 tests), and the initial native-copy/Clan suite exercised 230 passing tests before fixing three integration test/route expectations. A later isolated HTTP/Welcome fixture run passed 19 tests. These are intermediate overlapping runs, not a full-regression claim. Full final PostgreSQL, migration, quality/security CI and paired FROCAL acceptance remain under verification.
+
+FROCAL main audited: `ef6f1fca4de541e6eb45c9b8bf3e114bbd163cfb`. No open B5 frontend PR was found at task start; no frontend code is changed here. Consumer handoff must map actual fields, use typed destination navigation and pin the new runtime commit rather than the initial handoff commit. Physical Telegram/device and frontend paired acceptance remain separate evidence.
+
+Migrations: `clans.0015_b5_mission_signals`; `notifications.0009_b5_announcements_native_copy`; `notifications.0010_b5_snapshot_guards`. Additive tables/columns and PostgreSQL guards only; no historical economy/campaign/config rewrite. Native source/announcement confirmation guards prevent post-confirmation content mutation. Pending Clan mission signals participate in season-close readiness.
+
+Shared edits are limited to authenticated cache/error metadata, three configured worker/processing settings, native Telegram copy result/budget classification, the existing Typing source adapter, and one season-close drain provider. Reuse canonical Clan services, source-time eligibility, ledgers, rewards and queue infrastructure.
+
+No merge, deployment, real sends or B6 work. Exact runtime SHA and hosted CI/review evidence will be appended after validation.

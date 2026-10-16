@@ -39,6 +39,9 @@ def recover_invite_revocations() -> int:
 
 @shared_task  # type: ignore[untyped-decorator]
 def recover_invite_creation() -> int:
+    from apps.clans.services import terminalize_closed_clan_credentials
+
+    terminalize_closed_clan_credentials()
     return recover_invite_creations()
 
 
@@ -76,3 +79,10 @@ def finalize_clan_governance(limit: int = 100) -> int:
             continue
         completed += 1
     return completed
+
+
+@shared_task  # type: ignore[untyped-decorator]
+def process_clan_mission_signals(limit: int = 100) -> int:
+    from apps.clans.missions import process_mission_signals
+
+    return process_mission_signals(limit=limit)

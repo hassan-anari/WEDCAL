@@ -277,7 +277,9 @@ def cast_vote(
     now = now or timezone.now()
     if choice not in ClanGovernanceVote.Choice.values:
         raise ClanConflict("Invalid vote")
+    identity = ClanGovernanceCase.objects.values("clan_season_id").get(pk=case_id)
     with transaction.atomic():
+        ClanSeason.objects.select_for_update().get(pk=identity["clan_season_id"])
         case = (
             ClanGovernanceCase.objects.select_for_update()
             .select_related("clan_season__season")
@@ -317,7 +319,9 @@ def _dissolve(case: ClanGovernanceCase, now: datetime) -> None:
 
 def finalize_case(case_id: int, *, now: datetime | None = None) -> ClanGovernanceCase:
     now = now or timezone.now()
+    identity = ClanGovernanceCase.objects.values("clan_season_id").get(pk=case_id)
     with transaction.atomic():
+        ClanSeason.objects.select_for_update().get(pk=identity["clan_season_id"])
         case = ClanGovernanceCase.objects.select_for_update().get(pk=case_id)
         if case.status != ClanGovernanceCase.Status.OPEN:
             return case

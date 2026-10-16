@@ -1,5 +1,6 @@
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 
 
 class ClanRole(models.TextChoices):
@@ -727,3 +728,17 @@ class ClanIdempotencyKey(models.Model):
     action = models.CharField(max_length=32)
     semantic_hash = models.CharField(max_length=64)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class ClanMissionSignal(models.Model):
+    """Durable source adapter for the existing mission settlement engine."""
+
+    membership = models.ForeignKey(ClanMembership, on_delete=models.PROTECT)
+    source_key = models.CharField(max_length=128, unique=True)
+    requirement = models.CharField(max_length=64)
+    units = models.PositiveBigIntegerField()
+    occurred_at = models.DateTimeField()
+    processed_at = models.DateTimeField(null=True, db_index=True)
+    next_attempt_at = models.DateTimeField(default=timezone.now, db_index=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    error_category = models.CharField(max_length=64, blank=True)

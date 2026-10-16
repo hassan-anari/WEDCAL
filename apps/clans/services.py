@@ -232,6 +232,10 @@ def register_clan(
         if existing.clan.telegram_group_id == group_id:
             return existing
         raise ClanConflict("Captain already has a Clan this Season")
+    if ClanSeason.objects.filter(
+        captain=player, season=season, state=ClanSeason.State.ENDED
+    ).exists():
+        raise ClanConflict("PH-045 owner decision required for same-Season recreation")
     group = eligible_groups(player, season, resolved).filter(pk=group_id).first()
     if group is None:
         raise PermissionDenied("Telegram group is not eligible")
@@ -260,6 +264,10 @@ def register_clan(
             if existing.clan.telegram_group_id == group.pk:
                 return existing
             raise ClanConflict("Captain already has a Clan this Season")
+        if ClanSeason.objects.filter(
+            captain=player, season=season, state=ClanSeason.State.ENDED
+        ).exists():
+            raise ClanConflict("PH-045 owner decision required for same-Season recreation")
         if ClanMembership.objects.filter(
             player=player, season=season, ended_at__isnull=True
         ).exists():
@@ -1209,3 +1217,35 @@ def close_season_clan_work(season_id: int, *, limit: int = 200) -> dict[str, int
         "unresolved": unresolved,
         "ended": ended,
     }
+
+
+def terminalize_closed_clan_credentials(*, limit: int = 100) -> int:
+    """Bounded scanner preserves unresolved reservations until safe remote revocation."""
+    requests = list(
+        ClanJoinRequest.objects.filter(
+            clan_season__state=ClanSeason.State.ENDED,
+            state__in=[ClanJoinRequest.State.PENDING, ClanJoinRequest.State.ACCEPTED],
+        )
+        .select_related("applicant")
+        .order_by("pk")[:limit]
+    )
+    for row in requests:
+        cancel_request(row.applicant, row.pk)
+    ids = list(
+        ClanInvite.objects.filter(
+            models.Q(join_request__clan_season__state=ClanSeason.State.ENDED)
+            | models.Q(membership__ended_at__isnull=False),
+            state__in=[
+                ClanInvite.State.PENDING,
+                ClanInvite.State.ACTIVE,
+                ClanInvite.State.FAILED,
+                ClanInvite.State.CREATING,
+                ClanInvite.State.UNCERTAIN,
+            ],
+        )
+        .order_by("pk")
+        .values_list("pk", flat=True)[:limit]
+    )
+    for invite_id in ids:
+        queue_invite_revoke(invite_id, terminal=ClanInvite.State.REVOKED)
+    return len(requests) + len(ids)

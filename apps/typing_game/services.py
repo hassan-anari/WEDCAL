@@ -217,6 +217,10 @@ def submit_attempt(
                 attempt_id=str(attempt.public_id),
                 amount=reward,
             )
+        if status == TypingAttempt.Status.VALID:
+            from apps.clans.missions import queue_valid_typing_run
+
+            queue_valid_typing_run(attempt.pk)
     logger.info(
         "typing_attempt_submitted",
         player_id=player.pk,

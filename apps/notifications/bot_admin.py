@@ -4,9 +4,11 @@ from datetime import timedelta
 from typing import Any
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
+from apps.notifications import broadcast_content
 from apps.notifications.audiences import estimated_targets
 from apps.notifications.models import (
     BotAdminInteraction,
@@ -89,14 +91,24 @@ def _reply(session: BotAdminSession, player: Player, inbound: TelegramInboundUpd
     text = "Dexo Land Admin\nBroadcast management only."
     if session.step == "COMPOSE":
         text = (
-            "Send the exact broadcast text (plain text, at most 4096 characters), "
-            "or /cancel to abandon."
+            "Send ONE original Telegram message or ONE photo/video/document/audio album. "
+            "Formatting and media are copied natively. For albums wait until all items arrive, "
+            "then send /done N with the exact expected item count (2–10). "
+            "Use /cancel to abandon."
         )
         actions = [("Menu", "menu")]
+    elif session.step == "COLLECTING" and campaign and campaign.copy_source:
+        source = campaign.copy_source
+        text = (
+            f"Album capture: {len(source.messages)} items; state {source.state}. "
+            "Wait for all items, then /done N with the exact number sent (2–10). "
+            "Incomplete or expired capture must be recomposed. No campaign can be confirmed yet."
+        )
+        actions = [("Recompose", "edit"), ("Abandon draft", "abandon")]
     elif session.step == "AUDIENCE":
         text = (
-            "Choose recipients. Only eligible private users and explicitly opted-in "
-            "groups are included."
+            "Choose recipients. Started private contacts and known authorized bot-admin "
+            "groups are eligible; no opt-in or Creator registration is required."
         )
         actions = [
             ("Users", "users"),
@@ -112,9 +124,12 @@ def _reply(session: BotAdminSession, player: Player, inbound: TelegramInboundUpd
             key=f"bot-panel:{inbound.update_id}:preview",
             text=campaign.body_snapshot,
             received_at=inbound.received_at,
+            copy_source=campaign.copy_source,
         )
         text = (
-            "Preview above is the exact outgoing plain-text message.\n"
+            "The native preview copies the original message or complete album.\n"
+            "Wait for every preview item before confirming. "
+            "A failed or partial preview blocks publishing.\n"
             f"Audience: {campaign.audience_type}\n"
             f"Estimated users: {counts['users']}\nEstimated groups: {counts['groups']}\n"
             "Confirm explicitly to queue. Counts may change before materialization."
@@ -156,7 +171,7 @@ def handle_private_control(inbound: TelegramInboundUpdate) -> bool:
     command = str(raw_message.get("text", "")).split(" ", 1)[0].split("@", 1)[0]
     if command == "/start" and not isinstance(callback, dict):
         return False  # Preserve welcome/referral routing even while an operator composes a draft.
-    is_control = command in {"/admin", "/cancel"} or isinstance(callback, dict)
+    is_control = command in {"/admin", "/cancel", "/done"} or isinstance(callback, dict)
     identity = _identity(payload)
     if identity is None or inbound.webhook_authenticated_at is None:
         return is_control
@@ -190,8 +205,25 @@ def handle_private_control(inbound: TelegramInboundUpdate) -> bool:
         )
     now = timezone.now()
     session = BotAdminSession.objects.select_for_update().filter(operator=operator).first()
+    # Capture late/out-of-order album members even after /done or confirmation.
+    # A newly observed part invalidates the sealed source, stopping remaining work.
+    album = raw_message.get("media_group_id")
+    if album and isinstance(album, str):
+        from apps.notifications.models import BroadcastSource
+
+        previous = BroadcastSource.objects.filter(operator=operator, media_group_id=album).first()
+        if previous and (
+            session is None
+            or not session.campaign
+            or session.campaign.copy_source_id != previous.pk
+            or session.step != "COLLECTING"
+        ):
+            broadcast_content.capture(operator, raw_message)
+            return True
     if not is_control and (
-        session is None or session.step != "COMPOSE" or session.expires_at <= now
+        session is None
+        or session.step not in {"COMPOSE", "COLLECTING"}
+        or session.expires_at <= now
     ):
         return False
     if (
@@ -199,6 +231,7 @@ def handle_private_control(inbound: TelegramInboundUpdate) -> bool:
         and session.expires_at > now
         and command != "/admin"
         and inbound.update_id <= session.last_update_id
+        and not album
     ):
         return True
     if command == "/admin":
@@ -220,6 +253,22 @@ def handle_private_control(inbound: TelegramInboundUpdate) -> bool:
         else:
             session.step = "MENU"
             session.campaign = None
+    elif command == "/done" and session.step == "COLLECTING" and session.campaign:
+        try:
+            count = int(text.split()[1]) if len(text.split()) == 2 else 0
+            assert session.campaign.copy_source_id is not None
+            broadcast_content.seal_album(session.campaign.copy_source_id, expected_count=count)
+        except (ValidationError, ValueError):
+            queue_private_message(
+                player,
+                key=f"bot-panel:{inbound.update_id}:error",
+                text=(
+                    "Album not ready: wait for all items and send /done N "
+                    "with the exact count (2–10), or recompose an expired capture."
+                ),
+            )
+            return True
+        session.step = "AUDIENCE"
     elif data:
         import uuid
 
@@ -255,6 +304,9 @@ def handle_private_control(inbound: TelegramInboundUpdate) -> bool:
                     purpose="Private Bot Admin broadcast",
                 )
                 session.campaign = campaign
+            campaign.copy_source = None
+            campaign.body_snapshot = ""
+            campaign.save(update_fields=("copy_source", "body_snapshot"))
             session.step = "COMPOSE"
         elif action in {"users", "groups", "both"} and campaign and campaign.state == "DRAFT":
             campaign.audience_type = action.upper()
@@ -268,13 +320,21 @@ def handle_private_control(inbound: TelegramInboundUpdate) -> bool:
             and campaign
             and campaign.state == "DRAFT"
         ):
-            if not campaign.body_snapshot.strip():
+            if not campaign.body_snapshot.strip() and not campaign.copy_source_id:
                 return True
-            queue_campaign(
-                campaign=campaign,
-                actor=operator.user,
-                reason="Explicit private Bot Admin confirmation",
-            )
+            try:
+                queue_campaign(
+                    campaign=campaign,
+                    actor=operator.user,
+                    reason="Explicit private Bot Admin confirmation",
+                )
+            except ValidationError:
+                # Regenerate revision-bound controls; an early click must not consume
+                # the operator's only path to confirm after the native preview succeeds.
+                session.revision += 1
+                session.save()
+                _reply(session, player, inbound)
+                return True
             session.step = "TRACK"
         elif action == "track" and campaign:
             session.step = "TRACK"
@@ -291,16 +351,41 @@ def handle_private_control(inbound: TelegramInboundUpdate) -> bool:
                 session.campaign = None
         else:
             return True
-    elif session.step == "COMPOSE" and session.campaign and session.campaign.state == "DRAFT":
-        if not text.strip() or len(text) > 4096:
+    elif (
+        session.step in {"COMPOSE", "COLLECTING"}
+        and session.campaign
+        and session.campaign.state == "DRAFT"
+    ):
+        try:
+            if session.step == "COLLECTING" and (
+                not album
+                or (
+                    not session.campaign.copy_source
+                    or album != session.campaign.copy_source.media_group_id
+                )
+            ):
+                raise ValidationError("Finish the current album or recompose")
+            source = broadcast_content.capture(operator, raw_message)
+        except ValidationError:
+            queue_private_message(
+                player,
+                key=f"bot-panel:{inbound.update_id}:error",
+                text=(
+                    "Send a supported, unprotected original message, "
+                    "or finish/recompose the current album."
+                ),
+            )
             return True
-        session.campaign.body_snapshot = text
-        session.campaign.save(update_fields=("body_snapshot",))
-        session.step = "AUDIENCE"
+        session.campaign.copy_source = source
+        session.campaign.body_snapshot = text[:4096]
+        session.campaign.save(update_fields=("copy_source", "body_snapshot"))
+        session.step = "COLLECTING" if source.media_group_id else "AUDIENCE"
     else:
         return is_control
     session.revision += 1
-    session.last_update_id = inbound.update_id
+    session.last_update_id = (
+        inbound.update_id if command == "/admin" else max(session.last_update_id, inbound.update_id)
+    )
     session.save()
     _audit(session, "INTERACTION")
     _reply(session, player, inbound)

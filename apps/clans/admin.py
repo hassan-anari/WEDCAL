@@ -106,3 +106,12 @@ for model in (
     PlayerSeasonClanState,
 ):
     admin.site.register(model, ReadOnlyAdmin)
+
+
+from apps.clans.models import ClanMissionSignal  # noqa: E402
+
+
+@admin.register(ClanMissionSignal)
+class ClanMissionSignalAdmin(ReadOnlyAdmin):
+    list_display = ("id", "requirement", "units", "processed_at", "attempts", "error_category")
+    exclude = ("source_key",)

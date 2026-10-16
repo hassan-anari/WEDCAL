@@ -10,6 +10,8 @@ from django.conf import settings
 from apps.telegram.budget import defer_bot_api, reserve_bot_api_budget, retry_after_from_payload
 
 logger = structlog.get_logger(__name__)
+SEND_METHODS = {"sendMessage", "copyMessage", "copyMessages"}
+AMBIGUOUS_METHODS = SEND_METHODS | {"createChatInviteLink"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +34,18 @@ def _error_category(code: Any, payload: Any, *, fallback: str) -> str:
         and str(payload.get("description", "")).casefold() == "bad request: chat not found"
     ):
         return "chat_not_found"
+    if code == 400 and isinstance(payload, dict):
+        description = str(payload.get("description", "")).casefold()
+        if any(
+            term in description
+            for term in (
+                "message to copy not found",
+                "message can't be copied",
+                "message can not be copied",
+                "protected content",
+            )
+        ):
+            return "source_unavailable"
     return fallback
 
 
@@ -41,8 +55,9 @@ def request(method: str, parameters: dict[str, Any]) -> TelegramResult:
         return TelegramResult(False, category="configuration_error")
     denial = reserve_bot_api_budget(
         method,
-        fail_closed=method == "sendMessage",
-        chat_id=parameters.get("chat_id") if method == "sendMessage" else None,
+        fail_closed=method in SEND_METHODS,
+        chat_id=parameters.get("chat_id") if method in SEND_METHODS else None,
+        message_count=len(parameters.get("message_ids", [])) if method == "copyMessages" else 1,
     )
     if denial is not None:
         return TelegramResult(False, category=denial.category, retry_after=denial.retry_after)
@@ -56,9 +71,7 @@ def request(method: str, parameters: dict[str, Any]) -> TelegramResult:
             payload = json.loads(response.read(65536))
     except TimeoutError:
         logger.warning("telegram_api_failure", method=method, category="timeout")
-        return TelegramResult(
-            False, category="timeout", ambiguous=method in {"createChatInviteLink", "sendMessage"}
-        )
+        return TelegramResult(False, category="timeout", ambiguous=method in AMBIGUOUS_METHODS)
     except urllib.error.HTTPError as exc:
         retry_after = None
         error = {}
@@ -82,19 +95,19 @@ def request(method: str, parameters: dict[str, Any]) -> TelegramResult:
             False,
             category=category,
             retry_after=retry_after,
-            ambiguous=method in {"createChatInviteLink", "sendMessage"} and exc.code >= 500,
+            ambiguous=method in AMBIGUOUS_METHODS and exc.code >= 500,
         )
     except json.JSONDecodeError:
         return TelegramResult(
             False,
             category="non_json_response",
-            ambiguous=method in {"createChatInviteLink", "sendMessage"},
+            ambiguous=method in AMBIGUOUS_METHODS,
         )
     except (urllib.error.URLError, OSError):
         return TelegramResult(
             False,
             category="connection_error",
-            ambiguous=method in {"createChatInviteLink", "sendMessage"},
+            ambiguous=method in AMBIGUOUS_METHODS,
         )
     if not isinstance(payload, dict) or payload.get("ok") is not True:
         retry = retry_after_from_payload(payload)
@@ -110,8 +123,22 @@ def request(method: str, parameters: dict[str, Any]) -> TelegramResult:
                 fallback="telegram_not_ok",
             ),
             retry_after=retry,
+            ambiguous=method in AMBIGUOUS_METHODS
+            and isinstance(payload, dict)
+            and type(payload.get("error_code")) is int
+            and payload["error_code"] >= 500,
         )
     result = payload.get("result")
+    if method == "copyMessages":
+        if not isinstance(result, list) or any(
+            not isinstance(x, dict) or type(x.get("message_id")) is not int for x in result
+        ):
+            return TelegramResult(False, category="invalid_copy_response", ambiguous=True)
+        return TelegramResult(True, {"message_ids": [x["message_id"] for x in result]})
+    if method == "copyMessage" and (
+        not isinstance(result, dict) or type(result.get("message_id")) is not int
+    ):
+        return TelegramResult(False, category="invalid_copy_response", ambiguous=True)
     return TelegramResult(True, result if isinstance(result, dict) else {})
 
 
