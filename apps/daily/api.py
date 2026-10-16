@@ -10,6 +10,7 @@ from apps.daily.schemas import DailyClaimOutput, DailyOutput
 from apps.daily.services import claim_daily, get_daily_state
 from apps.game_config.services import resolve_effective_game_config
 from apps.players.models import Player
+from apps.rewards.reveals import confirmed_reward
 from apps.telegram.mini_app_auth import mini_app_auth
 
 router = Router(tags=["daily"], auth=mini_app_auth)
@@ -46,9 +47,20 @@ def state(request: HttpRequest) -> dict[str, Any]:
 @router.post("/claim", response=b3_responses(DailyClaimOutput))
 @transaction.atomic
 def claim(request: HttpRequest) -> dict[str, Any]:
+    Player.objects.select_for_update().get(pk=_player(request).pk)
+    before = canonical_state(_player(request), timezone.now())
     row, created = claim_daily(_player(request), timezone.now())
+    after = canonical_state(_player(request), timezone.now())
     return {
-        "canonical": canonical_state(_player(request), timezone.now()),
+        "reward": confirmed_reward(
+            rows=[row.reward_ledger] if row.reward_ledger else [],
+            event_id=f"daily:{row.pk}",
+            source="DAILY",
+            created=created,
+            before=before,
+            after=after,
+        ),
+        "canonical": after,
         "daily": _serialize(get_daily_state(_player(request), timezone.now())),
         "created": created,
         "claim_period": row.claim_period,

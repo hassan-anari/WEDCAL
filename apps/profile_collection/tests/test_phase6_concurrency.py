@@ -98,7 +98,7 @@ def test_concurrent_duplicate_achievement_reconciliation_is_idempotent(
     definition = MissionDefinition.objects.create(
         key="fact",
         version=1,
-        enabled=True,
+        enabled=False,  # Historical achievement evidence need not be an enabled live mission.
         verification_family=MissionDefinition.Verification.INTERNAL,
         repeat_policy=MissionDefinition.Repeat.ONCE,
     )

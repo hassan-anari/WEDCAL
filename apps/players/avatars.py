@@ -167,7 +167,7 @@ def _telegram_request(
 
 
 def bot_call(method: str, parameters: dict[str, Any]) -> dict[str, Any]:
-    if method not in {"getUserProfilePhotos", "getFile"}:
+    if method not in {"getUserProfilePhotos", "getFile", "getChat"}:
         raise ValueError("source_method")
     payload = json.loads(_telegram_request(method, parameters=parameters))
     if isinstance(payload, dict) and payload.get("error_code") == 429:
@@ -190,7 +190,11 @@ def retrieve_photo(player: Player) -> bytes | None:
     photo = photos[0][-1]
     if photo.get("file_size", 0) > settings.AVATAR_CACHE_MAX_BYTES:
         raise ValueError("source_size")
-    remote = bot_call("getFile", {"file_id": photo["file_id"]})
+    return retrieve_file(photo["file_id"])
+
+
+def retrieve_file(file_id: str) -> bytes:
+    remote = bot_call("getFile", {"file_id": file_id})
     path = remote.get("file_path", "")
     if not isinstance(path, str) or not FILE_PATH.fullmatch(path) or ".." in path or "//" in path:
         raise ValueError("source_path")

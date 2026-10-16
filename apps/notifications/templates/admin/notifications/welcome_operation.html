@@ -1,0 +1,21 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<h1>Welcome version {{ template.version }}</h1>
+<p>Exact Telegram HTML source (emojis supported):</p><pre>{{ template.body }}</pre>
+<p>Keyboard rows:</p><pre>{{ template.keyboard }}</pre>
+<p>Public Welcome delivery remains controlled by the disabled-by-default server switch.
+Activating or rolling back a version sends nothing to existing players.</p>
+{% if operation == "preview" %}
+<p><a href="{{ activate_url }}">Activate this version / roll back to this version</a></p>
+<p><a href="{{ test_url }}">Test in my authorized operator chat</a></p>
+{% else %}
+{% if error %}<p class="errornote">{{ error }}</p>{% endif %}
+<form method="post">{% csrf_token %}
+<input type="hidden" name="confirmation" value="{{ confirmation }}">
+<p><label>Reason <input name="reason" maxlength="1000" required></label></p>
+<p><label><input type="checkbox" name="confirm" value="yes" required> I confirm this {{ operation }} action.
+{% if operation == "test" %}The message goes only to my mapped, allowlisted operator chat.{% endif %}</label></p>
+<input type="submit" value="Confirm {{ operation }}">
+</form>
+{% endif %}
+{% endblock %}

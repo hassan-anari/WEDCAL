@@ -48,13 +48,15 @@ class ClanEntitlements:
     def active_membership(self, player: Player) -> bool:
         from apps.clans.models import ClanMembership
 
-        return ClanMembership.objects.filter(player=player, ended_at__isnull=True).exists()
+        return ClanMembership.objects.filter(
+            player=player, ended_at__isnull=True, season__status="ACTIVE"
+        ).exists()
 
     def active_captain(self, player: Player) -> bool:
         from apps.clans.models import ClanMembership, ClanRole
 
         return ClanMembership.objects.filter(
-            player=player, ended_at__isnull=True, role=ClanRole.CAPTAIN
+            player=player, ended_at__isnull=True, role=ClanRole.CAPTAIN, season__status="ACTIVE"
         ).exists()
 
     def ever_member(self, player: Player) -> bool:
@@ -98,12 +100,22 @@ def collect_profile_facts(
     player: Player,
     resolved: ResolvedGameConfig,
     clan: ClanEntitlementProvider | None = None,
+    *,
+    at: datetime | None = None,
 ) -> ProfileFacts:
     clan = clan or ClanEntitlements()
     progression, _ = refresh_player_progression(player, resolved)
     claims = DailyClaim.objects.filter(player=player)
+    from django.utils import timezone
+
+    from apps.daily.services import get_daily_state
+    from apps.seasons.services import resolve_current_season
+
+    now = at or timezone.now()
     latest_claim = (
-        claims.order_by("-period_start").values_list("streak_count_after_claim", flat=True).first()
+        get_daily_state(player, now, resolved).streak
+        if resolved.daily.enabled and resolve_current_season(at=now, required=False)
+        else 0
     )
     maximum = claims.aggregate(value=Max("streak_count_after_claim"))["value"] or 0
     return ProfileFacts(
@@ -154,7 +166,7 @@ def reconcile_profile(
     player = Player.objects.select_for_update().get(pk=player.pk)
     profile = get_or_create_profile(player)
     profile = PlayerProfile.objects.select_for_update().get(pk=profile.pk)
-    facts = collect_profile_facts(player, resolved)
+    facts = collect_profile_facts(player, resolved, at=at)
     config = GameConfigVersion.objects.get(pk=resolved.id)
     existing = {x.achievement_key: x for x in PlayerAchievementUnlock.objects.filter(player=player)}
     for rule in resolved.profile_collection.achievements:

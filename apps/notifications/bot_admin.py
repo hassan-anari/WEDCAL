@@ -108,7 +108,10 @@ def _reply(session: BotAdminSession, player: Player, inbound: TelegramInboundUpd
     elif session.step == "PREVIEW" and campaign:
         counts = estimated_targets(campaign.audience_type)
         queue_private_message(
-            player, key=f"bot-panel:{inbound.update_id}:preview", text=campaign.body_snapshot
+            player,
+            key=f"bot-panel:{inbound.update_id}:preview",
+            text=campaign.body_snapshot,
+            received_at=inbound.received_at,
         )
         text = (
             "Preview above is the exact outgoing plain-text message.\n"
@@ -139,6 +142,7 @@ def _reply(session: BotAdminSession, player: Player, inbound: TelegramInboundUpd
     queue_private_message(
         player,
         key=f"bot-panel:{inbound.update_id}",
+        received_at=inbound.received_at,
         text=text,
         options={"reply_markup": _buttons(session, actions)},
     )
@@ -170,6 +174,20 @@ def handle_private_control(inbound: TelegramInboundUpdate) -> bool:
         or not operator.user.has_perm("notifications.manage_broadcasts")
     ):
         return is_control
+    player = resolve_telegram_player(
+        TelegramProfile(telegram_user_id=user_id, first_name=str(sender.get("first_name", ""))),
+        Player.FirstSeenSource.BOT_START,
+        private_contact=True,
+        telegram_update_id=inbound.update_id,
+    ).player
+    if isinstance(callback, dict) and isinstance(callback.get("id"), str):
+        queue_private_message(
+            player,
+            key=f"bot-ack:{inbound.update_id}",
+            received_at=inbound.received_at,
+            text="",
+            options={"_method": "answerCallbackQuery", "callback_query_id": callback["id"]},
+        )
     now = timezone.now()
     session = BotAdminSession.objects.select_for_update().filter(operator=operator).first()
     if not is_control and (
@@ -285,18 +303,5 @@ def handle_private_control(inbound: TelegramInboundUpdate) -> bool:
     session.last_update_id = inbound.update_id
     session.save()
     _audit(session, "INTERACTION")
-    player = resolve_telegram_player(
-        TelegramProfile(telegram_user_id=user_id, first_name=str(sender.get("first_name", ""))),
-        Player.FirstSeenSource.BOT_START,
-        private_contact=True,
-        telegram_update_id=inbound.update_id,
-    ).player
-    if isinstance(callback, dict) and isinstance(callback.get("id"), str):
-        queue_private_message(
-            player,
-            key=f"bot-ack:{inbound.update_id}",
-            text="",
-            options={"_method": "answerCallbackQuery", "callback_query_id": callback["id"]},
-        )
     _reply(session, player, inbound)
     return True

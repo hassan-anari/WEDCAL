@@ -69,7 +69,12 @@ class TypingAttempt(models.Model):
             ),
         ]
         indexes = [
-            models.Index(fields=("player", "reset_period", "status"), name="typing_player_period")
+            models.Index(fields=("player", "reset_period", "status"), name="typing_player_period"),
+            models.Index(
+                fields=("player", "-id"),
+                name="typing_run_history",
+                condition=Q(submitted_at__isnull=False),
+            ),
         ]
 
 

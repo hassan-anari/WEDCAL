@@ -11,6 +11,7 @@ from apps.telegram.models import TelegramGroup
 
 
 class CreatorRegistrationIntent(models.Model):
+    authorize_group_messages = models.BooleanField(default=False)
     creator = models.ForeignKey(Player, on_delete=models.CASCADE, related_name="network_intents")
     token_hash = models.CharField(max_length=64, unique=True)
     expires_at = models.DateTimeField(db_index=True)
@@ -39,6 +40,9 @@ class CreatorGroupRegistration(models.Model):
     last_verification_error = models.CharField(max_length=100, blank=True)
     next_verification_at = models.DateTimeField(default=timezone.now, db_index=True)
     reward_eligible_since = models.DateTimeField(null=True, blank=True, db_index=True)
+    authorization_intent = models.ForeignKey(
+        CreatorRegistrationIntent, null=True, on_delete=models.PROTECT
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -4,6 +4,7 @@ from typing import Literal
 from ninja import Schema
 
 from apps.core.b3 import CanonicalState
+from apps.rewards.reveals import ConfirmedReward
 
 
 class MissionOutput(Schema):
@@ -40,6 +41,7 @@ class MissionVerifyOutput(Schema):
 
 
 class MissionClaimOutput(Schema):
+    reward: ConfirmedReward | None
     key: str
     version: int
     state: str

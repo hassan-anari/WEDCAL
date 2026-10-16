@@ -13,6 +13,7 @@ from apps.notifications.services import (
     claim_broadcast_recipients,
     reconcile_campaign,
 )
+from apps.notifications.tests.test_services import authorized_operator
 from apps.players.models import Player
 
 pytestmark = pytest.mark.django_db(transaction=True)
@@ -20,7 +21,7 @@ pytestmark = pytest.mark.django_db(transaction=True)
 
 def setup_campaign() -> tuple[BroadcastCampaign, BroadcastRecipient, User]:
     now = timezone.now()
-    actor = User.objects.create_user("broadcast-race")
+    actor = authorized_operator("broadcast-race")
     player = Player.objects.create(
         telegram_user_id=880001,
         first_seen_at=now,

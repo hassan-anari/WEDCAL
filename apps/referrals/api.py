@@ -7,6 +7,7 @@ from ninja import Query, Router
 
 from apps.core.b3 import b3_responses
 from apps.game_config.services import resolve_effective_game_config
+from apps.players.avatars import avatar_url, configured
 from apps.players.models import Player
 from apps.referrals.models import ReferralRelation
 from apps.referrals.read_models import earnings, eligibility
@@ -84,6 +85,7 @@ def invitees(
         "items": [
             {
                 "name": row.invitee.first_name or "Explorer",
+                "photo_url": avatar_url(row.invitee) if configured() else "",
                 "status": row.status,
                 "attributed_at": row.attributed_at,
                 "verified_at": row.verified_at,

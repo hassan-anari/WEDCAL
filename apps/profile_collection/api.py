@@ -6,9 +6,8 @@ from django.db import transaction
 from django.http import HttpRequest, HttpResponse
 from django.utils import timezone
 from ninja import Router, Schema
-from ninja.errors import HttpError
 
-from apps.core.b3 import CanonicalState, canonical_state
+from apps.core.b3 import B3Error, CanonicalState, b3_responses, canonical_state
 from apps.game_config.services import ResolvedGameConfig, resolve_effective_game_config
 from apps.players.avatars import avatar_url
 from apps.players.models import Player
@@ -134,7 +133,7 @@ def _state(
     try:
         return at, resolved, reconcile_profile(player, resolved, at)
     except ValidationError as exc:
-        raise HttpError(503, str(exc.message)) from exc
+        raise B3Error("PROFILE_UNAVAILABLE", 503) from exc
 
 
 def _customization(profile: PlayerProfile) -> CustomizationOut:
@@ -152,15 +151,15 @@ def _source_season_code(award: PlayerMedalAward | None) -> str | None:
     return award.source_season.code
 
 
-@router.get("/overview", response=OverviewOut)
+@router.get("/overview", response=b3_responses(OverviewOut))
 @transaction.atomic
 def overview(request: HttpRequest) -> OverviewOut:
     player = Player.objects.select_for_update().get(pk=_player(request).pk)
-    _, resolved, (profile, facts, _, _) = _state(player)
+    at, resolved, (profile, facts, _, _) = _state(player)
     projection = PlayerProgression.objects.get(player=player)
     progress = calculate_progression(projection.lifetime_points, resolved.progression)
     return OverviewOut(
-        canonical=CanonicalState.model_validate(canonical_state(player, timezone.now())),
+        canonical=CanonicalState.model_validate(canonical_state(player, at)),
         identity=IdentityOut(
             first_name=player.first_name,
             last_name=player.last_name,
@@ -185,12 +184,12 @@ def overview(request: HttpRequest) -> OverviewOut:
     )
 
 
-@router.post("/review", response=CustomizationOut)
+@router.post("/review", response=b3_responses(CustomizationOut))
 def review(request: HttpRequest) -> CustomizationOut:
     return _customization(review_profile(_player(request), timezone.now()))
 
 
-@router.get("/achievements", response=AchievementsOut)
+@router.get("/achievements", response=b3_responses(AchievementsOut))
 def achievements(request: HttpRequest) -> AchievementsOut:
     _, resolved, (_, facts, unlocks, _) = _state(_player(request))
     assert resolved.profile_collection is not None
@@ -208,7 +207,7 @@ def achievements(request: HttpRequest) -> AchievementsOut:
     return AchievementsOut(achievements=rows, unlocked_count=len(unlocks))
 
 
-@router.get("/collection", response=CollectionOut)
+@router.get("/collection", response=b3_responses(CollectionOut))
 def collection(request: HttpRequest) -> CollectionOut:
     _, resolved, (profile, facts, unlocks, awards) = _state(_player(request))
     assert resolved.profile_collection is not None and resolved.season_honors is not None
@@ -253,7 +252,7 @@ def collection(request: HttpRequest) -> CollectionOut:
     return CollectionOut(frames=frames, titles=titles, medals=medals, owned_medal_count=len(awards))
 
 
-@router.put("/customization", response=CustomizationOut)
+@router.put("/customization", response=b3_responses(CustomizationOut))
 def customization(request: HttpRequest, payload: CustomizationIn) -> CustomizationOut:
     at = timezone.now()
     resolved = resolve_effective_game_config(at)
@@ -268,7 +267,7 @@ def customization(request: HttpRequest, payload: CustomizationIn) -> Customizati
             featured_achievement_key=payload.featured_achievement,
         )
     except ValidationError as exc:
-        raise HttpError(422, str(exc.message)) from exc
+        raise B3Error("CUSTOMIZATION_INVALID", 422) from exc
     return _customization(profile)
 
 
@@ -277,3 +276,10 @@ def avatar_delivery(request: HttpRequest, delivery_id: UUID) -> HttpResponse:
     from apps.players.avatars import deliver_avatar
 
     return deliver_avatar(delivery_id)
+
+
+@router.get("/group-avatar/{delivery_id}", auth=None)
+def group_avatar_delivery(request: HttpRequest, delivery_id: UUID) -> HttpResponse:
+    from apps.players.group_avatars import deliver_group_avatar
+
+    return deliver_group_avatar(delivery_id)

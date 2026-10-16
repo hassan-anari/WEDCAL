@@ -37,6 +37,7 @@ jobs:
       - run: uv run python manage.py check
       - run: uv run python scripts/export_tap_v2_openapi.py --check
       - run: uv run python scripts/export_b3_openapi.py --check
+      - run: uv run python scripts/export_b4_openapi.py --check
 
   test:
     name: test
@@ -88,6 +89,11 @@ jobs:
       - run: uv run python manage.py migrate --noinput
       - run: uv run python manage.py makemigrations --check --dry-run
       - run: uv run pytest
+      - uses: actions/upload-artifact@v4
+        with:
+          name: b4-interactive-latency
+          path: work/b4-interactive-latency.json
+          if-no-files-found: error
       - name: B2 isolated PostgreSQL benchmark
         run: B2_BENCHMARK=1 uv run pytest apps/base_tap/tests/test_benchmark.py -q
       - uses: actions/upload-artifact@v4

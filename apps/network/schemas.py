@@ -21,6 +21,7 @@ class NetworkSummary(Schema):
 class CreatorGroupOutput(Schema):
     public_id: UUID
     title: str
+    photo_url: str = ""
     state: str
     bot_admin: bool
     broadcast_opted_in: bool

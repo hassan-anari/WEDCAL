@@ -6,7 +6,6 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
-from django.contrib.auth.models import User
 from django.db import close_old_connections
 from django.utils import timezone
 
@@ -25,7 +24,7 @@ from apps.notifications.services import (
     materialize_campaign,
     queue_campaign,
 )
-from apps.notifications.tests.test_services import player
+from apps.notifications.tests.test_services import authorized_operator, player
 from apps.telegram.bot_api import TelegramResult
 from apps.telegram.models import TelegramGroup
 
@@ -45,7 +44,7 @@ def audience_world(monkeypatch, settings):
         "apps.telegram.bot_api.send_message", lambda *_: TelegramResult(True, {"message_id": 42})
     )
     now = timezone.now()
-    actor = User.objects.create_user("audience-operator")
+    actor = authorized_operator("audience-operator")
     p = player()
     player(102, reachable=False)
     group = TelegramGroup.objects.create(

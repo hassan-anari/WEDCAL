@@ -1,5 +1,5 @@
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -32,6 +32,9 @@ class RankingProjectionUnavailable(RuntimeError):
 class RankingSlice:
     ranked_ids: tuple[tuple[int, int], ...]
     own_rank: int | None
+    scores: dict[int, int] = field(default_factory=dict)
+    generations: dict[int, int] = field(default_factory=dict)
+    total_count: int = 0
 
 
 def _redis() -> Any:
@@ -221,6 +224,23 @@ def consume_pending_events(limit: int = 500) -> int:
     return len(rows)
 
 
+_READ_SCRIPT = """
+if not redis.call('get', KEYS[4]) then return false end
+local members = redis.call('zrevrange', KEYS[1], ARGV[1], ARGV[2], 'WITHSCORES')
+local rows = {}
+for i=1,#members,2 do
+  local entity = string.match(members[i], ':(%d+)$')
+  local gen = redis.call('hget', KEYS[3], entity) or '-1'
+  table.insert(rows, {members[i], members[i+1], gen})
+end
+local own = redis.call('hget', KEYS[2], ARGV[3]) or ''
+local score = own ~= '' and redis.call('zscore', KEYS[1], own) or ''
+local gen = redis.call('hget', KEYS[3], ARGV[3]) or '-1'
+local rank = own ~= '' and redis.call('zrevrank', KEYS[1], own) or -1
+return {rows, own, score or '', gen, rank, redis.call('zcard', KEYS[1])}
+"""
+
+
 def read_ranking_slice(
     *,
     season_id: int,
@@ -230,22 +250,24 @@ def read_ranking_slice(
     own_entity_id: int | None,
 ) -> RankingSlice:
     target = ranking_key(season_id, entity_type)
-    client = _redis()
     try:
-        if not client.get(f"{target}:ready"):
-            dispatch_rebuild_safely(season_id, entity_type)
-            raise RankingProjectionUnavailable("Ranking projection is rebuilding")
-        raw_members = client.zrevrange(target, offset, offset + limit - 1)
-        ranked_ids = tuple(
-            (_entity_id(member), offset + index) for index, member in enumerate(raw_members, 1)
+        client = _redis()
+        result = client.eval(
+            _READ_SCRIPT, 4, *_keys(target), offset, offset + limit - 1, own_entity_id or ""
         )
-        own_rank = None
-        if own_entity_id is not None:
-            member = client.hget(f"{target}:members", own_entity_id)
-            if member is not None:
-                zero_rank = client.zrevrank(target, member)
-                own_rank = int(zero_rank) + 1 if zero_rank is not None else None
-        return RankingSlice(ranked_ids, own_rank)
+        if not result:
+            raise RankingProjectionUnavailable("Ranking projection is rebuilding")
+        members, own_member, own_score, own_generation, own_rank_value, total = result
+        ranked_ids = tuple(
+            (_entity_id(row[0]), offset + index) for index, row in enumerate(members, 1)
+        )
+        scores = {_entity_id(row[0]): int(float(row[1])) for row in members}
+        generations = {_entity_id(row[0]): int(row[2]) for row in members}
+        own_rank = int(own_rank_value) + 1 if int(own_rank_value) >= 0 else None
+        if own_member:
+            scores[_entity_id(own_member)] = int(float(own_score))
+            generations[_entity_id(own_member)] = int(own_generation)
+        return RankingSlice(ranked_ids, own_rank, scores, generations, int(total))
     except Exception as exc:
         dispatch_rebuild_safely(season_id, entity_type)
         raise RankingProjectionUnavailable("Ranking projection is temporarily unavailable") from exc

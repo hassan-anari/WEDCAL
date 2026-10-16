@@ -1,0 +1,40 @@
+{
+  "first_page": {
+    "items": [
+      {
+        "score": 5700,
+        "attempt_id": "60ad8f92-c09d-4808-b97e-124767011bc0",
+        "status": "VALID",
+        "started_at": "2026-10-16T07:21:55.164Z",
+        "submitted_at": "2026-10-16T07:22:00.164Z",
+        "accuracy_bps": 10000,
+        "wpm": 57,
+        "reward_amount": 70,
+        "season": "phase4-s1",
+        "config_version": "api-config",
+        "claimed": false
+      }
+    ],
+    "next_cursor": 3
+  },
+  "last_page": {
+    "items": [
+      {
+        "score": 0,
+        "attempt_id": "8400d060-cba2-4932-842a-86d61f8c8032",
+        "status": "REJECTED",
+        "started_at": "2026-10-16T07:21:50.164Z",
+        "submitted_at": "2026-10-16T07:21:55.164Z",
+        "accuracy_bps": 0,
+        "wpm": 57,
+        "reward_amount": 0,
+        "season": "phase4-s1",
+        "config_version": "api-config",
+        "claimed": false
+      }
+    ],
+    "next_cursor": null
+  },
+  "unfinished_is_omitted": "4b41375f-7d36-4413-a1de-14c6749283ab",
+  "duplicate_created": false
+}

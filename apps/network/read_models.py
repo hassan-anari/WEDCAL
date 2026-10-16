@@ -7,6 +7,7 @@ from django.utils import timezone
 from apps.core.b3 import canonical_state
 from apps.game_config.services import resolve_effective_game_config
 from apps.network.models import CreatorGroupRegistration, NetworkActivity
+from apps.players.group_avatars import group_avatar_url
 from apps.players.models import Player
 from apps.players.services import reward_gameplay_allowed
 
@@ -24,6 +25,7 @@ def group_output(row: CreatorGroupRegistration) -> dict[str, Any]:
     return {
         "public_id": str(row.public_id),
         "title": row.group.title,
+        "photo_url": group_avatar_url(row.group),
         "state": row.state,
         "bot_admin": row.group.bot_is_admin,
         "broadcast_opted_in": row.group.groupbroadcastsubscription.enabled

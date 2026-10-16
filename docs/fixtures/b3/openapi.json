@@ -1361,6 +1361,149 @@
         ]
       }
     },
+    "/api/v1/typing/history": {
+      "get": {
+        "operationId": "apps_typing_game_api_history",
+        "summary": "History",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            },
+            "required": false
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorOutput"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/B3ErrorOutput"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ThrottleOutput"
+                    }
+                  ],
+                  "title": "Response"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/B3ErrorOutput"
+                    },
+                    {
+                      "$ref": "#/components/schemas/IntegrationErrorOutput"
+                    }
+                  ],
+                  "title": "Response"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "typing"
+        ],
+        "security": [
+          {
+            "MiniAppAuth": []
+          }
+        ]
+      }
+    },
     "/api/v1/referrals": {
       "get": {
         "operationId": "apps_referrals_api_referrals",
@@ -1967,6 +2110,16 @@
         "tags": [
           "network"
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IntentInput"
+              }
+            }
+          },
+          "required": true
+        },
         "security": [
           {
             "MiniAppAuth": []
@@ -2582,6 +2735,92 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/OverviewOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorOutput"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/B3ErrorOutput"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ThrottleOutput"
+                    }
+                  ],
+                  "title": "Response"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/B3ErrorOutput"
+                    },
+                    {
+                      "$ref": "#/components/schemas/IntegrationErrorOutput"
+                    }
+                  ],
+                  "title": "Response"
                 }
               }
             }
@@ -3285,6 +3524,34 @@
         "title": "LevelRuleOutput",
         "type": "object"
       },
+      "HistoryOutput": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RunOutput"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "HistoryOutput",
+        "type": "object"
+      },
       "B3ErrorOutput": {
         "properties": {
           "code": {
@@ -3410,8 +3677,62 @@
         "title": "DailyOutput",
         "type": "object"
       },
+      "ConfirmedReward": {
+        "properties": {
+          "event_id": {
+            "title": "Event Id",
+            "type": "string"
+          },
+          "amount": {
+            "title": "Amount",
+            "type": "integer"
+          },
+          "ledger_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Ledger Ids",
+            "type": "array"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          },
+          "progression_before": {
+            "$ref": "#/components/schemas/BootstrapProgression"
+          },
+          "progression_after": {
+            "$ref": "#/components/schemas/BootstrapProgression"
+          }
+        },
+        "required": [
+          "event_id",
+          "amount",
+          "ledger_ids",
+          "source",
+          "created",
+          "progression_before",
+          "progression_after"
+        ],
+        "title": "ConfirmedReward",
+        "type": "object"
+      },
       "DailyClaimOutput": {
         "properties": {
+          "reward": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConfirmedReward"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "created": {
             "title": "Created",
             "type": "boolean"
@@ -3445,6 +3766,7 @@
           }
         },
         "required": [
+          "reward",
           "created",
           "claim_period",
           "streak",
@@ -3700,6 +4022,16 @@
       },
       "MissionClaimOutput": {
         "properties": {
+          "reward": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConfirmedReward"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "key": {
             "title": "Key",
             "type": "string"
@@ -3737,6 +4069,7 @@
           }
         },
         "required": [
+          "reward",
           "key",
           "version",
           "state",
@@ -3868,6 +4201,17 @@
       },
       "SubmitOutput": {
         "properties": {
+          "score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
           "created": {
             "title": "Created",
             "type": "boolean"
@@ -3912,6 +4256,7 @@
           }
         },
         "required": [
+          "score",
           "created",
           "attempt_id",
           "status",
@@ -3939,6 +4284,16 @@
       },
       "TypingClaimOutput": {
         "properties": {
+          "reward": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConfirmedReward"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "created": {
             "title": "Created",
             "type": "boolean"
@@ -3960,6 +4315,7 @@
           }
         },
         "required": [
+          "reward",
           "created",
           "amount",
           "claimed_at",
@@ -3967,6 +4323,93 @@
           "canonical"
         ],
         "title": "TypingClaimOutput",
+        "type": "object"
+      },
+      "RunOutput": {
+        "properties": {
+          "score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "attempt_id": {
+            "format": "uuid",
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "submitted_at": {
+            "format": "date-time",
+            "title": "Submitted At",
+            "type": "string"
+          },
+          "accuracy_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accuracy Bps"
+          },
+          "wpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wpm"
+          },
+          "reward_amount": {
+            "title": "Reward Amount",
+            "type": "integer"
+          },
+          "season": {
+            "title": "Season",
+            "type": "string"
+          },
+          "config_version": {
+            "title": "Config Version",
+            "type": "string"
+          },
+          "claimed": {
+            "title": "Claimed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "score",
+          "attempt_id",
+          "status",
+          "started_at",
+          "submitted_at",
+          "accuracy_bps",
+          "wpm",
+          "reward_amount",
+          "season",
+          "config_version",
+          "claimed"
+        ],
+        "title": "RunOutput",
         "type": "object"
       },
       "ReferralEligibility": {
@@ -4136,6 +4579,11 @@
       },
       "InviteeOutput": {
         "properties": {
+          "photo_url": {
+            "default": "",
+            "title": "Photo Url",
+            "type": "string"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -4264,6 +4712,11 @@
           },
           "title": {
             "title": "Title",
+            "type": "string"
+          },
+          "photo_url": {
+            "default": "",
+            "title": "Photo Url",
             "type": "string"
           },
           "state": {
@@ -4399,6 +4852,17 @@
           "expires_at"
         ],
         "title": "IntentOutput",
+        "type": "object"
+      },
+      "IntentInput": {
+        "properties": {
+          "authorize_group_messages": {
+            "default": false,
+            "title": "Authorize Group Messages",
+            "type": "boolean"
+          }
+        },
+        "title": "IntentInput",
         "type": "object"
       },
       "BroadcastConsentOutput": {

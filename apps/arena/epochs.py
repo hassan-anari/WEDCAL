@@ -577,17 +577,27 @@ def evaluate_growth_unlocks(season: Season) -> list[GrowthUnlockEvent]:
 
 
 def player_dlx_balance(player: Player, season: Season) -> dict[str, int]:
-    confirmed = (
-        DlxAllocation.objects.filter(player=player, season=season).aggregate(v=Sum("amount"))["v"]
-        or 0
-    )
-    from apps.arena.adjustments import adjustment_totals
+    from django.db.models import Q
 
-    totals = adjustment_totals(player, season)
+    # One SQL snapshot: joining adjustments must never multiply confirmed allocation amounts.
+    rows = list(
+        DlxAllocation.objects.filter(player=player, season=season)
+        .annotate(
+            held_amount=Sum("adjustments__amount", filter=Q(adjustments__kind="HOLD")),
+            release_amount=Sum("adjustments__amount", filter=Q(adjustments__kind="RELEASE_HOLD")),
+            forfeited_amount=Sum("adjustments__amount", filter=Q(adjustments__kind="FORFEIT")),
+            reversal_amount=Sum("adjustments__amount", filter=Q(adjustments__kind="REVERSAL")),
+        )
+        .values("amount", "held_amount", "release_amount", "forfeited_amount", "reversal_amount")
+    )
+    confirmed = sum(row["amount"] for row in rows)
+    held = sum((row["held_amount"] or 0) - (row["release_amount"] or 0) for row in rows)
+    forfeited = sum((row["forfeited_amount"] or 0) - (row["reversal_amount"] or 0) for row in rows)
     return {
         "confirmed": confirmed,
-        **totals,
-        "net_confirmed": confirmed - totals["forfeited"],
+        "held": held,
+        "forfeited": forfeited,
+        "net_confirmed": confirmed - forfeited,
         "claimable": 0,
     }
 

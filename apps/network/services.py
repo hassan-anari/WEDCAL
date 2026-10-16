@@ -40,7 +40,9 @@ from apps.telegram.models import TelegramGroup
 logger = structlog.get_logger(__name__)
 
 
-def create_registration_intent(creator: Player) -> tuple[CreatorRegistrationIntent, str]:
+def create_registration_intent(
+    creator: Player, *, authorize_group_messages: bool = False
+) -> tuple[CreatorRegistrationIntent, str]:
     config = resolve_effective_game_config(timezone.now())
     if not config.network.enabled:
         raise ValueError("Network program is disabled")
@@ -48,6 +50,7 @@ def create_registration_intent(creator: Player) -> tuple[CreatorRegistrationInte
     digest = hashlib.sha256(raw.encode()).hexdigest()
     intent = CreatorRegistrationIntent.objects.create(
         creator=creator,
+        authorize_group_messages=authorize_group_messages,
         token_hash=digest,
         expires_at=timezone.now()
         + timedelta(seconds=settings.NETWORK_REGISTRATION_INTENT_TTL_SECONDS),
@@ -84,8 +87,8 @@ def consume_registration_token(
         )
         if not intent:
             return None
-        registration, _ = CreatorGroupRegistration.objects.get_or_create(
-            group=group, defaults={"creator": sender}
+        registration, created = CreatorGroupRegistration.objects.get_or_create(
+            group=group, defaults={"creator": sender, "authorization_intent": intent}
         )
         if registration.creator_id != sender.pk:
             return None
@@ -99,6 +102,9 @@ def consume_registration_token(
         intent.save(update_fields=("consumed_at",))
         group.is_monitored = True
         group.save(update_fields=("is_monitored", "updated_at"))
+        from apps.network.tasks import dispatch_verification
+
+        transaction.on_commit(lambda: dispatch_verification(registration.pk))
     return registration
 
 
@@ -156,10 +162,15 @@ def verify_registration(registration_id: int) -> str:
         state = CreatorGroupRegistration.State.ADMIN_REQUIRED
     else:
         bot_admin = (
-            bot.result.get("status") in {"administrator", "creator"} if bot.result else False
+            bot.result.get("status") in {"administrator", "creator"}
+            and (bot.result.get("user") or {}).get("id") == bot_id
+            if bot.result
+            else False
         )
         creator_admin = (
             creator.result.get("status") in {"administrator", "creator"}
+            and (creator.result.get("user") or {}).get("id")
+            == registration.creator.telegram_user_id
             if creator.result
             else False
         )
@@ -172,7 +183,17 @@ def verify_registration(registration_id: int) -> str:
         group_id = CreatorGroupRegistration.objects.values_list("group_id", flat=True).get(
             pk=registration_id
         )
-        TelegramGroup.objects.select_for_update().get(pk=group_id)
+        locked_group = TelegramGroup.objects.select_for_update().get(pk=group_id)
+        if (
+            locked_group.bot_membership_last_update_id
+            != registration.group.bot_membership_last_update_id
+        ):
+            if not locked_group.bot_is_admin:
+                state = CreatorGroupRegistration.State.ADMIN_REQUIRED
+        elif bot.ok and bot.result and (bot.result.get("user") or {}).get("id") == bot_id:
+            locked_group.bot_membership_status = str(bot.result.get("status", ""))
+            locked_group.bot_is_admin = bot.result.get("status") in {"creator", "administrator"}
+            locked_group.save(update_fields=["bot_membership_status", "bot_is_admin", "updated_at"])
         locked = CreatorGroupRegistration.objects.select_for_update().get(pk=registration_id)
         if locked.state in {
             CreatorGroupRegistration.State.SUSPENDED,
@@ -211,6 +232,10 @@ def verify_registration(registration_id: int) -> str:
             locked.bot_verified_at = timezone.now()
             locked.creator_verified_at = timezone.now()
         locked.save()
+        if state == CreatorGroupRegistration.State.ACTIVE and locked.authorization_intent_id:
+            from apps.notifications.audiences import grant_registration_consent
+
+            transaction.on_commit(lambda: grant_registration_consent(locked.pk))
         CreatorRegistrationStateEvent.objects.create(
             registration=locked,
             state=locked.state,

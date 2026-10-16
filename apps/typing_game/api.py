@@ -1,17 +1,26 @@
-from typing import Any
+from typing import Annotated, Any
 from uuid import UUID
 
 from django.db import transaction
 from django.http import HttpRequest
 from django.utils import timezone
-from ninja import Router, Schema
+from ninja import Query, Router, Schema
 from pydantic import Field
 
 from apps.core.b3 import B3Error, b3_responses, canonical_state
 from apps.players.models import Player
+from apps.rewards.models import RewardLedger
+from apps.rewards.reveals import confirmed_reward
 from apps.telegram.mini_app_auth import mini_app_auth
+from apps.typing_game.calculations import display_score
 from apps.typing_game.models import TypingAttempt
-from apps.typing_game.schemas import AttemptOutput, SubmitOutput, TypingClaimOutput, TypingOutput
+from apps.typing_game.schemas import (
+    AttemptOutput,
+    HistoryOutput,
+    SubmitOutput,
+    TypingClaimOutput,
+    TypingOutput,
+)
 from apps.typing_game.services import (
     TypingQuotaExceeded,
     TypingUnavailable,
@@ -103,6 +112,7 @@ def submit(request: HttpRequest, attempt_id: UUID, payload: Submission) -> dict[
         "attempt_id": attempt.public_id,
         "status": attempt.status,
         "typing": state(request),
+        "score": display_score(attempt.accuracy_bps, attempt.wpm),
         "accuracy_bps": attempt.accuracy_bps,
         "wpm": attempt.wpm,
         "reward_amount": attempt.reward_amount,
@@ -112,6 +122,8 @@ def submit(request: HttpRequest, attempt_id: UUID, payload: Submission) -> dict[
 @router.post("/claim", response=b3_responses(TypingClaimOutput))
 @transaction.atomic
 def claim(request: HttpRequest) -> Any:
+    Player.objects.select_for_update().get(pk=_player(request).pk)
+    before = canonical_state(_player(request), timezone.now())
     try:
         row, created = claim_wallet(
             _player(request), request.headers.get("Idempotency-Key", ""), timezone.now()
@@ -120,10 +132,62 @@ def claim(request: HttpRequest) -> Any:
         raise
     except (TypingUnavailable, ValueError) as exc:
         raise B3Error("CLAIM_UNAVAILABLE") from exc
+    after = canonical_state(_player(request), timezone.now())
     return {
+        "reward": confirmed_reward(
+            rows=list(
+                RewardLedger.objects.filter(
+                    player=_player(request),
+                    source_type="TYPING_CLAIM",
+                    metadata__typing_claim_id=row.pk,
+                ).order_by("pk")
+            ),
+            event_id=f"typing:{row.pk}",
+            source="TYPING_GAME",
+            created=created,
+            before=before,
+            after=after,
+        ),
         "created": created,
         "amount": row.amount,
         "claimed_at": row.claimed_at,
         "typing": state(request),
-        "canonical": canonical_state(_player(request), timezone.now()),
+        "canonical": after,
+    }
+
+
+@router.get("/history", response=b3_responses(HistoryOutput))
+def history(
+    request: HttpRequest,
+    cursor: Annotated[int | None, Query(ge=1)] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> dict[str, Any]:
+    rows = TypingAttempt.objects.filter(player=_player(request), submitted_at__isnull=False)
+    if cursor is not None:
+        rows = rows.filter(pk__lt=cursor)
+    batch = list(
+        rows.select_related("season", "config_version", "wallet_credit").order_by("-pk")[
+            : limit + 1
+        ]
+    )
+    return {
+        "items": [
+            {
+                "attempt_id": row.public_id,
+                "status": row.status,
+                "started_at": row.started_at,
+                "submitted_at": row.submitted_at,
+                "score": display_score(row.accuracy_bps, row.wpm),
+                "accuracy_bps": row.accuracy_bps,
+                "wpm": row.wpm,
+                "reward_amount": row.reward_amount,
+                "season": row.season.code,
+                "config_version": row.config_version.version,
+                "claimed": bool(
+                    getattr(row, "wallet_credit", None) and row.wallet_credit.claimed_by_id
+                ),
+            }
+            for row in batch[:limit]
+        ],
+        "next_cursor": batch[limit - 1].pk if len(batch) > limit else None,
     }

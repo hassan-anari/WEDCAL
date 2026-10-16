@@ -102,3 +102,45 @@ def estimated_targets(audience: str) -> dict[str, int]:
         else 0,
         "groups": eligible_groups().count() if audience in {"GROUPS", "BOTH"} else 0,
     }
+
+
+def grant_registration_consent(registration_id: int) -> None:
+    """Only a new explicit Add Bot opt-in can enroll; never override a historical/revoked row."""
+    from apps.network.models import CreatorGroupRegistration
+
+    registration = CreatorGroupRegistration.objects.select_related(
+        "authorization_intent", "creator", "group"
+    ).get(pk=registration_id)
+    intent = registration.authorization_intent
+    if (
+        not intent
+        or not intent.authorize_group_messages
+        or not intent.consumed_at
+        or intent.creator_id != registration.creator_id
+        or registration.state != "ACTIVE"
+    ):
+        return
+    try:
+        # Verify outside a transaction, then serialize subscription creation against revocation.
+        if not verify_group(registration.group, registration.creator.telegram_user_id):
+            return
+        with transaction.atomic():
+            TelegramGroup.objects.select_for_update().get(pk=registration.group_id)
+            if GroupBroadcastSubscription.objects.filter(group=registration.group).exists():
+                return
+            row = GroupBroadcastSubscription.objects.create(
+                group=registration.group,
+                enabled=True,
+                revision=1,
+                authorized_telegram_user_id=registration.creator.telegram_user_id,
+                consented_at=timezone.now(),
+                verified_at=timezone.now(),
+            )
+            GroupBroadcastConsentEvent.objects.create(
+                subscription=row,
+                actor_telegram_user_id=registration.creator.telegram_user_id,
+                enabled=True,
+                revision=1,
+            )
+    except ValidationError:
+        return  # Reverification retries; consent remains absent on uncertain authority.

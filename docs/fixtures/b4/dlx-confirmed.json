@@ -1,0 +1,13 @@
+{
+  "season": "phase4-s1",
+  "confirmed": 60,
+  "held": 7,
+  "forfeited": 3,
+  "net_confirmed": 57,
+  "claimable": 0,
+  "claimable_enabled": false,
+  "transferable": false,
+  "tradable": false,
+  "on_chain": false,
+  "price_status": "UNAVAILABLE"
+}

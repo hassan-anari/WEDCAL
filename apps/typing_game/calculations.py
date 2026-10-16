@@ -35,3 +35,11 @@ def calculate_reward(accuracy: int, wpm: int, policy: TypingConfig) -> int:
     if reward > policy.max_reward_per_attempt:
         raise ValueError("Calculated reward exceeds configured maximum")
     return reward
+
+
+def display_score(accuracy: int | None, wpm: int | None) -> int | None:
+    """Existing frontend display metric, using confirmed scoring; never a reward input."""
+    if accuracy is None or wpm is None:
+        return None
+    # Math.round(accuracy_percent * Math.max(1, wpm)); integer-safe JS half-up semantics.
+    return (accuracy * max(1, wpm) + 50) // 100

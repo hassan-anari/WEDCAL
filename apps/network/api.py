@@ -12,7 +12,7 @@ from apps.network.models import CreatorGroupRegistration
 from apps.network.read_models import group_output, network_summary
 from apps.network.schemas import CreatorGroupPage, IntentOutput, NetworkSummary
 from apps.network.services import create_registration_intent
-from apps.network.tasks import verify_creator_registration
+from apps.network.tasks import refresh_due_owned_groups, verify_creator_registration
 from apps.players.models import Player
 from apps.telegram.mini_app_auth import mini_app_auth
 
@@ -37,6 +37,7 @@ def groups(
     offset: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=100)] = 30,
 ) -> dict[str, Any]:
+    refresh_due_owned_groups(_player(request).pk)
     rows = (
         CreatorGroupRegistration.objects.filter(creator=_player(request))
         .select_related("group")
@@ -49,15 +50,21 @@ def groups(
     }
 
 
+class IntentInput(Schema):
+    authorize_group_messages: bool = Field(default=False, strict=True)
+
+
 @router.post("/groups/intents", response=b3_responses(IntentOutput))
-def intent(request: HttpRequest) -> dict[str, Any]:
+def intent(request: HttpRequest, payload: IntentInput) -> dict[str, Any]:
     if not network_summary(_player(request))["can_register"]:
         raise B3Error("CREATOR_UNAVAILABLE")
     from django.conf import settings
 
     if not settings.TELEGRAM_BOT_USERNAME:
         raise B3Error("BOT_UNCONFIGURED", 503)
-    row, link = create_registration_intent(_player(request))
+    row, link = create_registration_intent(
+        _player(request), authorize_group_messages=payload.authorize_group_messages
+    )
     return {"startgroup_url": link, "expires_at": row.expires_at}
 
 

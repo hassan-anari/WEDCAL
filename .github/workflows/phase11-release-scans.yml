@@ -2,7 +2,7 @@ name: Phase 11 Release Scans
 on:
   workflow_dispatch:
   pull_request:
-    paths: ["pyproject.toml", "uv.lock", "Dockerfile", ".github/workflows/phase11-release-scans.yml"]
+    paths: ["pyproject.toml", "uv.lock", "Dockerfile", ".github/workflows/phase11-release-scans.yml", "apps/**", "dexo_land/**"]
 jobs:
   dependency-audit:
     runs-on: ubuntu-latest

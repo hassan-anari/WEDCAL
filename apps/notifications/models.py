@@ -68,7 +68,15 @@ class Notification(models.Model):
     read_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        indexes = [models.Index(fields=("recipient", "-created_at", "-id"))]
+        indexes = [
+            models.Index(fields=("recipient", "-created_at", "-id")),
+            models.Index(fields=("recipient", "-id"), name="notification_feed_page"),
+            models.Index(
+                fields=("recipient",),
+                name="notification_unread",
+                condition=models.Q(read_at__isnull=True) & ~models.Q(event_key="BOT_PRIVATE"),
+            ),
+        ]
 
 
 class DeliveryState(models.TextChoices):
@@ -104,8 +112,17 @@ class TelegramDelivery(DeliveryFields):
     notification = models.OneToOneField(
         Notification, on_delete=models.PROTECT, related_name="telegram_delivery"
     )
+    source_received_at = models.DateTimeField(null=True)
     text_snapshot = models.TextField(max_length=4096, blank=True)
     message_options = models.JSONField(default=dict)
+
+    def save(self, *args: object, **kwargs: object) -> None:
+        creating = self._state.adding
+        super().save(*args, **kwargs)  # type: ignore[arg-type]
+        if creating and self.state == DeliveryState.PENDING:
+            from apps.notifications.dispatch import dispatch_delivery
+
+            dispatch_delivery(self.pk)
 
 
 class BroadcastCampaign(models.Model):
@@ -242,3 +259,40 @@ class GroupBroadcastConsentEvent(models.Model):
                 fields=("subscription", "revision"), name="group_consent_revision"
             )
         ]
+
+
+class WelcomeTemplate(models.Model):
+    version = models.PositiveIntegerField(unique=True)
+    body = models.TextField(max_length=4096)
+    keyboard = models.JSONField(
+        help_text='{"inline_keyboard":[[{"text":"Play","web_app":{"url":"https://your-app.example/"}}]]}'
+    )
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        permissions = [
+            ("activate_welcome", "Can activate or roll back Welcome"),
+            ("test_welcome", "Can test Welcome in own authorized operator chat"),
+        ]
+
+    def clean(self) -> None:
+        from apps.notifications.welcome_config import validate_template
+
+        validate_template(self.body, self.keyboard)
+
+    def save(self, *args: object, **kwargs: object) -> None:
+        if self.pk:
+            raise ValidationError("Welcome versions are immutable; create a new version")
+        self.full_clean()
+        super().save(*args, **kwargs)  # type: ignore[arg-type]
+
+
+class WelcomeConfiguration(models.Model):
+    # Singleton pointer; activation is separate from the disabled-by-default public delivery switch.
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    active_template = models.ForeignKey(WelcomeTemplate, null=True, on_delete=models.PROTECT)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.CheckConstraint(condition=models.Q(id=1), name="welcome_singleton")]
