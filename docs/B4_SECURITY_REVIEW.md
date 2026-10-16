@@ -99,3 +99,28 @@ No active template is seeded. Tests intercept HTTP and never contact real Telegr
 
 No merge, deployment, production write, real test-send or public message is authorized/performed.
 Stop for independent review; this document does not authorize activation.
+
+## Hosted scan disposition at implementation ec6af70
+
+[Release Scans run 38869293916](https://github.com/hassan-anari/WEDCAL/actions/runs/38869293916)
+passed. Dependency audit: no known vulnerabilities. Container: 44 HIGH package finding instances,
+eight unique IDs, **0 CRITICAL, 0 fixable HIGH/CRITICAL**. Exact packages/versions are retained in
+[b4-trivy-policy.json](evidence/b4-trivy-policy.json) and hosted raw JSON/SARIF artifacts. These are
+the same eight no-fix IDs reviewed in the [existing baseline disposition](PHASE11_CONTAINER_SECURITY.md#final-no-fix-review).
+Dockerfile, runtime privileges and dependency lock are unchanged; B4 adds no mount/ACL/Perl/terminfo
+execution path. Preserve those applicability assessments for independent review:
+
+| No-fix HIGH ID | Applicability / temporary disposition |
+| --- | --- |
+| CVE-2025-69720 | ncurses/terminfo tool path; application never invokes infocmp or parses attacker terminfo. Not reachable in runtime. |
+| CVE-2026-16742 | systemd-homed service is absent; no init/login/home-record subsystem. Not applicable to container threat model. |
+| CVE-2026-54369 | No privileged ACL pathname operations or setfacl path; app is non-root. Not reachable in runtime. |
+| CVE-2026-76642 | Requires privileged mount helpers/hooks; application performs no mounts and has no mount authority. Not applicable. |
+| CVE-2026-78408 | Requires privileged nsenter/cgroup authority; application never invokes nsenter. Not applicable. |
+| CVE-2026-78409 | Requires local fstab-authorized privileged mount flow; no such application path. Not applicable. |
+| CVE-2026-78410 | Requires restricted SUID bind-mount/ownership-hook flow; app does not mount filesystems. Not applicable. |
+| CVE-2026-9538 | Archive::Tar module/path is absent and application performs no Perl archive handling. Not reachable in runtime. |
+
+No ignore, severity suppression or weaker gate was added. Re-evaluate when upstream fixes become
+available or runtime privileges/features change. A green policy result does not erase these findings
+or authorize release; independent review and owner deployment/activation approval remain required.

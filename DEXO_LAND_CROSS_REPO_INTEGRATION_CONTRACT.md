@@ -290,7 +290,7 @@ All migrations are forward-safe and rollback-tested on backups/synthetic copies.
 | B1 | IN_PROGRESS | Backend [Draft PR #26](https://github.com/hassan-anari/WEDCAL/pull/26); frontend B1 PR pending | Backend PR_OPEN; initial implementation `90bf6930a5036ea6cd720605ef4f1d6079153eda`; latest head/CI evidence in PR #26. P-01/P-04 contract and regression delivery: [handoff](docs/B1_BACKEND_HANDOFF.md). Frontend/paired Telegram and cache verification pending; no batch acceptance or next-batch approval. |
 | B2 | BACKEND_DRAFT | Backend [Draft #27](https://github.com/hassan-anari/WEDCAL/pull/27), branch `ai/b2-backend`; paired frontend [Draft #3](https://github.com/hassan-anari/FROCAL/pull/3)/E2E pending | [wire contract](docs/B2_TAP_V2_CONTRACT.md), [handoff](docs/B2_BACKEND_HANDOFF.md), immediate atomic leases, exactly-once legacy drain; no deployment/activation acceptance |
 | B3 | BACKEND_DRAFT | Backend [Draft #28](https://github.com/hassan-anari/WEDCAL/pull/28), `ai/b3-backend-integration`; paired FROCAL [Draft #4](https://github.com/hassan-anari/FROCAL/pull/4) | [implemented contract](docs/B3_BACKEND_CONTRACT.md), [handoff](docs/B3_BACKEND_HANDOFF.md); P-05/P-06/P-07 plus owner-authorized session/banner/bot/broadcast extensions; independent review and paired frontend/device acceptance pending |
-| B4 | BACKEND_VERIFYING | Backend [Draft #29](https://github.com/hassan-anari/WEDCAL/pull/29); frontend [Draft #5](https://github.com/hassan-anari/FROCAL/pull/5) | Runtime implementation `9a43048079bfc20bc5a030a88f84216c9451e4a8`; [contract](docs/B4_BACKEND_CONTRACT.md), [handoff](docs/B4_BACKEND_HANDOFF.md), generated fixtures. P-08/P-09 plus owner B3 corrections; final CI/consumer pin/paired gate pending. No activation or next batch approval. |
+| B4 | BACKEND_CI_GREEN / PAIRED_PENDING | Backend [Draft #29](https://github.com/hassan-anari/WEDCAL/pull/29); frontend [Draft #5](https://github.com/hassan-anari/FROCAL/pull/5) | Runtime implementation `ec6af7053dfc7e8755998418b826c59ca91191ea`; [contract](docs/B4_BACKEND_CONTRACT.md), [handoff](docs/B4_BACKEND_HANDOFF.md), generated fixtures. P-08/P-09 plus owner B3 corrections; 845 hosted tests plus separate benchmark and all checks green; final consumer pin/paired acceptance pending. No activation or next batch approval. |
 | B5 | PLANNED | — | Clan lifecycle/governance/Recovery/Treasury/Shop |
 | B6 | PLANNED | — | Staging E2E, measured load, release gates/rollback |
 
@@ -390,3 +390,14 @@ unauthorized; independent review and paired frontend checks are still required.
 Owner-confirmed Typing TODAY follow-up: current-period filtering and authoritative reset keys/
 boundaries use Typing policy independently from Daily; stale cursors return a typed reset conflict.
 See `typing-periods.json` and the B4 contract. No frontend calendar inference or new UI controls.
+
+Typing TODAY correction runtime/source/fixture pin: `ec6af7053dfc7e8755998418b826c59ca91191ea`.
+Consumer interim head `815c00457169e61cf6f59fe7686e0a539d7eec98` reports 8 B4 API/controller
+plus 15 browser checks against the previous `9a43048` pin; final successor pairing is pending.
+See PR #29 comment 6210682818 and FROCAL #5 for final consumer acceptance evidence.
+
+B4 runtime `ec6af7053dfc7e8755998418b826c59ca91191ea`: hosted Contract 38869293906,
+Foundation 38869293917 and Release Scans 38869293916 all green. 845 tests plus separately run
+benchmark, migrations/no drift, quality and Docker runtime/Admin/static. Backend-run unchanged
+FROCAL compatibility: 29 API/controller + 13 browser against that exact runtime. Final consumer
+B4 successor-pin acceptance is separate; independent review required. No next batch authorized.

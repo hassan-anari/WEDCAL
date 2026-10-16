@@ -1394,3 +1394,14 @@ paired FROCAL Draft #5. Initial runtime publication
 No economic policy, existing XP ledger, wallet/on-chain feature or Season 2 rule changed. Historical
 rankings and DLX presentation remain owner-owned frontend decisions. PH-037/PH-043 and unrelated
 launch prerequisites are unchanged. No merge/deployment/production write is implied by code/tests.
+
+### B4 hosted verification checkpoint
+
+Runtime `ec6af7053dfc7e8755998418b826c59ca91191ea` passes all hosted Contract/Foundation/Release
+Scan checks: 845 tests plus a separately executed benchmark, PostgreSQL migrate/no drift, quality
+and Docker runtime/Admin/static. PH-004's B4 correction is CI_VERIFIED, pending independent/owner
+acceptance; the broader WATCH/operational items above remain open. PH-034's isolated real-worker
+latency slice passes (local reply p95 1.60 s, no duplicate/unauthorized send). PH-039's actionable
+gate remains enforced; eight existing unfixed HIGH IDs (44 package instances) have individual
+applicability dispositions in the B4 security review. No critical/fixable findings or new ignores.
+Final frontend successor-pin acceptance remains tracked on the paired PR. No activation/deployment.

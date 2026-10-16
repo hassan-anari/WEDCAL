@@ -1,9 +1,10 @@
 # B4 backend integration contract
 
+Runtime/source/fixture implementation HEAD: `ec6af7053dfc7e8755998418b826c59ca91191ea`.
 Contract owner: WEDCAL, branch `ai/b4-backend-integration`. Consumer: FROCAL B4.
 Merged baseline WEDCAL `1fa937af4628a10cec384b711210755ff28a6a8a`;
 FROCAL `ae91624f23a48d8a9973154520284706a9df1c21` (verified via GitHub).
-Draft implementation: API schemas/fixtures below are exported from actual routers and isolated PostgreSQL tests. CI and final paired acceptance remain required. No activation approval.
+Implemented: schemas/fixtures below are exported from actual routers and isolated PostgreSQL tests. Runtime CI is green; final consumer acceptance/independent review remain required. See the handoff for exact evidence. No activation approval.
 
 Authentication remains signed Telegram initData (`Authorization: tma …`). Personalized
 responses are private/no-store. Reuse B3 canonical progression and receipt ordering.

@@ -2,9 +2,10 @@
 
 Backend Draft [WEDCAL #29](https://github.com/hassan-anari/WEDCAL/pull/29), branch
 `ai/b4-backend-integration`; consumer Draft [FROCAL #5](https://github.com/hassan-anari/FROCAL/pull/5).
-This publication contains runtime implementation, not just the initial inventory. The exact
-implementation commit is recorded in the PR coordination comment; `2d2a856` is documentation
-only and must not be used as the implementation pin. Final CI and paired acceptance are pending.
+This publication contains runtime implementation, not just the initial inventory. Current runtime,
+schema and fixture implementation HEAD: `ec6af7053dfc7e8755998418b826c59ca91191ea`.
+A later documentation/evidence-only PR HEAD may contain this same implementation; `2d2a856` is documentation
+only and must not be used as the implementation pin. Final CI and consumer acceptance are tracked below and in PR comments.
 
 ## Source pins and integration
 
@@ -81,29 +82,55 @@ old code compatible. Rollback runtime first, leave additive tables/columns/histo
 never drop economic ledgers. Disable image/public Welcome flags and drain newly routed queues
 before reverting workers. Migration SQL and final verification evidence will accompany review.
 
-## Verification status at implementation publication
+## Final implementation verification
 
-Isolated PostgreSQL/Redis/RabbitMQ regression run: 842 passed, one opt-in benchmark skipped;
-that benchmark passed separately. Final current-period/bodyless/permission additions are
-undergoing the full rerun; the deterministic current-period HTTP/real-run regression passed. Real prefork Celery/webhook test uses
-an isolated queue/test database and replaces only the HTTP transport with a synthetic recorder.
-It contacts no Telegram users. Measured reply p95 1.38 s, webhook ACK p95 32 ms and callback ACK
-101 ms; duplicate/unauthorized sends remain zero. Final CI, benchmark, migration and security
-scan evidence will be recorded before claiming completion. These are isolated healthy-system
-measurements, not a production latency guarantee.
+Runtime/source/fixture pin: `ec6af7053dfc7e8755998418b826c59ca91191ea`.
+All hosted checks are green on that implementation:
 
-Initial published implementation `9a43048079bfc20bc5a030a88f84216c9451e4a8` passed all hosted
-[Contract](https://github.com/hassan-anari/WEDCAL/actions/runs/38866870624),
-[Foundation](https://github.com/hassan-anari/WEDCAL/actions/runs/38866870485) and
-[Release Scans](https://github.com/hassan-anari/WEDCAL/actions/runs/38866870368) checks:
-831 tests, separately executed opt-in benchmark, migration/drift, quality, Docker runtime/Admin
-static. Final correction CI is required separately. Release Scans passed the existing actionable
-vulnerability gate but retained 44 unfixed finding instances; final review will enumerate them.
+| Gate | Evidence |
+| --- | --- |
+| Contract | [run 38869293906](https://github.com/hassan-anari/WEDCAL/actions/runs/38869293906) |
+| Foundation quality/test/Docker | [run 38869293917](https://github.com/hassan-anari/WEDCAL/actions/runs/38869293917): 845 passed; benchmark separately 1 passed; PostgreSQL migrate/no drift, Ruff/format/mypy, Django and three OpenAPI drift checks, Docker runtime/Admin/static smoke |
+| Security | [run 38869293916](https://github.com/hassan-anari/WEDCAL/actions/runs/38869293916): dependency audit has no known vulnerabilities; container 0 CRITICAL/0 fixable HIGH; 44 unfixed HIGH package instances across eight existing reviewed IDs |
+| Local full suite | 845 passed in 280.78 s; one opt-in benchmark omitted from general suite and separately passed |
+| Committed fixtures | 19 new response bodies validate against actual runtime schemas; deterministic reset-period HTTP fixture included |
+| Paired compatibility | Unchanged FROCAL `fe7e93c56303d4b02125a974fa29efde9d59031e` tests against exact backend runtime above: 29 API/controller + 13 browser passed |
 
-Unchanged FROCAL `fe7e93c56303d4b02125a974fa29efde9d59031e` paired compatibility against the
-initial B4 implementation passed 29 API/controller + 13 browser scenarios in a separate local
-PostgreSQL database, with external HTTP blocked and synthetic identities. This does not replace
-the consumer's final B4 pin or new B4 binding tests. Historical B3 pins were not modified.
+The general-suite benchmark skip is intentional; the required CI benchmark step actually runs
+and passes. No required GitHub job is skipped. PostgreSQL 17.11/Redis 8/RabbitMQ 4.3 are isolated
+synthetic services. No production connection, data reset, real Telegram contact or deployment.
 
-No merge, deployment, production data modification or public message. Keep this PR Draft and
-stop for independent review after required checks and paired contract verification.
+[Machine-readable verification](evidence/b4-verification.json),
+[local latency samples](evidence/b4-interactive-latency.json),
+[PostgreSQL benchmark](evidence/b4-b2-benchmark.json),
+[review-only migration SQL](evidence/b4-migrations.sql), and
+[security review/dispositions](B4_SECURITY_REVIEW.md) are committed. Hosted Foundation retains
+[b4 latency artifact](https://github.com/hassan-anari/WEDCAL/actions/runs/38869293917/artifacts/12032254416)
+and [benchmark artifact](https://github.com/hassan-anari/WEDCAL/actions/runs/38869293917/artifacts/12032856456).
+Hosted Release Scans retains raw JSON/SARIF/policy. No ignore or gate suppression was introduced.
+
+The latency proof runs real prefork Celery, webhook ingestion, PostgreSQL transactions, RabbitMQ
+and Redis budgets; only HTTP transport response bytes are synthetic. Twelve healthy interactions:
+reply p95 1.60 s, webhook ACK p95 86 ms, callback ACK 413 ms; zero duplicate/unauthorized sends.
+No real users were contacted. This is not WAN, Telegram API, production-capacity or physical-device
+latency certification. Keep recovery scanners and instrument actual queues before activation.
+
+## Paired acceptance and independent review
+
+Consumer interim head `815c00457169e61cf6f59fe7686e0a539d7eec98` reports 8 actual B4 API/controller
+and 15 browser checks against previous `9a43048` in
+[this coordination comment](https://github.com/hassan-anari/WEDCAL/pull/29#issuecomment-6210605276).
+The corrected Typing period implementation above was shared on both PRs in
+[backend comment](https://github.com/hassan-anari/WEDCAL/pull/29#issuecomment-6210682818) and
+[frontend comment](https://github.com/hassan-anari/FROCAL/pull/5#issuecomment-6210684584).
+The consumer must pin that successor separately from B3 and confirm its final B4 binding/CI;
+backend compatibility tests do not falsely stand in for that acceptance. Historical B3 pins were
+not overwritten. The final PR documentation-only HEAD may differ from the runtime pin without
+changing runtime/schema/fixture content; exact PR HEAD is posted in the review comment.
+
+Archive selection and visible DLX UI are explicitly deferred owner design decisions; existing
+current-season rankings are complete and no new control/card/panel is required. First Verified
+Activity has no approved secondary active-day evidence. Do not fabricate it.
+
+No merge, deployment, production data modification, public message or real test-send. Keep Draft;
+stop for independent review. Public Welcome stays disabled. B5 is not authorized.
