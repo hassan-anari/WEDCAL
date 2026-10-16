@@ -258,3 +258,136 @@ def test_actual_typing_submission_queues_durable_mission_and_blocks_close_drain(
     assert evidence.pending_count == 1
     assert process_mission_signals() == 1
     assert _clan_mission_signals(season, now + timedelta(hours=1)).pending_count == 0
+
+
+def test_actual_governance_lifecycle_and_credential_failure_fixtures(
+    clan_world, b5_http, monkeypatch
+):
+    from apps.clans.governance import finalize_case
+    from apps.clans.services import reconcile_telegram_membership
+    from apps.telegram.bot_api import TelegramResult
+
+    now, config, season, resolved, player, clan = clan_world
+    cs = clan()
+    soldiers = [player(ClanRole.SOLDIER) for _ in range(3)]
+    memberships = [
+        ClanMembership.objects.create(
+            player=p,
+            season=season,
+            clan_season=cs,
+            role=ClanRole.SOLDIER,
+            started_at=now,
+            config_version=config,
+        )
+        for p in soldiers
+    ]
+    for member in memberships:
+        ClanMembershipEvent.objects.create(membership=member, kind="ACTIVATED", occurred_at=now)
+    captain = b5_http(cs.captain)
+    target = memberships[0]
+    response = captain.post(
+        "/api/v1/clans/removal-cases",
+        data={"target_membership_id": target.pk, "reason": "COMMUNITY_REASON"},
+        content_type="application/json",
+    )
+    assert response.status_code == 200, response.content
+    case = response.json()
+    captured = {"governance_open": case}
+    assert case["eligible_count"] == 3 and case["yes_count"] is None
+    denied = b5_http(target.player).post(
+        f"/api/v1/clans/governance/{case['id']}/vote",
+        data={"choice": "YES"},
+        content_type="application/json",
+    )
+    assert denied.status_code == 403
+    captured["target_vote_forbidden"] = denied.json()
+    for voter, choice in [(cs.captain, "YES"), (soldiers[1], "YES"), (soldiers[2], "NO")]:
+        assert (
+            b5_http(voter)
+            .post(
+                f"/api/v1/clans/governance/{case['id']}/vote",
+                data={"choice": choice},
+                content_type="application/json",
+            )
+            .status_code
+            == 200
+        )
+    finalize_case(case["id"], now=now + timedelta(hours=25))
+    final = captain.get("/api/v1/clans/governance").json()[0]
+    assert final["status"] == "APPROVED" and final["yes_count"] == 2
+    captured["governance_final"] = final
+
+    # Real existing Telegram reconciliation, including loss and recovery, never
+    # equates group absence to membership deletion.
+    returning = memberships[1]
+    reconcile_telegram_membership(
+        player=returning.player,
+        group=cs.clan.telegram_group,
+        present=False,
+        telegram_update_id=100,
+        observed_at=now + timedelta(seconds=1),
+    )
+    captured["access_lost"] = (
+        b5_http(returning.player).get("/api/v1/clans/membership/current").json()
+    )
+    assert captured["access_lost"]["access_state"] == "ACCESS_LOST"
+    reconcile_telegram_membership(
+        player=returning.player,
+        group=cs.clan.telegram_group,
+        present=True,
+        telegram_update_id=101,
+        observed_at=now + timedelta(seconds=2),
+    )
+    captured["access_recovered"] = (
+        b5_http(returning.player).get("/api/v1/clans/membership/current").json()
+    )
+    assert captured["access_recovered"]["access_state"] == "ACTIVE"
+
+    applicant = player(ClanRole.SOLDIER)
+    applicant_http = b5_http(applicant)
+    req = applicant_http.post(f"/api/v1/clans/{cs.clan_id}/join-requests").json()
+    captured["pending_request"] = applicant_http.get("/api/v1/clans/join-requests/current").json()
+    monkeypatch.setattr(
+        "apps.clans.services.bot_api.get_chat_member",
+        lambda *_: TelegramResult(True, {"status": "left"}),
+    )
+    monkeypatch.setattr(
+        "apps.clans.services.bot_api.create_chat_invite_link",
+        lambda *_: TelegramResult(False, category="timeout", ambiguous=True),
+    )
+    accepted = captain.post(
+        f"/api/v1/clans/join-requests/{req['id']}/decision",
+        data={"accept": True},
+        content_type="application/json",
+    )
+    assert accepted.status_code == 200
+    captured["accepted_request"] = accepted.json()
+    captured["uncertain_invite"] = applicant_http.get("/api/v1/clans/invite/current").json()
+    assert (
+        captured["uncertain_invite"]["state"] == "UNCERTAIN"
+        and captured["uncertain_invite"]["invite_link"] is None
+    )
+    applicant_http.delete(f"/api/v1/clans/join-requests/{req['id']}")
+    captured["unsafe_cancellation_retained"] = applicant_http.get(
+        "/api/v1/clans/join-requests/current"
+    ).json()
+    assert captured["unsafe_cancellation_retained"][0]["state"] == "ACCEPTED"
+    assert captured["unsafe_cancellation_retained"][0]["cancellation_pending"]
+    if os.getenv("B5_EXPORT_FIXTURES"):
+        Path("docs/fixtures/b5/lifecycle-http.json").write_text(
+            json.dumps(captured, indent=2, default=str) + "\n"
+        )
+
+
+def test_owner_approved_same_season_recreation_is_blocked(clan_world, b5_http):
+    from apps.clans.governance import request_dissolution
+
+    _, _, _, _, _, clan = clan_world
+    cs = clan()
+    request_dissolution(cs.captain, cs)
+    response = b5_http(cs.captain).post(
+        "/api/v1/clans/",
+        data={"telegram_group_id": 999, "name": "No recreation", "tag": "NORE"},
+        content_type="application/json",
+    )
+    assert response.status_code == 409 and response.json()["code"] == "CLAN_RECREATION_BLOCKED"

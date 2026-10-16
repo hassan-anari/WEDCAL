@@ -235,7 +235,7 @@ def register_clan(
     if ClanSeason.objects.filter(
         captain=player, season=season, state=ClanSeason.State.ENDED
     ).exists():
-        raise ClanConflict("PH-045 owner decision required for same-Season recreation")
+        raise ClanConflict("Same-Season Clan recreation is not allowed")
     group = eligible_groups(player, season, resolved).filter(pk=group_id).first()
     if group is None:
         raise PermissionDenied("Telegram group is not eligible")
@@ -267,7 +267,7 @@ def register_clan(
         if ClanSeason.objects.filter(
             captain=player, season=season, state=ClanSeason.State.ENDED
         ).exists():
-            raise ClanConflict("PH-045 owner decision required for same-Season recreation")
+            raise ClanConflict("Same-Season Clan recreation is not allowed")
         if ClanMembership.objects.filter(
             player=player, season=season, ended_at__isnull=True
         ).exists():

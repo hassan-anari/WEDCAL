@@ -19,6 +19,7 @@ from apps.clans.models import (
     ClanSeason,
     ClanSeasonEvent,
 )
+from apps.clans.recovery import preserve_recovery_causes, sync_recovery
 from apps.clans.services import ClanConflict, require_interactive_clan_season
 from apps.game_config.services import ClanConfig, resolve_game_config_version
 from apps.players.models import Player
@@ -99,6 +100,7 @@ def record_clan_activity(membership_id: int, *, occurred_at: datetime) -> ClanMe
     identity = ClanMembership.objects.values("clan_season_id").get(pk=membership_id)
     with transaction.atomic():
         cs = ClanSeason.objects.select_for_update().get(pk=identity["clan_season_id"])
+        preserve_recovery_causes(cs)
         membership = ClanMembership.objects.select_for_update().get(pk=membership_id)
         if membership.ended_at is not None:
             return membership
@@ -116,14 +118,19 @@ def record_clan_activity(membership_id: int, *, occurred_at: datetime) -> ClanMe
         if (
             membership.role == ClanRole.CAPTAIN
             and cs.state == ClanSeason.State.RECOVERY
-            and cs.bot_admin_lost_at is None
             and cs.recovery_governance_opened_at is None
+            and cs.captain_inactivity_recovery_at is not None
         ):
-            cs.state, cs.recovery_reason, cs.recovery_started_at = ClanSeason.State.ACTIVE, "", None
-            cs.save(update_fields=("state", "recovery_reason", "recovery_started_at", "updated_at"))
+            cs.captain_inactivity_recovery_at = None
+            sync_recovery(cs, occurred_at)
+            cs.save()
             _event(
                 cs,
-                "RECOVERY_CANCELLED",
+                (
+                    "RECOVERY_CANCELLED"
+                    if cs.state == ClanSeason.State.ACTIVE
+                    else "CAPTAIN_INACTIVITY_RECOVERED"
+                ),
                 occurred_at,
                 source_type="ACTIVITY",
                 source_id=str(membership.pk),
@@ -462,6 +469,7 @@ def sweep_inactivity(*, now: datetime | None = None, limit: int = 100) -> int:
             identity = ClanMembership.objects.values("clan_season_id").get(pk=membership_id)
             with transaction.atomic():
                 cs = ClanSeason.objects.select_for_update().get(pk=identity["clan_season_id"])
+                preserve_recovery_causes(cs)
                 m = ClanMembership.objects.select_for_update().get(pk=membership_id)
                 if (
                     m.ended_at is not None
@@ -507,27 +515,13 @@ def sweep_inactivity(*, now: datetime | None = None, limit: int = 100) -> int:
                 elif m.role == ClanRole.CAPTAIN and age >= timedelta(
                     days=policy.captain_recovery_days
                 ):
-                    if cs.state == ClanSeason.State.ACTIVE:
-                        (
-                            cs.state,
-                            cs.recovery_reason,
-                            cs.recovery_started_at,
-                            cs.recovery_governance_opened_at,
-                        ) = (
-                            ClanSeason.State.RECOVERY,
-                            "CAPTAIN_INACTIVITY",
-                            now,
-                            None,
-                        )
-                        cs.save(
-                            update_fields=(
-                                "state",
-                                "recovery_reason",
-                                "recovery_started_at",
-                                "recovery_governance_opened_at",
-                                "updated_at",
-                            )
-                        )
+                    if (
+                        cs.state != ClanSeason.State.ENDED
+                        and cs.captain_inactivity_recovery_at is None
+                    ):
+                        cs.captain_inactivity_recovery_at = now
+                        sync_recovery(cs, now)
+                        cs.save()
                         _event(
                             cs,
                             "RECOVERY_ENTERED",
@@ -535,7 +529,10 @@ def sweep_inactivity(*, now: datetime | None = None, limit: int = 100) -> int:
                             source_type="INACTIVITY",
                             source_id=str(m.pk),
                         )
-                        if _electorate(cs).count() >= policy.governance_minimum_voters:
+                        if (
+                            cs.recovery_governance_opened_at is None
+                            and _electorate(cs).count() >= policy.governance_minimum_voters
+                        ):
                             open_case(
                                 initiator=cs.captain,
                                 clan_season=cs,
@@ -562,13 +559,23 @@ def observe_bot_admin_state(
         return ClanSeason.objects.get(pk=clan_season_id)
     with transaction.atomic():
         cs = ClanSeason.objects.select_for_update().get(pk=clan_season_id)
+        if cs.state == ClanSeason.State.ENDED or (
+            cs.bot_admin_observed_at is not None
+            and (
+                observed_at < cs.bot_admin_observed_at
+                or (is_admin and observed_at == cs.bot_admin_observed_at)
+            )
+        ):
+            return cs
+        preserve_recovery_causes(cs)
+        cs.bot_admin_observed_at = observed_at
         policy = _policy(cs)
         if not is_admin and cs.bot_admin_lost_at is None:
-            cs.bot_admin_lost_at, cs.bot_admin_restore_deadline, cs.recovery_reason = (
+            cs.bot_admin_lost_at, cs.bot_admin_restore_deadline = (
                 observed_at,
                 observed_at + timedelta(hours=policy.bot_admin_restore_grace_hours),
-                "BOT_ADMIN_LOSS",
             )
+            sync_recovery(cs, observed_at)
             cs.save(
                 update_fields=(
                     "bot_admin_lost_at",
@@ -601,27 +608,18 @@ def observe_bot_admin_state(
             )
         elif is_admin and cs.bot_admin_lost_at is not None:
             cs.bot_admin_lost_at = cs.bot_admin_restore_deadline = None
-            if cs.recovery_governance_opened_at is None and cs.recovery_reason == "BOT_ADMIN_LOSS":
-                cs.recovery_reason, cs.recovery_started_at = "", None
-                if cs.state == ClanSeason.State.RECOVERY:
-                    cs.state = ClanSeason.State.ACTIVE
-                    _event(
-                        cs,
-                        "RECOVERY_CANCELLED",
-                        observed_at,
-                        source_type="TELEGRAM",
-                        source_id=str(int(observed_at.timestamp())),
-                    )
-            cs.save(
-                update_fields=(
-                    "bot_admin_lost_at",
-                    "bot_admin_restore_deadline",
-                    "recovery_reason",
-                    "recovery_started_at",
-                    "state",
-                    "updated_at",
+            if cs.recovery_governance_opened_at is None:
+                cs.bot_admin_recovery_at = None
+            previous_state = cs.state
+            sync_recovery(cs, observed_at)
+            if previous_state == ClanSeason.State.RECOVERY and cs.state == ClanSeason.State.ACTIVE:
+                _event(
+                    cs,
+                    "RECOVERY_CANCELLED",
+                    observed_at,
+                    source_type="TELEGRAM",
+                    source_id=observed_at.isoformat(),
                 )
-            )
             _event(
                 cs,
                 "BOT_ADMIN_RESTORED",
@@ -629,6 +627,7 @@ def observe_bot_admin_state(
                 source_type="TELEGRAM",
                 source_id=str(int(observed_at.timestamp())),
             )
+        cs.save()
         return cs
 
 
@@ -636,7 +635,9 @@ def sweep_bot_admin_deadlines(*, now: datetime | None = None, limit: int = 100) 
     now = now or timezone.now()
     ids = list(
         ClanSeason.objects.filter(
-            state=ClanSeason.State.ACTIVE, bot_admin_restore_deadline__lte=now
+            state__in=[ClanSeason.State.ACTIVE, ClanSeason.State.RECOVERY],
+            bot_admin_restore_deadline__lte=now,
+            bot_admin_recovery_at__isnull=True,
         )
         .order_by("bot_admin_restore_deadline", "pk")
         .values_list("pk", flat=True)[:limit]
@@ -647,27 +648,22 @@ def sweep_bot_admin_deadlines(*, now: datetime | None = None, limit: int = 100) 
             with transaction.atomic():
                 cs = ClanSeason.objects.select_for_update().get(pk=pk)
                 if (
-                    cs.state != ClanSeason.State.ACTIVE
+                    cs.state == ClanSeason.State.ENDED
+                    or cs.bot_admin_recovery_at is not None
                     or not cs.bot_admin_restore_deadline
                     or cs.bot_admin_restore_deadline > now
                 ):
                     continue
-                cs.state, cs.recovery_started_at, cs.recovery_governance_opened_at = (
-                    ClanSeason.State.RECOVERY,
-                    now,
-                    None,
-                )
-                cs.save(
-                    update_fields=(
-                        "state",
-                        "recovery_started_at",
-                        "recovery_governance_opened_at",
-                        "updated_at",
-                    )
-                )
+                preserve_recovery_causes(cs)
+                cs.bot_admin_recovery_at = now
+                sync_recovery(cs, now)
+                cs.save()
                 _event(cs, "RECOVERY_ENTERED", now, source_type="BOT_ADMIN", source_id=str(pk))
                 policy = _policy(cs)
-                if _electorate(cs).count() >= policy.governance_minimum_voters:
+                if (
+                    cs.recovery_governance_opened_at is None
+                    and _electorate(cs).count() >= policy.governance_minimum_voters
+                ):
                     open_case(
                         initiator=cs.captain,
                         clan_season=cs,

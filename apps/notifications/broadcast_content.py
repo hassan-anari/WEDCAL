@@ -139,7 +139,13 @@ def seal_album(source_id: int, *, expected_count: int) -> BroadcastSource:
     return source
 
 
-def copy(source: BroadcastSource, destination: int) -> bot_api.TelegramResult:
+def copy(
+    source: BroadcastSource,
+    destination: int,
+    *,
+    preview: bool = False,
+    preview_delivery_id: int | None = None,
+) -> bot_api.TelegramResult:
     source.refresh_from_db()
     if source.state != "READY":
         return bot_api.TelegramResult(False, category="source_unavailable")
@@ -151,7 +157,29 @@ def copy(source: BroadcastSource, destination: int) -> bot_api.TelegramResult:
         or not operator.user.has_perm("notifications.manage_broadcasts")
     ):
         return bot_api.TelegramResult(False, category="operator_authorization_revoked")
-    ids = [item["id"] for item in source.messages]
+    # The first successful native preview is bot-authored and cannot be edited by
+    # the operator. Every later preview and destination copies that frozen content.
+    # Original operator messages can be edited/deleted without changing a campaign.
+    frozen = source.frozen_preview
+    if frozen is not None:
+        ids = frozen.telegram_message_ids if source.media_group_id else [frozen.telegram_message_id]
+        if frozen.state != "SENT" or not ids or any(type(value) is not int for value in ids):
+            return bot_api.TelegramResult(False, category="source_unavailable")
+    elif preview:
+        first = (
+            source.telegramdelivery_set.filter(
+                notification__idempotency_key__startswith="bot-panel:"
+            )
+            .order_by("pk")
+            .first()
+        )
+        if first is None or first.pk != preview_delivery_id:
+            if first and first.state in {"PENDING", "PROCESSING", "RETRY_WAIT"}:
+                return bot_api.TelegramResult(False, category="local_rate_limited", retry_after=1)
+            return bot_api.TelegramResult(False, category="source_preview_failed")
+        ids = [item["id"] for item in source.messages]
+    else:
+        return bot_api.TelegramResult(False, category="source_unavailable")
     if source.media_group_id:
         result = bot_api.request(
             "copyMessages",
@@ -173,14 +201,22 @@ def copy(source: BroadcastSource, destination: int) -> bot_api.TelegramResult:
 def validate_campaign_source(campaign: Any) -> None:
     if not campaign.copy_source_id:
         return
-    source = BroadcastSource.objects.select_for_update().get(pk=campaign.copy_source_id)
+    # Content is immutable once READY; a late-part invalidation is checked again
+    # at dispatch. Avoid taking source locks after the campaign lock (capture
+    # holds a source before updating its draft campaign).
+    source = BroadcastSource.objects.get(pk=campaign.copy_source_id)
     if source.operator.user_id != campaign.created_by_id:
         raise ValidationError("Source does not belong to this campaign operator")
     if source.state != "READY":
         raise ValidationError("Finish a complete copyable source before confirming")
     # A button can arrive before the asynchronous native preview. Require a successful
     # copy of every item, not just an enqueued request or textual description.
-    if not source.telegramdelivery_set.filter(
-        state="SENT", notification__idempotency_key__startswith="bot-panel:"
-    ).exists():
+    if (
+        not source.frozen_preview_id
+        or not source.telegramdelivery_set.filter(
+            pk=source.frozen_preview_id,
+            state="SENT",
+            notification__idempotency_key__startswith="bot-panel:",
+        ).exists()
+    ):
         raise ValidationError("Wait for the complete native preview, then confirm again")

@@ -6,7 +6,7 @@ WEDCAL owns this contract; FROCAL consumes it. Base: merged B4 `6aaa362daecec861
 
 Use existing `Authorization: tma <initData>`. Every Clan read/mutation is private/no-store, varies by Authorization and resolves the Player server-side. Internal IDs are opaque application references, never Telegram identity assertions. Existing paths/fields remain. Added fields are additive; generic Clan errors now use the shared typed envelope:
 
-`{code, detail, retryable, retry_after_seconds}`. Codes: `CLAN_FORBIDDEN` (403), `CLAN_NOT_FOUND` (404), `CLAN_STATE_CONFLICT` (409), `CLAN_OWNER_DECISION_REQUIRED` (409), `IDEMPOTENCY_CONFLICT` (409), `SEASON_UNAVAILABLE` (409), `REQUEST_INVALID` (422). Authentication/configuration and throttling retain their existing integration envelopes, documented in OpenAPI. No internal exception strings, source credentials or validation input values are echoed.
+`{code, detail, retryable, retry_after_seconds}`. Codes: `CLAN_FORBIDDEN` (403), `CLAN_NOT_FOUND` (404), `CLAN_STATE_CONFLICT` (409), `CLAN_RECREATION_BLOCKED` (409), `IDEMPOTENCY_CONFLICT` (409), `SEASON_UNAVAILABLE` (409), `REQUEST_INVALID` (422). Authentication/configuration and throttling retain their existing integration envelopes, documented in OpenAPI. No internal exception strings, source credentials or validation input values are echoed.
 
 ## P-10: core and membership
 
@@ -35,7 +35,11 @@ Existing `/leave`, `/governance`, `/removal-cases`, `/governance/{case_id}/vote`
 
 Existing source-time access-loss/incidents, grace, inactivity warnings/removal, Captain recovery, bot-admin loss/restoration/deadline, timed dissolution and history preservation remain. Governance votes/finalization use ClanSeason-before-case locking to align with the existing recovery/economy lock order. Closed-Clan/ended-membership credential cleanup is bounded and durable through the existing periodic invite-recovery task: pending requests cancel; accepted/unsafe paths keep reservations until proven-safe revocation. No TTL or leave penalty is invented for accepted paths.
 
-**PH-045:** same-Season Captain recreation is fail-closed with `CLAN_OWNER_DECISION_REQUIRED`; detailed Captain Telegram authority-loss recovery transitions remain owner-owned. Existing approved bot-admin-loss behavior is retained. ACTIVE/RECOVERY CLAN_HOME exclusively owns its group; no non-INACTIVE Creator registration may coexist; ending Clan never reactivates Creator state. No Captain succession or role-switch rule is added.
+**PH-045:** the owner approved keeping same-Season Captain recreation blocked (owner decision in B5), returned as `CLAN_RECREATION_BLOCKED`; confirmed Captain Telegram authority loss enters `RECOVERY` with `CAPTAIN_AUTHORITY_LOSS`. Verified membership updates can enter recovery; only fresh `getChatMember` verification of the original Captain (`creator` or `administrator`) and the authorized bot can clear that cause. Activity alone cannot clear it. Independent inactivity/bot-loss causes and opened governance continue to block restoration. No new automatic dissolution, grace period, penalty, replacement Captain or recreation is introduced. Existing approved bot-admin-loss behavior is retained.
+
+GET `/recovery` now adds `reasons`, `captain_authority_lost_at` and `can_verify_authority`; existing `reason` is the primary display cause. POST `/recovery/verify` is authenticated and original-Captain-only, returns the same schema, and uses shared Telegram API budgets. Unknown/failed verification returns the stable conflict envelope and never clears recovery. A bounded durable scan redrives lost-authority verification on the existing bot-admin worker cadence; fresh evidence is fenced against stale updates and concurrent results. Notification `CLAN_CAPTAIN_AUTHORITY_LOST` commits through the existing Notification Center with the transition. Source-time activity/economic eligibility remains historical, so previously committed pre-loss obligations can settle without enabling new paused actions.
+
+FROCAL must map the new reason/list to its existing RECOVERY surface. At audited FROCAL main, `ClanPage.tsx` derives recovery from the demo `supply-cache` effect and has no authority-loss lifecycle adapter or verification action. Map server state/reasons to the approved Recovery presentation, report missing representation and do not invent a new screen. ACTIVE/RECOVERY CLAN_HOME exclusively owns its group; no non-INACTIVE Creator registration may coexist; ending Clan never reactivates Creator state. No Captain succession or role-switch rule is added.
 
 ## P-12: HQ and economy
 
@@ -66,3 +70,5 @@ Banner destinations may be empty or any structurally valid HTTPS external URL, i
 ## Administration
 
 In-App announcements and Telegram Broadcast are distinct workflows sharing existing infrastructure. See [operator guide](B5_OPERATOR_GUIDE.md). Announcements never create Telegram deliveries. Multimedia Broadcast copies originals through `copyMessage`/`copyMessages`, preserves the B4 audience policy, and requires complete native preview before confirmation. Legacy text/API campaigns without a native source still use the existing sendMessage path.
+
+Native campaign source is frozen by an atomic first-successful-preview reference. Bot-authored preview message IDs become the source for all subsequent previews and deliveries, so editing/deleting an original operator message cannot change confirmed content. Deleting the bot-authored source can make copying unavailable and is handled explicitly. Concurrent preview completions cannot replace the frozen source.

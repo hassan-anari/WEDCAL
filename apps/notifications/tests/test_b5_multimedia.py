@@ -141,7 +141,7 @@ def test_native_original_preview_and_delivery_preserves_message_reference(media_
     deliver_broadcasts()
     assert all(method == "copyMessage" for method, _ in calls)
     assert {p["chat_id"] for _, p in calls} == {101, 201}
-    assert all(p["from_chat_id"] == 101 and p["message_id"] == 3 for _, p in calls)
+    assert all(p["from_chat_id"] == 101 and p["message_id"] == 999 for _, p in calls)
     assert row.recipients.filter(state="SENT").count() == 2
     calls.clear()
     deliver_broadcasts()
@@ -171,8 +171,8 @@ def test_album_complete_count_sorting_native_group_preview_and_delivery(media_wo
     calls.clear()
     deliver_broadcasts()
     assert len(calls) == 2 and all(method == "copyMessages" for method, _ in calls)
-    assert all(p["message_ids"] == [3, 4] for _, p in calls)
-    assert all(r.telegram_message_ids == [1003, 1004] for r in row.recipients.all())
+    assert all(p["message_ids"] == [1003, 1004] for _, p in calls)
+    assert all(r.telegram_message_ids == [2003, 2004] for r in row.recipients.all())
 
 
 def test_album_early_finish_pending_parts_oversize_protection_and_expiration(media_world, settings):
@@ -329,3 +329,44 @@ def test_unauthorized_original_cannot_replace_source_and_no_sensitive_logs(media
         raw["update_id"] += 1
     assert not BroadcastSource.objects.exists()
     assert "sensitive-synthetic-id" not in caplog.text
+
+
+def test_original_edits_cannot_change_frozen_native_source_and_previews_serialize(media_world):
+    from apps.players.models import Player
+    from apps.telegram.welcome import queue_private_message
+
+    actor, _, calls = media_world
+    start_composer()
+    process(content("photo"))
+    process(callback(4, token("users")))
+    campaign = BroadcastCampaign.objects.get()
+    first = TelegramDelivery.objects.get(notification__idempotency_key="bot-panel:4:preview")
+    repeated = queue_private_message(
+        Player.objects.get(telegram_user_id=101),
+        key="bot-panel:repeated-native-preview",
+        text="",
+        copy_source=campaign.copy_source,
+    )
+    calls.clear()
+    deliver_one_notification(repeated.pk)
+    repeated.refresh_from_db()
+    assert repeated.state == "RETRY_WAIT" and calls == []
+    deliver_one_notification(first.pk)
+    assert campaign.copy_source is not None and campaign.copy_source_id is not None
+    campaign.copy_source.refresh_from_db()
+    assert campaign.copy_source.frozen_preview_id == first.pk
+    # Whatever the operator now edits on original message 3, all further copies
+    # reference the bot-authored preview message 999, never the original.
+    TelegramDelivery.objects.filter(pk=repeated.pk).update(
+        next_attempt_at=timezone.now() - timedelta(seconds=1)
+    )
+    calls.clear()
+    deliver_one_notification(repeated.pk)
+    assert calls[0][1]["message_id"] == 999
+    with pytest.raises(DatabaseError), transaction.atomic():
+        BroadcastSource.objects.filter(pk=campaign.copy_source_id).update(frozen_preview=repeated)
+    with pytest.raises(DatabaseError), transaction.atomic():
+        TelegramDelivery.objects.filter(pk=first.pk).update(telegram_message_id=1234)
+    process(callback(5, token("confirm")))
+    campaign.refresh_from_db()
+    assert campaign.state == "MATERIALIZING"

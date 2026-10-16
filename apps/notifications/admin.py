@@ -349,6 +349,13 @@ class InAppAnnouncementAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
         "estimated_recipients",
         "processed_count",
         "error_category",
+        "attempt_count",
+        "next_attempt_at",
+        "created_by",
+        "confirmed_by",
+        "confirmed_at",
+        "completed_at",
+        "cancelled_at",
         "operations",
     )
     readonly_fields = (
@@ -359,6 +366,13 @@ class InAppAnnouncementAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
         "estimated_recipients",
         "processed_count",
         "error_category",
+        "attempt_count",
+        "next_attempt_at",
+        "created_by",
+        "confirmed_by",
+        "confirmed_at",
+        "completed_at",
+        "cancelled_at",
         "operations",
     )
     raw_id_fields = ("player",)
@@ -436,7 +450,11 @@ class InAppAnnouncementAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
                 error = "Confirmation invalid or draft changed; preview again."
                 if isinstance(exc, ValidationError):
                     error = "; ".join(exc.messages)
-        data = announcements.preview(row) if row.state == "DRAFT" else {}
+        try:
+            data = announcements.preview(row) if row.state == "DRAFT" else {}
+        except ValidationError as exc:
+            error = "; ".join(exc.messages)
+            data = {}
         return TemplateResponse(
             request,
             "admin/notifications/announcement_operation.html",
@@ -451,7 +469,8 @@ class InAppAnnouncementAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
                 "confirmation": signing.dumps(
                     {"identity": identity, "preview": data}, salt="inapp-announcement"
                 ),
-                "can_publish": request.user.has_perm("notifications.publish_inappannouncement"),
+                "can_publish": bool(data or row.state == "FAILED")
+                and request.user.has_perm("notifications.publish_inappannouncement"),
                 "can_cancel": request.user.has_perm("notifications.cancel_inappannouncement"),
             },
         )

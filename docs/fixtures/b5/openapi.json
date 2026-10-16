@@ -6540,6 +6540,119 @@
         ]
       }
     },
+    "/api/v1/clans/recovery/verify": {
+      "post": {
+        "operationId": "apps_clans_api_verify_recovery_authority",
+        "summary": "Verify Recovery Authority",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorOutput"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/B3ErrorOutput"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ThrottleOutput"
+                    }
+                  ],
+                  "title": "Response"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/B3ErrorOutput"
+                    },
+                    {
+                      "$ref": "#/components/schemas/IntegrationErrorOutput"
+                    }
+                  ],
+                  "title": "Response"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "clans"
+        ],
+        "security": [
+          {
+            "MiniAppAuth": []
+          }
+        ]
+      }
+    },
     "/api/v1/clans/roster": {
       "get": {
         "operationId": "apps_clans_api_roster",
@@ -12368,6 +12481,29 @@
       },
       "RecoveryOut": {
         "properties": {
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "captain_authority_lost_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Captain Authority Lost At"
+          },
+          "can_verify_authority": {
+            "title": "Can Verify Authority",
+            "type": "boolean"
+          },
           "state": {
             "title": "State",
             "type": "string"
@@ -12406,6 +12542,9 @@
           }
         },
         "required": [
+          "reasons",
+          "captain_authority_lost_at",
+          "can_verify_authority",
           "state",
           "reason",
           "started_at",

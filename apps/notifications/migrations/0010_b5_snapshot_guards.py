@@ -6,10 +6,16 @@ BEGIN
   IF TG_OP = 'DELETE' THEN
     RAISE EXCEPTION 'Announcement audit history cannot be deleted';
   END IF;
-  IF OLD.state <> 'DRAFT' AND ROW(NEW.template_id, NEW.audience, NEW.player_id,
+  IF OLD.state <> 'DRAFT' AND NEW.state = 'DRAFT' THEN
+    RAISE EXCEPTION 'Confirmed announcements cannot return to draft';
+  END IF;
+  IF NEW.cursor < OLD.cursor OR NEW.processed_count < OLD.processed_count THEN
+    RAISE EXCEPTION 'Announcement progress is monotonic';
+  END IF;
+  IF OLD.state <> 'DRAFT' AND ROW(NEW.public_id, NEW.template_id, NEW.audience, NEW.player_id,
       NEW.channel, NEW.title_snapshot, NEW.body_snapshot, NEW.recipient_upper_bound,
       NEW.estimated_recipients, NEW.confirmed_by_id, NEW.confirmed_at, NEW.created_by_id)
-    IS DISTINCT FROM ROW(OLD.template_id, OLD.audience, OLD.player_id,
+    IS DISTINCT FROM ROW(OLD.public_id, OLD.template_id, OLD.audience, OLD.player_id,
       OLD.channel, OLD.title_snapshot, OLD.body_snapshot, OLD.recipient_upper_bound,
       OLD.estimated_recipients, OLD.confirmed_by_id, OLD.confirmed_at, OLD.created_by_id) THEN
     RAISE EXCEPTION 'Confirmed announcement snapshots are immutable';

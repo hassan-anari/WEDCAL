@@ -1,0 +1,24 @@
+{
+  "environment": "isolated PostgreSQL 17 / Redis budgets / RabbitMQ / Celery; synthetic HTTP",
+  "samples": 12,
+  "reply_ms": [
+    148.97149400030685,
+    1322.4562189998323,
+    1296.6946080000525,
+    1187.1730970001408,
+    1131.6400499999872,
+    1333.976955000253,
+    1216.7146960000537,
+    1295.2880339998956,
+    1309.255654000026,
+    1243.5676959999,
+    1336.6852269996343,
+    1151.355857999988
+  ],
+  "reply_p95_ms": 1336.6852269996343,
+  "webhook_ack_p95_ms": 39.31764500021018,
+  "callback_ack_ms": 101.75381699991703,
+  "duplicate_or_unauthorized_sends": 0,
+  "production_or_real_user_contacts": 0,
+  "limits": "Not a production, WAN, Telegram API or physical-device latency certification."
+}

@@ -42,7 +42,16 @@ def home_integrity_at(clan_season: ClanSeason, at: datetime) -> bool:
         .values_list("kind", flat=True)
         .first()
     )
-    return event != "BOT_ADMIN_LOST"
+    authority = (
+        clan_season.events.filter(
+            kind__in=["CAPTAIN_AUTHORITY_LOST", "CAPTAIN_AUTHORITY_RESTORED"],
+            occurred_at__lte=at,
+        )
+        .order_by("-occurred_at", "-pk")
+        .values_list("kind", flat=True)
+        .first()
+    )
+    return event != "BOT_ADMIN_LOST" and authority != "CAPTAIN_AUTHORITY_LOST"
 
 
 def context_owned_at(clan_season: ClanSeason, at: datetime) -> bool:

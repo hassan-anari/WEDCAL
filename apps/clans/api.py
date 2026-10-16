@@ -165,6 +165,9 @@ class GovernanceOut(Schema):
 
 
 class RecoveryOut(Schema):
+    reasons: list[str]
+    captain_authority_lost_at: datetime | None
+    can_verify_authority: bool
     state: str
     reason: str
     started_at: datetime | None
@@ -311,8 +314,11 @@ def fail(exc: Exception) -> B3Error:
         exc, (ClanSeason.DoesNotExist, ClanMembership.DoesNotExist, ClanGovernanceCase.DoesNotExist)
     ):
         return B3Error("CLAN_NOT_FOUND", 404)
-    if isinstance(exc, ValidationError) and any("PH-045" in message for message in exc.messages):
-        return B3Error("CLAN_OWNER_DECISION_REQUIRED")
+    if (
+        isinstance(exc, ValidationError)
+        and "Same-Season Clan recreation is not allowed" in exc.messages
+    ):
+        return B3Error("CLAN_RECREATION_BLOCKED")
     return B3Error("CLAN_STATE_CONFLICT")
 
 
@@ -895,13 +901,35 @@ def recovery(request: HttpRequest) -> RecoveryOut:
         ClanMembership, player=player(request), season=season, ended_at__isnull=True
     )
     cs = membership.clan_season
+    from apps.clans.recovery import recovery_reasons
+
     return RecoveryOut(
+        reasons=recovery_reasons(cs),
+        captain_authority_lost_at=cs.captain_authority_lost_at,
+        can_verify_authority=membership.player_id == cs.captain_id,
         state=cs.state,
         reason=cs.recovery_reason,
         started_at=cs.recovery_started_at,
         bot_admin_restore_deadline=cs.bot_admin_restore_deadline,
         home_integrity_available=clan_home_integrity_available(cs),
     )
+
+
+@router.post("/recovery/verify", response=b3_responses(RecoveryOut))
+def verify_recovery_authority(request: HttpRequest) -> RecoveryOut:
+    from apps.clans.recovery import verify_captain_authority
+
+    season, _ = context()
+    membership = get_object_or_404(
+        ClanMembership, player=player(request), season=season, ended_at__isnull=True
+    )
+    if membership.player_id != membership.clan_season.captain_id:
+        raise fail(PermissionDenied("Captain required"))
+    try:
+        verify_captain_authority(membership.clan_season_id)
+    except (ValidationError, PermissionDenied) as exc:
+        raise fail(exc) from exc
+    return recovery(request)
 
 
 class RosterMemberOut(Schema):

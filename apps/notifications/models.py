@@ -408,6 +408,9 @@ class InAppAnnouncement(models.Model):
 class BroadcastSource(models.Model):
     """Native-copy source references; content becomes immutable when sealed."""
 
+    frozen_preview = models.ForeignKey(
+        TelegramDelivery, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
     operator = models.ForeignKey(BotAdminOperator, on_delete=models.PROTECT)
     chat_id = models.BigIntegerField()
     media_group_id = models.CharField(max_length=128, blank=True)

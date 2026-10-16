@@ -14,7 +14,7 @@
     ]
   },
   "home": {
-    "clan_id": 1,
+    "clan_id": 113,
     "state": "ACTIVE",
     "hq_level": 5,
     "hq_xp": 20000,
@@ -34,8 +34,8 @@
   "roster": {
     "items": [
       {
-        "membership_id": 2,
-        "player_id": 2,
+        "membership_id": 141,
+        "player_id": 546,
         "first_name": "Dexo",
         "username": "",
         "level": 23,
@@ -43,12 +43,12 @@
         "role": "SOLDIER",
         "access_state": "ACTIVE",
         "contribution": 100000,
-        "started_at": "2026-10-16T18:14:56.451Z",
+        "started_at": "2026-10-16T18:41:28.976Z",
         "own": false
       },
       {
-        "membership_id": 1,
-        "player_id": 1,
+        "membership_id": 140,
+        "player_id": 545,
         "first_name": "Dexo",
         "username": "",
         "level": 5,
@@ -56,7 +56,7 @@
         "role": "CAPTAIN",
         "access_state": "ACTIVE",
         "contribution": 0,
-        "started_at": "2026-10-16T18:14:56.451Z",
+        "started_at": "2026-10-16T18:41:28.976Z",
         "own": true
       }
     ],
@@ -85,13 +85,13 @@
         "direction": "CREDIT",
         "amount": 10000,
         "source_type": "CLAN_ACTIVITY",
-        "occurred_at": "2026-10-16T18:14:56.504Z"
+        "occurred_at": "2026-10-16T18:41:29.050Z"
       }
     ]
   },
   "equipment": {
     "config_version": "phase7-domain",
-    "server_time": "2026-10-16T18:14:56.742Z",
+    "server_time": "2026-10-16T18:41:29.291Z",
     "items": [
       {
         "item_id": "rally-beacon",
@@ -301,7 +301,7 @@
       "current": 100000,
       "target": 25000,
       "unlocked": true,
-      "unlocked_at": "2026-10-16T18:14:56.504Z",
+      "unlocked_at": "2026-10-16T18:41:29.050Z",
       "available": true,
       "blocked_reason": null
     },
@@ -317,6 +317,9 @@
   ],
   "governance": [],
   "recovery": {
+    "reasons": [],
+    "captain_authority_lost_at": null,
+    "can_verify_authority": true,
     "state": "ACTIVE",
     "reason": "",
     "started_at": null,
@@ -324,19 +327,19 @@
     "home_integrity_available": true
   },
   "membership/current": {
-    "membership_id": 1,
-    "clan_season_id": 1,
+    "membership_id": 140,
+    "clan_season_id": 112,
     "access_rejoin_deadline": null,
-    "clan_id": 1,
+    "clan_id": 113,
     "clan_name": "Clan 2",
     "role": "CAPTAIN",
     "access_state": "ACTIVE",
-    "started_at": "2026-10-16T18:14:56.451Z"
+    "started_at": "2026-10-16T18:41:28.976Z"
   },
   "join-requests/current": [],
   "equipment_after_activation": {
     "config_version": "phase7-domain",
-    "server_time": "2026-10-16T18:14:57.062Z",
+    "server_time": "2026-10-16T18:41:29.642Z",
     "items": [
       {
         "item_id": "rally-beacon",
@@ -478,22 +481,22 @@
     ],
     "active_effects": [
       {
-        "id": 1,
+        "id": 2,
         "item_id": "rally-beacon",
         "category": "HQ_XP_RATE_BONUS_BPS",
         "value": 2000,
-        "starts_at": "2026-10-16T18:14:57.033Z",
-        "expires_at": "2026-10-16T20:14:57.033Z",
+        "starts_at": "2026-10-16T18:41:29.611Z",
+        "expires_at": "2026-10-16T20:41:29.611Z",
         "effective": true
       }
     ]
   },
   "purchase": {
-    "id": 1,
+    "id": 3,
     "replayed": false
   },
   "purchase_replay": {
-    "id": 1,
+    "id": 3,
     "replayed": true
   },
   "forbidden": {

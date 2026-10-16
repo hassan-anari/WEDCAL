@@ -228,3 +228,57 @@ def test_concurrent_workers_and_cancel_serialize(announcement_world):
         pass
     row.refresh_from_db()
     assert row.processed_count == Notification.objects.count() == 5
+
+
+def test_disabled_template_preview_fails_safely_and_failed_work_retries_with_audit(
+    announcement_world, client, monkeypatch, settings
+):
+    actor, template, _, row = announcement_world
+    client.force_login(actor)
+    template.enabled = False
+    template.save(update_fields=("enabled",))
+    response = client.get(f"/admin/notifications/inappannouncement/{row.pk}/publish/")
+    assert response.status_code == 200 and not response.context["can_publish"]
+    template.enabled = True
+    template.save(update_fields=("enabled",))
+    row = publish(actor, row)
+    settings.ANNOUNCEMENT_MAX_ATTEMPTS = 1
+    original = announcements.emit_notification
+
+    def fail(**_):
+        raise RuntimeError("synthetic")
+
+    monkeypatch.setattr(announcements, "emit_notification", fail)
+    assert announcements.process_batch(row.pk) == 0
+    row.refresh_from_db()
+    assert row.state == "FAILED" and row.processed_count == 0
+    announcements.retry(row.pk, actor, reason="Explicit retry after correcting failure")
+    monkeypatch.setattr(announcements, "emit_notification", original)
+    assert announcements.process_batch(row.pk) == 5
+    with pytest.raises(DatabaseError), transaction.atomic():
+        InAppAnnouncement.objects.filter(pk=row.pk).update(state="DRAFT")
+
+
+def test_cancellation_races_a_batch_without_post_cancel_notifications(announcement_world):
+    actor, _, _, row = announcement_world
+    publish(actor, row)
+    barrier = Barrier(2)
+
+    def run(action):
+        close_old_connections()
+        try:
+            barrier.wait(timeout=5)
+            if action == "cancel":
+                announcements.cancel(row.pk, actor, reason="Concurrent cancellation")
+                return 0
+            return announcements.process_batch(row.pk, limit=2)
+        finally:
+            close_old_connections()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        list(pool.map(run, ["cancel", "batch"]))
+    row.refresh_from_db()
+    assert row.state == "CANCELLED"
+    assert row.processed_count == Notification.objects.count()
+    assert row.processed_count in {0, 2}
+    assert announcements.process_batch(row.pk) == 0

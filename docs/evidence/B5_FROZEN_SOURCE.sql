@@ -1,0 +1,48 @@
+BEGIN;
+--
+-- Add field frozen_preview to broadcastsource
+--
+ALTER TABLE "notifications_broadcastsource" ADD COLUMN "frozen_preview_id" bigint NULL CONSTRAINT "notifications_broadc_frozen_preview_id_c6b1f821_fk_notificat" REFERENCES "notifications_telegramdelivery"("id") DEFERRABLE INITIALLY DEFERRED; SET CONSTRAINTS "notifications_broadc_frozen_preview_id_c6b1f821_fk_notificat" IMMEDIATE;
+--
+-- Raw SQL operation
+--
+
+CREATE FUNCTION b5_frozen_preview_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF OLD.frozen_preview_id IS NOT NULL AND
+     NEW.frozen_preview_id IS DISTINCT FROM OLD.frozen_preview_id THEN
+    RAISE EXCEPTION 'Frozen native source cannot be replaced';
+  END IF;
+  IF NEW.frozen_preview_id IS NOT NULL AND OLD.frozen_preview_id IS NULL AND NOT EXISTS (
+    SELECT 1 FROM notifications_telegramdelivery d JOIN notifications_notification n
+      ON n.id = d.notification_id
+    WHERE d.id = NEW.frozen_preview_id AND d.copy_source_id = NEW.id
+      AND d.state = 'SENT' AND d.telegram_user_id = NEW.chat_id
+      AND n.event_key = 'BOT_PRIVATE' AND n.idempotency_key LIKE 'bot-panel:%'
+      AND ((NEW.media_group_id = '' AND d.telegram_message_id > 0) OR
+           (NEW.media_group_id <> '' AND jsonb_array_length(d.telegram_message_ids) =
+                                        jsonb_array_length(NEW.messages)))
+  ) THEN
+    RAISE EXCEPTION 'Native source requires a complete successful private preview';
+  END IF;
+  RETURN NEW;
+END; $$;
+CREATE TRIGGER b5_frozen_preview_guard BEFORE UPDATE ON notifications_broadcastsource
+FOR EACH ROW EXECUTE FUNCTION b5_frozen_preview_guard();
+
+CREATE FUNCTION b5_preview_delivery_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM notifications_broadcastsource WHERE frozen_preview_id = OLD.id)
+     AND ROW(NEW.state, NEW.telegram_user_id, NEW.telegram_message_id,
+             NEW.telegram_message_ids, NEW.copy_source_id)
+         IS DISTINCT FROM ROW(OLD.state, OLD.telegram_user_id, OLD.telegram_message_id,
+             OLD.telegram_message_ids, OLD.copy_source_id) THEN
+    RAISE EXCEPTION 'Frozen native preview result is immutable';
+  END IF;
+  RETURN NEW;
+END; $$;
+CREATE TRIGGER b5_preview_delivery_guard BEFORE UPDATE ON notifications_telegramdelivery
+FOR EACH ROW EXECUTE FUNCTION b5_preview_delivery_guard();
+
+CREATE INDEX "notifications_broadcastsource_frozen_preview_id_c6b1f821" ON "notifications_broadcastsource" ("frozen_preview_id");
+COMMIT;

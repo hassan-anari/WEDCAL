@@ -282,7 +282,12 @@ def _deliver(row: Delivery, text: str) -> None:
         if source is not None:
             from apps.notifications.broadcast_content import copy
 
-            return copy(source, row.telegram_user_id)
+            return copy(
+                source,
+                row.telegram_user_id,
+                preview=isinstance(row, TelegramDelivery),
+                preview_delivery_id=row.pk if isinstance(row, TelegramDelivery) else None,
+            )
         return bot_api.send_message(row.telegram_user_id, text)
 
     if isinstance(row, BroadcastRecipient) and row.target_kind == "GROUP":
@@ -380,6 +385,14 @@ def _deliver(row: Delivery, text: str) -> None:
             locked.state, locked.completed_at = DeliveryState.FAILED, now
             locked.error_category = result.category or "terminal"
         locked.save()
+        if isinstance(locked, TelegramDelivery) and locked.copy_source_id and result.ok:
+            from apps.notifications.models import BroadcastSource
+
+            # CAS elects exactly one immutable preview even if previews complete
+            # out of order. This happens in the same transaction as SENT.
+            BroadcastSource.objects.filter(
+                pk=locked.copy_source_id, frozen_preview__isnull=True
+            ).update(frozen_preview=locked)
         if isinstance(locked, TelegramDelivery) and locked.state == DeliveryState.RETRY_WAIT:
             from apps.notifications.dispatch import dispatch_delivery
 

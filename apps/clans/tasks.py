@@ -55,7 +55,9 @@ def sweep_clan_inactivity(limit: int = 100) -> int:
 @shared_task  # type: ignore[untyped-decorator]
 def sweep_clan_bot_admin_deadlines(limit: int = 100) -> int:
     from apps.clans.governance import sweep_bot_admin_deadlines
+    from apps.clans.recovery import recheck_lost_captain_authority
 
+    recheck_lost_captain_authority(limit=limit)
     return sweep_bot_admin_deadlines(limit=limit)
 
 

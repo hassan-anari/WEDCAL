@@ -161,16 +161,15 @@ Until functional MVP is complete:
 ## PH-045 — Unresolved Clan lifecycle product decisions
 
 **Origin:** Phase 7A Clan Core
-**State:** `OPEN`
+**State:** `VERIFYING`
 **Gate:** `PHASE-BLOCKER` before Phase 7B dissolution/recovery behavior
 
-The contract does not yet decide Creator Group/Clan Home coexistence, repeated same-Season recreation after dissolution, or detailed Telegram authority-loss recovery triggers. Phase 7A does not invent these answers; Phase 7B requires owner-approved decisions and transition tests.
+Original Phase 7A questions were Creator Group/Clan Home coexistence, repeated same-Season recreation and Captain Telegram authority-loss triggers. The approved resolutions below now govern Season 1; agents must not invent additional lifecycle rules.
 
 **Phase 8 context-ownership sub-decision (resolved):** a live `ACTIVE`/`RECOVERY`
 ClanSeason exclusively owns its Telegram group as `CLAN_HOME`; registration rejects every
 non-`INACTIVE` Creator registration and impossible dual-live data fails closed in message
-routing. Ending a Clan does not reactivate historical Creator state. Other independent
-PH-045 lifecycle questions remain open.
+routing. Ending a Clan does not reactivate historical Creator state. Owner decision during B5: keep same-Season Captain recreation after dissolution blocked. The owner additionally approved confirmed Captain authority loss → RECOVERY (`CAPTAIN_AUTHORITY_LOSS`), preservation of identity/assets/memberships, Captain notification, restoration only after fresh original-Captain and bot permission verification, no activity-only restoration, no automatic dissolution/succession/new deadline/penalty, independent overlapping recovery causes and existing authorized dissolution governance. B5 implements these decisions; local PostgreSQL regressions pass. PH-045 is `VERIFYING` until the final runtime hosted checks are green; those checks and the exact pin are recorded in Draft PR #30.
 
 Phase 10 operational tooling must also provide an audited resolution action for Phase 7A
 `MANUAL_REVIEW` invite rows carrying `unknown_credential_risk`; until resolved, the same
