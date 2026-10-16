@@ -1,0 +1,54 @@
+{
+  "runtime_implementation_sha": "3fd6d87a1d738b8ba78d98788c76b81cb1dc7715",
+  "base_main_sha": "1fa937af4628a10cec384b711210755ff28a6a8a",
+  "local": {
+    "full_tests_passed": 868,
+    "full_seconds": 248.33,
+    "additional_legacy_fixture_tests_passed": 2,
+    "opt_in_benchmark": "executed separately in hosted CI",
+    "ruff_format_mypy": "passed; 419 files",
+    "migration_drift": "none",
+    "openapi_b3_b4": "no drift"
+  },
+  "implementation_ci": {
+    "contract": 38913664223,
+    "foundation": 38913663997,
+    "release_scans": 38913663381
+  },
+  "final_review_ci": "see final exact-HEAD checks and comment on Draft #29",
+  "migration": "notifications.0008_owner_broadcast_audience; additive, retains legacy data; version-1 unfinished materialization requires cancellation/new confirmation",
+  "wire_compatibility": "B3 shapes/pins retained; consent API deprecated legacy metadata, not an eligibility gate",
+  "frontend": "pin final review HEAD in B4 source/fixture/CI only; no consent flag or UI",
+  "interactive_latency": {
+    "environment": "isolated PostgreSQL 17 / Redis budgets / RabbitMQ / Celery; synthetic HTTP",
+    "samples": 12,
+    "reply_ms": [
+      150.00257999781752,
+      1168.8488470026641,
+      1296.7645059979986,
+      1239.5778659993084,
+      1173.348326003179,
+      1296.861909002473,
+      1328.5767980050878,
+      1499.1914569982328,
+      1150.0196189954295,
+      1184.3793309963075,
+      1171.8517459958093,
+      1317.320791000384
+    ],
+    "reply_p95_ms": 1499.1914569982328,
+    "webhook_ack_p95_ms": 60.65712399868062,
+    "callback_ack_ms": 141.6259799952968,
+    "duplicate_or_unauthorized_sends": 0,
+    "production_or_real_user_contacts": 0,
+    "limits": "Not a production, WAN, Telegram API or physical-device latency certification."
+  },
+  "security": {
+    "critical": 0,
+    "fixable_high_critical": 0,
+    "unfixed_high_ids": 8,
+    "unfixed_high_instances": 44,
+    "policy_unchanged": true
+  },
+  "real_sends_production_writes_merges_deployments": 0
+}

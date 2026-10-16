@@ -83,6 +83,9 @@ def test_all_known_admin_groups_legacy_registered_and_unrelated_need_no_preferen
     deliver_broadcasts()
     assert sorted(sent) == [-200, -100, creator.telegram_user_id]
     assert row.recipients.filter(state="SENT").count() == 3
+    row.refresh_from_db()
+    assert row.state == "COMPLETED"
+    assert (row.estimated_users, row.estimated_groups) == (1, 2)
     assert GroupBroadcastSubscription.objects.filter(pk=legacy.pk).values().get() == original
     assert GroupBroadcastSubscription.objects.count() == 1
     assert (
@@ -354,3 +357,47 @@ def test_telegram_membership_updates_discover_and_remove_non_creator_audience(au
     observed(8002, "kicked")
     observed(8001, "administrator")  # Replay cannot restore removed membership.
     assert not eligible_groups().filter(pk=group.pk).exists()
+
+
+def test_preexisting_queued_legacy_target_uses_bot_authority_despite_revoked_preference(
+    audience_world, monkeypatch
+):
+    from apps.notifications.models import BroadcastCampaign
+
+    actor, creator, group = audience_world
+    legacy = GroupBroadcastSubscription.objects.create(
+        group=group,
+        enabled=False,
+        revoked_at=timezone.now(),
+        revision=7,
+        authorized_telegram_user_id=creator.telegram_user_id,
+    )
+    # Represents an already operator-confirmed/materialized campaign from before migration.
+    row = BroadcastCampaign.objects.create(
+        created_by=actor,
+        audience_type="GROUPS",
+        state="QUEUED",
+        audience_policy_version=1,
+        body_snapshot="Synthetic pre-existing campaign",
+        purpose="Compatibility fixture",
+    )
+    target = BroadcastRecipient.objects.create(
+        campaign=row,
+        group_subscription=legacy,
+        subscription_revision=6,
+        target_kind="GROUP",
+        telegram_user_id=group.telegram_chat_id,
+    )
+    sent = []
+
+    def send(chat, text):
+        sent.append(chat)
+        return TelegramResult(True)
+
+    monkeypatch.setattr("apps.telegram.bot_api.send_message", send)
+    deliver_broadcasts()
+    deliver_broadcasts()
+    target.refresh_from_db()
+    legacy.refresh_from_db()
+    assert target.state == "SENT" and sent == [group.telegram_chat_id]
+    assert not legacy.enabled and legacy.revoked_at and legacy.revision == 7

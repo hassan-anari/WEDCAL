@@ -6,9 +6,9 @@
     "groups": 2
   },
   "metrics": {
-    "state": "DRAFT",
-    "estimated_users": 0,
-    "estimated_groups": 0,
+    "state": "COMPLETED",
+    "estimated_users": 1,
+    "estimated_groups": 2,
     "users": {
       "materialized": 1,
       "pending": 0,

@@ -417,3 +417,6 @@ Backend successor remains Draft #29; consumer Draft #5 currently pins prior runt
 must advance only its B4 pin/CI checkout after the successor is published. No next batch, deployment,
 production write, actual message or public Welcome enablement. Updated policy/schema/fixtures and
 migration 0008 safety/cancellation/reconfirmation instructions live in the B4 handoff.
+
+Owner-policy implementation pin: `3fd6d87a1d738b8ba78d98788c76b81cb1dc7715`; final review/source/fixture SHA and green checks
+are posted on #29. FROCAL #5 updates only its B4 pin/CI checkout; no consent UI or flag required.

@@ -135,3 +135,26 @@ execution path. Preserve those applicability assessments for independent review:
 No ignore, severity suppression or weaker gate was added. Re-evaluate when upstream fixes become
 available or runtime privileges/features change. A green policy result does not erase these findings
 or authorize release; independent review and owner deployment/activation approval remain required.
+
+
+## Owner-policy successor verification
+
+Runtime `3fd6d87a1d738b8ba78d98788c76b81cb1dc7715` implements the direct owner eligibility correction described above. Migration
+0008 preserves legacy consent/recipient data, labels pre-existing campaigns version 1, requires
+new explicit confirmation before unfinished materialization can use version 2, and adds unique
+campaign/chat identity across legacy/direct group references. No destructive history rewrite.
+The rollback worker/drain caveat is explicit in the handoff; do not blindly revert workers over
+pending direct-group targets or unapply 0008 over new rows.
+
+Known historical/no-subscription/non-Creator groups, current bot identity/admin/send rights,
+observed removal/demotion, concurrent loss during verification, blocked private/group sends,
+private-contact-only eligibility, real mixed rate budgets/retry and concurrent target uniqueness
+are covered by synthetic tests. Creator economic/authentication/moderation logic is retained.
+Legacy B3 preference responses remain available but confer no broadcast permission or veto under
+the new owner policy. Every campaign still needs authorized operator confirmation and audit.
+
+[Successor Release Scans](https://github.com/hassan-anari/WEDCAL/actions/runs/38913663381) passed:
+no dependency vulnerabilities; 0 CRITICAL/0 fixable HIGH; same 44 HIGH package instances across the
+eight individually reviewed no-fix IDs above. [Exact policy artifact](evidence/b4-owner-policy-trivy-policy.json).
+No new ignore/suppression/dependency or broader avatar credentials. All testing forbids real HTTP
+or substitutes strictly synthetic Bot API bytes; no real broadcast or test-send was performed.

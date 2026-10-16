@@ -1427,3 +1427,8 @@ is preserved but does not gate the audience. No frontend opt-in or extra control
 
 Prior 845-test green evidence is historical. Successor exact runtime SHA/CI evidence is recorded
 on Draft #29; independent review remains required. No actual send, deployment or production change.
+
+Owner-policy runtime `3fd6d87a1d738b8ba78d98788c76b81cb1dc7715`: local full 868 passed plus additional legacy/fixture proof;
+final review includes 869 tests and hosted separate benchmark. New schema/migration, shared budgets,
+negative authorization and authoritative bot checks are verified without real sends. Final CI
+review-HEAD evidence is linked on #29; PH-019/PH-034 broader operational WATCH items remain open.

@@ -2,8 +2,9 @@
 
 Backend Draft [WEDCAL #29](https://github.com/hassan-anari/WEDCAL/pull/29), branch
 `ai/b4-backend-integration`; consumer Draft [FROCAL #5](https://github.com/hassan-anari/FROCAL/pull/5).
-This publication contains runtime implementation, not just the initial inventory. Prior runtime/schema/fixture pin: `ec6af7053dfc7e8755998418b826c59ca91191ea`.
-The owner-policy successor is implemented on this branch; its exact SHA is shared on PR #29.
+This publication contains runtime implementation, not just the initial inventory. Owner-policy runtime implementation SHA: `3fd6d87a1d738b8ba78d98788c76b81cb1dc7715`.
+Final review HEAD (additional test/fixture/evidence corrections) and exact consumer pin are posted
+on PR #29; production application/migration code remains identical to this implementation.
 A later documentation/evidence-only PR HEAD may contain this same implementation; `2d2a856` is documentation
 only and must not be used as the implementation pin. Final CI and consumer acceptance are tracked below and in PR comments.
 
@@ -170,3 +171,42 @@ user/group, real mixed send budgets/retry/idempotency, PostgreSQL concurrency/un
 0007→0008 migration retention. Full successor CI and exact SHA evidence follow in the PR comment.
 Previous 845-test/CI evidence above proves only the prior runtime and must not be presented as
 verification of this correction. Stop after the successor checks are green for independent review.
+
+
+### Successor verification and exact frontend update
+
+Production code/migration implementation: `3fd6d87a1d738b8ba78d98788c76b81cb1dc7715`. Local full regression: **868 passed**
+in 248.33 s; opt-in benchmark is separately required in hosted CI. An additional legacy queued-target
+regression plus refreshed persisted-campaign fixture passed (2 focused tests). Final CI includes
+**869 tests** with that added regression; use the final review-HEAD CI links in the PR comment as
+completion evidence rather than the earlier 845-test or pre-correction pins.
+
+Successor contract run [38913664223](https://github.com/hassan-anari/WEDCAL/actions/runs/38913664223)
+and [Release Scans 38913663381](https://github.com/hassan-anari/WEDCAL/actions/runs/38913663381)
+passed; Foundation [38913663997](https://github.com/hassan-anari/WEDCAL/actions/runs/38913663997)
+contains quality, full PostgreSQL/test/benchmark and Docker runtime proofs. Final review-HEAD runs
+are recorded in the PR after this evidence commit. Local ruff/format/mypy (419 files), Django,
+OpenAPI B3/B4 drift and migration/no-drift passed; migration SQL is
+[b4-owner-policy-migration.sql](evidence/b4-owner-policy-migration.sql).
+
+Security policy remains unchanged: no known dependency vulnerabilities, zero CRITICAL/fixable
+HIGH, the same eight reviewed unfixed HIGH IDs across 44 package instances. See
+[b4-owner-policy-trivy-policy.json](evidence/b4-owner-policy-trivy-policy.json). Shared transport
+classification now preserves definitive Telegram forbidden/chat-not-found as terminal per-target
+skips; other API/error schemas remain compatible. No new dependencies, flags or public Welcome
+activation. Local interactive reply p95 remained 1.50 s with zero duplicate/unauthorized/real sends.
+
+FROCAL #5 instructions:
+
+1. Use the **final review HEAD posted on #29** as the exact B4 source/fixture/paired-CI checkout
+   pin (it contains runtime `3fd6d87a1d738b8ba78d98788c76b81cb1dc7715` plus corrected persisted campaign metrics and tests).
+2. Preserve B2 and historical B3 pins unchanged. Refresh only B4 pinned schema/fixture hashes,
+   including `broadcast-policy.json`; its campaign metrics come from a refreshed database row
+   and show COMPLETED with real per-audience counts.
+3. Keep all existing UI/Add Bot requests unchanged. Do not send an opt-in flag or add consent UI.
+   The optional legacy flag remains accepted solely for compatibility metadata.
+4. Run original B2/B3 and B4 API/controller/browser regressions against that exact checkout with
+   isolated PostgreSQL/Redis and mocked Telegram transports. Report exact consumer SHA and evidence
+   in both paired PRs. Backend CI does not falsely claim final consumer acceptance.
+
+No merge/deployment/production write/message; stop for independent review after final HEAD green.

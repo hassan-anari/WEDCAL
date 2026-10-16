@@ -1,6 +1,6 @@
 # B4 backend integration contract
 
-Prior runtime pin: `ec6af7053dfc7e8755998418b826c59ca91191ea`; owner-policy successor on this branch supersedes its broadcast eligibility. Exact successor SHA is published on Draft #29.
+Owner-policy runtime implementation: `3fd6d87a1d738b8ba78d98788c76b81cb1dc7715`. It supersedes ec6af70 broadcast eligibility. Final review/source/fixture pin is posted on Draft #29; review commits retain this production code.
 Contract owner: WEDCAL, branch `ai/b4-backend-integration`. Consumer: FROCAL B4.
 Merged baseline WEDCAL `1fa937af4628a10cec384b711210755ff28a6a8a`;
 FROCAL `ae91624f23a48d8a9973154520284706a9df1c21` (verified via GitHub).

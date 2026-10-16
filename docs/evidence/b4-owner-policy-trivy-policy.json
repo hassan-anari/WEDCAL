@@ -1,0 +1,414 @@
+{
+  "finding_instances": 44,
+  "fixable": [],
+  "passed": true,
+  "policy": "HIGH/CRITICAL findings with an upstream fixed version are release-blocking",
+  "unfixed_requiring_review": [
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-76642",
+      "installed_version": "1:2.41.5-0+deb13u1",
+      "package": "bsdutils",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-78408",
+      "installed_version": "1:2.41.5-0+deb13u1",
+      "package": "bsdutils",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-78409",
+      "installed_version": "1:2.41.5-0+deb13u1",
+      "package": "bsdutils",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-78410",
+      "installed_version": "1:2.41.5-0+deb13u1",
+      "package": "bsdutils",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-54369",
+      "installed_version": "2.3.2-2+b1",
+      "package": "libacl1",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-76642",
+      "installed_version": "2.41.5-0+deb13u1",
+      "package": "libblkid1",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-78408",
+      "installed_version": "2.41.5-0+deb13u1",
+      "package": "libblkid1",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-78409",
+      "installed_version": "2.41.5-0+deb13u1",
+      "package": "libblkid1",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-78410",
+      "installed_version": "2.41.5-0+deb13u1",
+      "package": "libblkid1",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-76642",
+      "installed_version": "2.41.5-0+deb13u1",
+      "package": "liblastlog2-2",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-78408",
+      "installed_version": "2.41.5-0+deb13u1",
+      "package": "liblastlog2-2",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-78409",
+      "installed_version": "2.41.5-0+deb13u1",
+      "package": "liblastlog2-2",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-78410",
+      "installed_version": "2.41.5-0+deb13u1",
+      "package": "liblastlog2-2",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-76642",
+      "installed_version": "2.41.5-0+deb13u1",
+      "package": "libmount1",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-78408",
+      "installed_version": "2.41.5-0+deb13u1",
+      "package": "libmount1",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-78409",
+      "installed_version": "2.41.5-0+deb13u1",
+      "package": "libmount1",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-78410",
+      "installed_version": "2.41.5-0+deb13u1",
+      "package": "libmount1",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2025-69720",
+      "installed_version": "6.5+20250216-2",
+      "package": "libncursesw6",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-76642",
+      "installed_version": "2.41.5-0+deb13u1",
+      "package": "libsmartcols1",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-78408",
+      "installed_version": "2.41.5-0+deb13u1",
+      "package": "libsmartcols1",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-78409",
+      "installed_version": "2.41.5-0+deb13u1",
+      "package": "libsmartcols1",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-78410",
+      "installed_version": "2.41.5-0+deb13u1",
+      "package": "libsmartcols1",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-16742",
+      "installed_version": "257.13-1~deb13u1",
+      "package": "libsystemd0",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2025-69720",
+      "installed_version": "6.5+20250216-2",
+      "package": "libtinfo6",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-16742",
+      "installed_version": "257.13-1~deb13u1",
+      "package": "libudev1",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-76642",
+      "installed_version": "2.41.5-0+deb13u1",
+      "package": "libuuid1",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-78408",
+      "installed_version": "2.41.5-0+deb13u1",
+      "package": "libuuid1",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-78409",
+      "installed_version": "2.41.5-0+deb13u1",
+      "package": "libuuid1",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-78410",
+      "installed_version": "2.41.5-0+deb13u1",
+      "package": "libuuid1",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-76642",
+      "installed_version": "1:4.16.0-2+really2.41.5-0+deb13u1",
+      "package": "login",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-78408",
+      "installed_version": "1:4.16.0-2+really2.41.5-0+deb13u1",
+      "package": "login",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-78409",
+      "installed_version": "1:4.16.0-2+really2.41.5-0+deb13u1",
+      "package": "login",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-78410",
+      "installed_version": "1:4.16.0-2+really2.41.5-0+deb13u1",
+      "package": "login",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-76642",
+      "installed_version": "2.41.5-0+deb13u1",
+      "package": "mount",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-78408",
+      "installed_version": "2.41.5-0+deb13u1",
+      "package": "mount",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-78409",
+      "installed_version": "2.41.5-0+deb13u1",
+      "package": "mount",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-78410",
+      "installed_version": "2.41.5-0+deb13u1",
+      "package": "mount",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2025-69720",
+      "installed_version": "6.5+20250216-2",
+      "package": "ncurses-base",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2025-69720",
+      "installed_version": "6.5+20250216-2",
+      "package": "ncurses-bin",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-9538",
+      "installed_version": "5.40.1-6+deb13u1",
+      "package": "perl-base",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-76642",
+      "installed_version": "2.41.5-0+deb13u1",
+      "package": "util-linux",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-78408",
+      "installed_version": "2.41.5-0+deb13u1",
+      "package": "util-linux",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-78409",
+      "installed_version": "2.41.5-0+deb13u1",
+      "package": "util-linux",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    },
+    {
+      "ecosystem": "debian",
+      "fixed_version": "",
+      "id": "CVE-2026-78410",
+      "installed_version": "2.41.5-0+deb13u1",
+      "package": "util-linux",
+      "severity": "HIGH",
+      "target": "dexo-land:phase11 (debian 13.7)"
+    }
+  ],
+  "unique_ids": [
+    "CVE-2025-69720",
+    "CVE-2026-16742",
+    "CVE-2026-54369",
+    "CVE-2026-76642",
+    "CVE-2026-78408",
+    "CVE-2026-78409",
+    "CVE-2026-78410",
+    "CVE-2026-9538"
+  ]
+}
