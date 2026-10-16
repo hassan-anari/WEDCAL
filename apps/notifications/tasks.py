@@ -31,3 +31,14 @@ def materialize_broadcasts() -> int:
 @shared_task(name="apps.notifications.tasks.deliver_broadcasts")
 def deliver_broadcasts() -> int:
     return services.deliver_broadcasts()
+
+
+@shared_task(
+    name="apps.notifications.tasks.deliver_one_notification",
+    acks_late=True,
+    reject_on_worker_lost=True,
+    autoretry_for=(),
+    max_retries=0,
+)
+def deliver_one_notification(delivery_id: int) -> int:
+    return services.deliver_one_notification(delivery_id)

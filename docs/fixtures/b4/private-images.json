@@ -1,0 +1,41 @@
+{
+  "invitees": {
+    "items": [
+      {
+        "photo_url": "https://api.example.com/api/v1/profile/avatar/3df9c81a-483c-4b62-a0b7-472b32d58bb2",
+        "name": "Dexo",
+        "status": "PENDING",
+        "attributed_at": "2026-10-16T07:43:54.869Z",
+        "verified_at": null,
+        "activation": {
+          "level": 1,
+          "required_level": 5,
+          "required_account_age_hours": 24,
+          "eligible": false
+        }
+      }
+    ],
+    "next_offset": null
+  },
+  "groups": {
+    "items": [
+      {
+        "public_id": "b4604316-1ad9-4b0a-8c4e-0f14ce65b838",
+        "title": "Synthetic connected community",
+        "photo_url": "https://api.example.com/api/v1/profile/group-avatar/9b8adbe6-22d2-4f77-a76f-274cd49e40b6",
+        "state": "REVIEW",
+        "bot_admin": false,
+        "broadcast_opted_in": false,
+        "creator_verified_at": null,
+        "bot_verified_at": null,
+        "next_verification_at": "2026-10-16T08:43:54.914Z",
+        "verification_retrying": false,
+        "earned_points": 0,
+        "qualified_characters": 0,
+        "unique_speakers": 0,
+        "last_activity_at": null
+      }
+    ],
+    "next_offset": null
+  }
+}

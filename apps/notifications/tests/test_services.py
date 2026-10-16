@@ -2,7 +2,7 @@
 from datetime import timedelta
 
 import pytest
-from django.contrib.auth.models import User
+from django.contrib.auth.models import Permission, User
 from django.utils import timezone
 
 from apps.notifications.models import (
@@ -22,6 +22,12 @@ from apps.players.models import Player
 from apps.telegram.bot_api import TelegramResult
 
 pytestmark = pytest.mark.django_db(transaction=True)
+
+
+def authorized_operator(name: str) -> User:
+    row = User.objects.create_user(name)
+    row.user_permissions.add(Permission.objects.get(codename="manage_broadcasts"))
+    return row
 
 
 def player(user_id: int = 100, reachable: bool = True) -> Player:
@@ -83,7 +89,7 @@ def test_private_contact_unavailable_keeps_in_app_notification():
 
 def test_telegram_429_schedules_retry_without_sleep(monkeypatch):
     p = player()
-    staff = User.objects.create_user("staff")
+    staff = authorized_operator("staff")
     template = NotificationTemplate.objects.create(
         event_key="TEST",
         channel=NotificationTemplate.Channel.TELEGRAM,
@@ -114,7 +120,7 @@ def test_telegram_429_schedules_retry_without_sleep(monkeypatch):
 
 def test_ambiguous_send_is_uncertain_and_not_automatically_retried(monkeypatch):
     p = player()
-    staff = User.objects.create_user("staff")
+    staff = authorized_operator("staff")
     NotificationTemplate.objects.create(
         event_key="TEST",
         channel=NotificationTemplate.Channel.TELEGRAM,
@@ -146,7 +152,7 @@ def test_ambiguous_send_is_uncertain_and_not_automatically_retried(monkeypatch):
 
 
 def test_broadcast_materializes_stable_unique_audience():
-    staff = User.objects.create_user("staff")
+    staff = authorized_operator("staff")
     reachable, unreachable = player(101), player(102, False)
     campaign = BroadcastCampaign.objects.create(
         audience_type=BroadcastCampaign.Audience.TELEGRAM_REACHABLE,
@@ -163,7 +169,7 @@ def test_broadcast_materializes_stable_unique_audience():
 
 def test_notification_retry_adds_exactly_one_telegram_channel():
     p = player()
-    staff = User.objects.create_user("channel-staff")
+    staff = authorized_operator("channel-staff")
     NotificationTemplate.objects.create(
         event_key="CHANNEL",
         channel=NotificationTemplate.Channel.TELEGRAM,
@@ -195,7 +201,7 @@ def test_notification_retry_adds_exactly_one_telegram_channel():
 
 def test_permanent_delivery_failure_is_terminal(monkeypatch):
     p = player()
-    staff = User.objects.create_user("failure-staff")
+    staff = authorized_operator("failure-staff")
     NotificationTemplate.objects.create(
         event_key="FAIL",
         channel=NotificationTemplate.Channel.TELEGRAM,
@@ -222,7 +228,7 @@ def test_permanent_delivery_failure_is_terminal(monkeypatch):
 
 
 def test_broadcast_completes_from_durable_terminal_rows(monkeypatch):
-    staff = User.objects.create_user("complete-staff")
+    staff = authorized_operator("complete-staff")
     player(201)
     campaign = BroadcastCampaign.objects.create(
         audience_type=BroadcastCampaign.Audience.TELEGRAM_REACHABLE,
@@ -244,7 +250,7 @@ def test_broadcast_completes_from_durable_terminal_rows(monkeypatch):
 
 
 def test_cancelled_campaign_recipients_are_never_claimed():
-    staff = User.objects.create_user("cancel-staff")
+    staff = authorized_operator("cancel-staff")
     player(301)
     campaign = BroadcastCampaign.objects.create(
         audience_type=BroadcastCampaign.Audience.TELEGRAM_REACHABLE,
@@ -265,7 +271,7 @@ def test_expired_broadcast_lease_becomes_uncertain_without_automatic_resend():
     from apps.notifications.models import BroadcastRecipient
     from apps.notifications.services import claim_broadcast_recipients
 
-    staff = User.objects.create_user("lease-staff")
+    staff = authorized_operator("lease-staff")
     p = player(401)
     campaign = BroadcastCampaign.objects.create(
         audience_type=BroadcastCampaign.Audience.TELEGRAM_REACHABLE,

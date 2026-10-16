@@ -1,0 +1,787 @@
+{
+  "daily_claim": {
+    "reward": {
+      "event_id": "daily:1",
+      "amount": 80,
+      "ledger_ids": [
+        1
+      ],
+      "source": "DAILY",
+      "created": true,
+      "progression_before": {
+        "lifetime_points": 0,
+        "level": 1,
+        "current_threshold": 0,
+        "next_threshold": 300,
+        "points_into_level": 0,
+        "points_remaining": 300,
+        "dexo_stage": "newborn"
+      },
+      "progression_after": {
+        "lifetime_points": 80,
+        "level": 1,
+        "current_threshold": 0,
+        "next_threshold": 300,
+        "points_into_level": 80,
+        "points_remaining": 220,
+        "dexo_stage": "newborn"
+      }
+    },
+    "created": true,
+    "claim_period": "2026-10-16T00:00:00+00:00",
+    "streak": 1,
+    "cycle_day": 1,
+    "reward_amount": 80,
+    "claimed_at": "2026-10-16T07:43:50.521Z",
+    "daily": {
+      "claimable": false,
+      "already_claimed": true,
+      "current_streak": 1,
+      "cycle_day": 1,
+      "reward_amount": 80,
+      "reward_cycle": [
+        80,
+        90,
+        100,
+        110,
+        120,
+        140,
+        180
+      ],
+      "period_start": "2026-10-16T00:00:00Z",
+      "period_end": "2026-10-17T00:00:00Z",
+      "next_reset": "2026-10-17T00:00:00Z",
+      "last_claim_time": "2026-10-16T07:43:50.521Z"
+    },
+    "canonical": {
+      "server_time": "2026-10-16T07:43:50.556Z",
+      "player_id": "9001",
+      "season_id": "phase4-s1",
+      "config_version": "api-config",
+      "receipt_cursor": 1,
+      "progression": {
+        "lifetime_points": 80,
+        "level": 1,
+        "current_threshold": 0,
+        "next_threshold": 300,
+        "points_into_level": 80,
+        "points_remaining": 220,
+        "dexo_stage": "newborn"
+      },
+      "season_points": 80
+    }
+  },
+  "daily_duplicate": {
+    "reward": {
+      "event_id": "daily:1",
+      "amount": 80,
+      "ledger_ids": [
+        1
+      ],
+      "source": "DAILY",
+      "created": false,
+      "progression_before": {
+        "lifetime_points": 80,
+        "level": 1,
+        "current_threshold": 0,
+        "next_threshold": 300,
+        "points_into_level": 80,
+        "points_remaining": 220,
+        "dexo_stage": "newborn"
+      },
+      "progression_after": {
+        "lifetime_points": 80,
+        "level": 1,
+        "current_threshold": 0,
+        "next_threshold": 300,
+        "points_into_level": 80,
+        "points_remaining": 220,
+        "dexo_stage": "newborn"
+      }
+    },
+    "created": false,
+    "claim_period": "2026-10-16T00:00:00+00:00",
+    "streak": 1,
+    "cycle_day": 1,
+    "reward_amount": 80,
+    "claimed_at": "2026-10-16T07:43:50.521Z",
+    "daily": {
+      "claimable": false,
+      "already_claimed": true,
+      "current_streak": 1,
+      "cycle_day": 1,
+      "reward_amount": 80,
+      "reward_cycle": [
+        80,
+        90,
+        100,
+        110,
+        120,
+        140,
+        180
+      ],
+      "period_start": "2026-10-16T00:00:00Z",
+      "period_end": "2026-10-17T00:00:00Z",
+      "next_reset": "2026-10-17T00:00:00Z",
+      "last_claim_time": "2026-10-16T07:43:50.521Z"
+    },
+    "canonical": {
+      "server_time": "2026-10-16T07:43:50.612Z",
+      "player_id": "9001",
+      "season_id": "phase4-s1",
+      "config_version": "api-config",
+      "receipt_cursor": 1,
+      "progression": {
+        "lifetime_points": 80,
+        "level": 1,
+        "current_threshold": 0,
+        "next_threshold": 300,
+        "points_into_level": 80,
+        "points_remaining": 220,
+        "dexo_stage": "newborn"
+      },
+      "season_points": 80
+    }
+  },
+  "mission_start": {
+    "key": "visit-dalexio",
+    "version": 1,
+    "state": "IN_PROGRESS",
+    "open_token": "23f316e831e89c9b44e9b6d20c91c7129c8ee242d7cfb2ce781d8cd0705c1f2a",
+    "destination_url": "https://example.com",
+    "opened_at": "2026-10-16T07:43:50.632Z"
+  },
+  "mission_verify": {
+    "key": "visit-dalexio",
+    "version": 1,
+    "state": "REWARD_READY",
+    "verified_at": "2026-10-16T07:43:50.648Z"
+  },
+  "mission_claim": {
+    "reward": {
+      "event_id": "mission:1",
+      "amount": 120,
+      "ledger_ids": [
+        2
+      ],
+      "source": "MISSIONS",
+      "created": true,
+      "progression_before": {
+        "lifetime_points": 80,
+        "level": 1,
+        "current_threshold": 0,
+        "next_threshold": 300,
+        "points_into_level": 80,
+        "points_remaining": 220,
+        "dexo_stage": "newborn"
+      },
+      "progression_after": {
+        "lifetime_points": 200,
+        "level": 1,
+        "current_threshold": 0,
+        "next_threshold": 300,
+        "points_into_level": 200,
+        "points_remaining": 100,
+        "dexo_stage": "newborn"
+      }
+    },
+    "key": "visit-dalexio",
+    "version": 1,
+    "state": "CLAIMED",
+    "created": true,
+    "reward_amount": 120,
+    "claimed_at": "2026-10-16T07:43:50.677Z",
+    "canonical": {
+      "server_time": "2026-10-16T07:43:50.701Z",
+      "player_id": "9001",
+      "season_id": "phase4-s1",
+      "config_version": "api-config",
+      "receipt_cursor": 2,
+      "progression": {
+        "lifetime_points": 200,
+        "level": 1,
+        "current_threshold": 0,
+        "next_threshold": 300,
+        "points_into_level": 200,
+        "points_remaining": 100,
+        "dexo_stage": "newborn"
+      },
+      "season_points": 200
+    }
+  },
+  "typing_start": {
+    "created": true,
+    "attempt_id": "762024ae-25c1-4e02-afb9-835ac741b85d",
+    "phrase_key": "api-phrase",
+    "phrase_version": 1,
+    "phrase_text": "Dexo typing arena phrase",
+    "started_at": "2026-10-16T07:43:50.718Z",
+    "expires_at": "2026-10-16T07:44:20.718Z",
+    "challenge_seconds": 30
+  },
+  "typing_result": {
+    "score": 5700,
+    "created": true,
+    "attempt_id": "762024ae-25c1-4e02-afb9-835ac741b85d",
+    "status": "VALID",
+    "accuracy_bps": 10000,
+    "wpm": 57,
+    "reward_amount": 70,
+    "typing": {
+      "attempts_used": 1,
+      "attempts_remaining": 4,
+      "attempt_limit": 5,
+      "next_reset": "2026-10-17T00:00:00Z",
+      "claimable_balance": 70,
+      "best_wpm": 57,
+      "best_accuracy_bps": 10000,
+      "active_attempt": null,
+      "active_attempt_detail": null
+    }
+  },
+  "typing_history_unclaimed": {
+    "period": "all",
+    "period_key": null,
+    "period_start": null,
+    "period_end": null,
+    "items": [
+      {
+        "reset_period": "2026-10-16T00:00:00+00:00",
+        "score": 5700,
+        "attempt_id": "762024ae-25c1-4e02-afb9-835ac741b85d",
+        "status": "VALID",
+        "started_at": "2026-10-16T07:43:45.736Z",
+        "submitted_at": "2026-10-16T07:43:50.745Z",
+        "accuracy_bps": 10000,
+        "wpm": 57,
+        "reward_amount": 70,
+        "season": "phase4-s1",
+        "config_version": "api-config",
+        "claimed": false
+      }
+    ],
+    "next_cursor": null
+  },
+  "typing_claim": {
+    "reward": {
+      "event_id": "typing:1",
+      "amount": 70,
+      "ledger_ids": [
+        3
+      ],
+      "source": "TYPING_GAME",
+      "created": true,
+      "progression_before": {
+        "lifetime_points": 200,
+        "level": 1,
+        "current_threshold": 0,
+        "next_threshold": 300,
+        "points_into_level": 200,
+        "points_remaining": 100,
+        "dexo_stage": "newborn"
+      },
+      "progression_after": {
+        "lifetime_points": 270,
+        "level": 1,
+        "current_threshold": 0,
+        "next_threshold": 300,
+        "points_into_level": 270,
+        "points_remaining": 30,
+        "dexo_stage": "newborn"
+      }
+    },
+    "created": true,
+    "amount": 70,
+    "claimed_at": "2026-10-16T07:43:50.800Z",
+    "typing": {
+      "attempts_used": 1,
+      "attempts_remaining": 4,
+      "attempt_limit": 5,
+      "next_reset": "2026-10-17T00:00:00Z",
+      "claimable_balance": 0,
+      "best_wpm": 57,
+      "best_accuracy_bps": 10000,
+      "active_attempt": null,
+      "active_attempt_detail": null
+    },
+    "canonical": {
+      "server_time": "2026-10-16T07:43:50.833Z",
+      "player_id": "9001",
+      "season_id": "phase4-s1",
+      "config_version": "api-config",
+      "receipt_cursor": 3,
+      "progression": {
+        "lifetime_points": 270,
+        "level": 1,
+        "current_threshold": 0,
+        "next_threshold": 300,
+        "points_into_level": 270,
+        "points_remaining": 30,
+        "dexo_stage": "newborn"
+      },
+      "season_points": 270
+    }
+  },
+  "typing_history_claimed": {
+    "period": "all",
+    "period_key": null,
+    "period_start": null,
+    "period_end": null,
+    "items": [
+      {
+        "reset_period": "2026-10-16T00:00:00+00:00",
+        "score": 5700,
+        "attempt_id": "762024ae-25c1-4e02-afb9-835ac741b85d",
+        "status": "VALID",
+        "started_at": "2026-10-16T07:43:45.736Z",
+        "submitted_at": "2026-10-16T07:43:50.745Z",
+        "accuracy_bps": 10000,
+        "wpm": 57,
+        "reward_amount": 70,
+        "season": "phase4-s1",
+        "config_version": "api-config",
+        "claimed": true
+      }
+    ],
+    "next_cursor": null
+  },
+  "typing_duplicate": {
+    "reward": {
+      "event_id": "typing:1",
+      "amount": 70,
+      "ledger_ids": [
+        3
+      ],
+      "source": "TYPING_GAME",
+      "created": false,
+      "progression_before": {
+        "lifetime_points": 270,
+        "level": 1,
+        "current_threshold": 0,
+        "next_threshold": 300,
+        "points_into_level": 270,
+        "points_remaining": 30,
+        "dexo_stage": "newborn"
+      },
+      "progression_after": {
+        "lifetime_points": 270,
+        "level": 1,
+        "current_threshold": 0,
+        "next_threshold": 300,
+        "points_into_level": 270,
+        "points_remaining": 30,
+        "dexo_stage": "newborn"
+      }
+    },
+    "created": false,
+    "amount": 70,
+    "claimed_at": "2026-10-16T07:43:50.800Z",
+    "typing": {
+      "attempts_used": 1,
+      "attempts_remaining": 4,
+      "attempt_limit": 5,
+      "next_reset": "2026-10-17T00:00:00Z",
+      "claimable_balance": 0,
+      "best_wpm": 57,
+      "best_accuracy_bps": 10000,
+      "active_attempt": null,
+      "active_attempt_detail": null
+    },
+    "canonical": {
+      "server_time": "2026-10-16T07:43:50.881Z",
+      "player_id": "9001",
+      "season_id": "phase4-s1",
+      "config_version": "api-config",
+      "receipt_cursor": 3,
+      "progression": {
+        "lifetime_points": 270,
+        "level": 1,
+        "current_threshold": 0,
+        "next_threshold": 300,
+        "points_into_level": 270,
+        "points_remaining": 30,
+        "dexo_stage": "newborn"
+      },
+      "season_points": 270
+    }
+  },
+  "typing_empty_claim": {
+    "reward": null,
+    "created": true,
+    "amount": 0,
+    "claimed_at": "2026-10-16T07:43:50.916Z",
+    "typing": {
+      "attempts_used": 1,
+      "attempts_remaining": 4,
+      "attempt_limit": 5,
+      "next_reset": "2026-10-17T00:00:00Z",
+      "claimable_balance": 0,
+      "best_wpm": 57,
+      "best_accuracy_bps": 10000,
+      "active_attempt": null,
+      "active_attempt_detail": null
+    },
+    "canonical": {
+      "server_time": "2026-10-16T07:43:50.920Z",
+      "player_id": "9001",
+      "season_id": "phase4-s1",
+      "config_version": "api-config",
+      "receipt_cursor": 3,
+      "progression": {
+        "lifetime_points": 270,
+        "level": 1,
+        "current_threshold": 0,
+        "next_threshold": 300,
+        "points_into_level": 270,
+        "points_remaining": 30,
+        "dexo_stage": "newborn"
+      },
+      "season_points": 270
+    }
+  },
+  "profile_overview": {
+    "canonical": {
+      "server_time": "2026-10-16T07:43:50.946Z",
+      "player_id": "9001",
+      "season_id": "phase4-s1",
+      "config_version": "api-config",
+      "receipt_cursor": 3,
+      "progression": {
+        "lifetime_points": 270,
+        "level": 1,
+        "current_threshold": 0,
+        "next_threshold": 300,
+        "points_into_level": 270,
+        "points_remaining": 30,
+        "dexo_stage": "newborn"
+      },
+      "season_points": 270
+    },
+    "identity": {
+      "first_name": "Phase4",
+      "last_name": "",
+      "username": "",
+      "photo_url": ""
+    },
+    "progression": {
+      "lifetime_points": 270,
+      "level": 1,
+      "current_threshold": 0,
+      "next_threshold": 300,
+      "points_into_level": 270,
+      "points_remaining": 30,
+      "dexo_stage": "newborn"
+    },
+    "journey": {
+      "claimed_missions": 1,
+      "current_daily_streak": 1,
+      "verified_referrals": 0
+    },
+    "customization": {
+      "active_frame": "standard",
+      "active_title": "explorer",
+      "featured_medal": null,
+      "featured_achievement": null
+    }
+  },
+  "profile_achievements": {
+    "achievements": [
+      {
+        "key": "first-mission",
+        "available_s1": true,
+        "unlocked": true,
+        "unlocked_at": "2026-10-16T07:43:50.946Z",
+        "current_progress": 1,
+        "target": 1,
+        "point_reward": 0
+      },
+      {
+        "key": "first-referral",
+        "available_s1": true,
+        "unlocked": false,
+        "unlocked_at": null,
+        "current_progress": 0,
+        "target": 1,
+        "point_reward": 0
+      },
+      {
+        "key": "seven-day-streak",
+        "available_s1": true,
+        "unlocked": false,
+        "unlocked_at": null,
+        "current_progress": 1,
+        "target": 7,
+        "point_reward": 0
+      },
+      {
+        "key": "thirty-day-streak",
+        "available_s1": true,
+        "unlocked": false,
+        "unlocked_at": null,
+        "current_progress": 1,
+        "target": 30,
+        "point_reward": 0
+      },
+      {
+        "key": "first-verified-activity",
+        "available_s1": true,
+        "unlocked": false,
+        "unlocked_at": null,
+        "current_progress": 0,
+        "target": 1,
+        "point_reward": 0
+      },
+      {
+        "key": "clan-ready",
+        "available_s1": true,
+        "unlocked": false,
+        "unlocked_at": null,
+        "current_progress": 1,
+        "target": 5,
+        "point_reward": 0
+      },
+      {
+        "key": "first-clan",
+        "available_s1": true,
+        "unlocked": false,
+        "unlocked_at": null,
+        "current_progress": 0,
+        "target": 1,
+        "point_reward": 0
+      },
+      {
+        "key": "first-contribution",
+        "available_s1": true,
+        "unlocked": false,
+        "unlocked_at": null,
+        "current_progress": 0,
+        "target": 1,
+        "point_reward": 0
+      },
+      {
+        "key": "first-war",
+        "available_s1": false,
+        "unlocked": false,
+        "unlocked_at": null,
+        "current_progress": 0,
+        "target": 0,
+        "point_reward": 0
+      },
+      {
+        "key": "first-victory",
+        "available_s1": false,
+        "unlocked": false,
+        "unlocked_at": null,
+        "current_progress": 0,
+        "target": 0,
+        "point_reward": 0
+      }
+    ],
+    "unlocked_count": 1
+  },
+  "profile_collection": {
+    "frames": [
+      {
+        "key": "standard",
+        "available": true,
+        "entitled": true,
+        "active": true
+      },
+      {
+        "key": "premium",
+        "available": true,
+        "entitled": false,
+        "active": false
+      },
+      {
+        "key": "seasonal",
+        "available": true,
+        "entitled": false,
+        "active": false
+      },
+      {
+        "key": "founder",
+        "available": true,
+        "entitled": false,
+        "active": false
+      },
+      {
+        "key": "clan",
+        "available": true,
+        "entitled": false,
+        "active": false
+      },
+      {
+        "key": "captain",
+        "available": true,
+        "entitled": false,
+        "active": false
+      }
+    ],
+    "titles": [
+      {
+        "key": "explorer",
+        "available": true,
+        "entitled": true,
+        "active": true
+      },
+      {
+        "key": "early-pioneer",
+        "available": true,
+        "entitled": false,
+        "active": false
+      },
+      {
+        "key": "mission-runner",
+        "available": true,
+        "entitled": true,
+        "active": false
+      },
+      {
+        "key": "network-builder",
+        "available": true,
+        "entitled": false,
+        "active": false
+      },
+      {
+        "key": "community-voice",
+        "available": true,
+        "entitled": false,
+        "active": false
+      },
+      {
+        "key": "season-veteran",
+        "available": true,
+        "entitled": false,
+        "active": false
+      }
+    ],
+    "medals": [
+      {
+        "key": "season-founding",
+        "group": "SEASON",
+        "owned": false,
+        "featured": false,
+        "awarded_at": null,
+        "source_season": null
+      },
+      {
+        "key": "season-participant",
+        "group": "SEASON",
+        "owned": false,
+        "featured": false,
+        "awarded_at": null,
+        "source_season": null
+      },
+      {
+        "key": "season-veteran",
+        "group": "SEASON",
+        "owned": false,
+        "featured": false,
+        "awarded_at": null,
+        "source_season": null
+      },
+      {
+        "key": "season-top-10",
+        "group": "SEASON",
+        "owned": false,
+        "featured": false,
+        "awarded_at": null,
+        "source_season": null
+      },
+      {
+        "key": "season-top-1",
+        "group": "SEASON",
+        "owned": false,
+        "featured": false,
+        "awarded_at": null,
+        "source_season": null
+      },
+      {
+        "key": "season-champion",
+        "group": "SEASON",
+        "owned": false,
+        "featured": false,
+        "awarded_at": null,
+        "source_season": null
+      },
+      {
+        "key": "activity-veteran",
+        "group": "CAREER",
+        "owned": false,
+        "featured": false,
+        "awarded_at": null,
+        "source_season": null
+      },
+      {
+        "key": "clan-loyalty",
+        "group": "CAREER",
+        "owned": false,
+        "featured": false,
+        "awarded_at": null,
+        "source_season": null
+      },
+      {
+        "key": "leadership",
+        "group": "CAREER",
+        "owned": false,
+        "featured": false,
+        "awarded_at": null,
+        "source_season": null
+      },
+      {
+        "key": "mission-master",
+        "group": "CAREER",
+        "owned": false,
+        "featured": false,
+        "awarded_at": null,
+        "source_season": null
+      }
+    ],
+    "owned_medal_count": 0
+  },
+  "customization": {
+    "active_frame": "standard",
+    "active_title": "explorer",
+    "featured_medal": null,
+    "featured_achievement": "first-mission"
+  },
+  "arena_state": {
+    "season": {
+      "code": "phase4-s1",
+      "title": "Phase 4",
+      "status": "ACTIVE",
+      "starts_at": "2026-10-15T07:43:50.442Z",
+      "ends_at": "2026-11-29T07:43:50.442Z"
+    },
+    "seasons": [
+      {
+        "code": "phase4-s1",
+        "title": "Phase 4",
+        "status": "ACTIVE",
+        "starts_at": "2026-10-15T07:43:50.442Z",
+        "ends_at": "2026-11-29T07:43:50.442Z"
+      }
+    ],
+    "warfront": {
+      "state": "LOCKED",
+      "available_season": 2,
+      "message": "Warfront arrives in Season 2"
+    },
+    "wallet_enabled": false,
+    "account_link_enabled": false
+  },
+  "dlx_empty": {
+    "season": "phase4-s1",
+    "confirmed": 0,
+    "held": 0,
+    "forfeited": 0,
+    "net_confirmed": 0,
+    "claimable": 0,
+    "claimable_enabled": false,
+    "transferable": false,
+    "tradable": false,
+    "on_chain": false,
+    "price_status": "UNAVAILABLE"
+  }
+}

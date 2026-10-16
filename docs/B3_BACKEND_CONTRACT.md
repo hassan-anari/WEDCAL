@@ -267,7 +267,10 @@ Callback acknowledgements also use the durable shared delivery path. Private bot
 are marked read and excluded from the in-app feed; they do not create blank game notifications. The panel exposes no rewards,
 wallet, SQL or general database administration.
 
-Users are eligible private contacts. Groups need explicit consent independent of Creator connection,
+**Historical B3 policy below is superseded by the owner-approved B4 broadcast correction; see
+[B4 contract](B4_BACKEND_CONTRACT.md#owner-broadcast-policy-correction--2026-10-16). API shapes remain compatible.**
+
+Users are eligible private contacts. Groups previously needed explicit consent independent of Creator connection,
 verified real group/admin identity, current bot membership/send permission, revocation and audited
 revision. No fake Player represents a group. Existing BroadcastCampaign/Recipient/TelegramDelivery
 services perform bounded restart-safe user/group materialization, independent estimates/counts,

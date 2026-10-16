@@ -59,3 +59,14 @@ class PlayerAvatar(models.Model):
     refresh_token = models.UUIDField(null=True)
     last_error_category = models.CharField(max_length=40, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+
+class GroupAvatar(models.Model):
+    group = models.OneToOneField("telegram.TelegramGroup", on_delete=models.CASCADE)
+    delivery_id = models.UUIDField(default=uuid.uuid4, unique=True)
+    object_key = models.CharField(max_length=200, blank=True)
+    expires_at = models.DateTimeField(null=True, db_index=True)
+    refresh_after = models.DateTimeField(db_index=True)
+    refresh_token = models.UUIDField(null=True)
+    last_error_category = models.CharField(max_length=40, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)

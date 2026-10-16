@@ -396,3 +396,30 @@ MUTATION_THROTTLE_POLICIES["/api/v1/network"] = (
     60,
 )
 MUTATION_THROTTLE_POLICIES["/api/v1/daily"] = (int(os.getenv("THROTTLE_DAILY_REQUESTS", "30")), 60)
+
+# Optional group images use an explicitly separate private key restricted to group-images/.
+GROUP_IMAGE_CACHE_ENABLED = env_bool("GROUP_IMAGE_CACHE_ENABLED", False)
+GROUP_IMAGE_S3_BUCKET = os.getenv("GROUP_IMAGE_S3_BUCKET", "")
+GROUP_IMAGE_S3_ENDPOINT_URL = os.getenv("GROUP_IMAGE_S3_ENDPOINT_URL", "")
+GROUP_IMAGE_S3_REGION = os.getenv("GROUP_IMAGE_S3_REGION", "us-east-1")
+GROUP_IMAGE_S3_ACCESS_KEY_ID = os.getenv("GROUP_IMAGE_S3_ACCESS_KEY_ID", "")
+GROUP_IMAGE_S3_SECRET_ACCESS_KEY = os.getenv("GROUP_IMAGE_S3_SECRET_ACCESS_KEY", "")
+
+TELEGRAM_WELCOME_ALLOWED_HOSTS = frozenset(
+    filter(
+        None,
+        os.getenv(
+            "TELEGRAM_WELCOME_ALLOWED_HOSTS", "dalexio-game.vercel.app,t.me,dalexio.com"
+        ).split(","),
+    )
+)
+
+NOTIFICATION_INTERACTIVE_RETRY_JITTER_SECONDS = float(
+    os.getenv("NOTIFICATION_INTERACTIVE_RETRY_JITTER_SECONDS", "0.25")
+)
+
+# Requires a separate explicit owner-authorized public rollout for dynamic Welcome.
+B4_PUBLIC_WELCOME_ENABLED = env_bool("B4_PUBLIC_WELCOME_ENABLED", False)
+
+# Empty uses the normal worker queue; a dedicated queue needs a subscribed worker.
+NOTIFICATION_INTERACTIVE_QUEUE = os.getenv("NOTIFICATION_INTERACTIVE_QUEUE", "")

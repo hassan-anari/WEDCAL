@@ -9,7 +9,7 @@ from apps.players.avatars import avatar_url
 from apps.players.models import Player
 from apps.players.services import reward_gameplay_allowed
 from apps.progression.services import refresh_player_progression
-from apps.seasons.models import PlayerSeason
+from apps.seasons.models import PlayerSeason, Season
 from apps.seasons.services import is_reward_earning_time, resolve_current_season
 
 
@@ -155,7 +155,8 @@ def build_bootstrap(player: Player, now: datetime, *, request_id: str) -> dict[s
                 and result.level >= resolved.clan.min_level
             ),
             "profile": resolved.profile_collection is not None,
-            "arena": season is not None,
+            "arena": season is not None
+            or Season.objects.filter(status__in=["CLOSED", "ARCHIVED"]).exists(),
         },
         "gameplay": {
             "moderation_state": player.moderation_state,

@@ -1,0 +1,95 @@
+{
+  "runtime_source_fixture_sha": "ec6af7053dfc7e8755998418b826c59ca91191ea",
+  "base_main_sha": "1fa937af4628a10cec384b711210755ff28a6a8a",
+  "backend_pr": "https://github.com/hassan-anari/WEDCAL/pull/29",
+  "frontend_pr": "https://github.com/hassan-anari/FROCAL/pull/5",
+  "hosted": {
+    "contract": {
+      "run": 38869293906,
+      "conclusion": "success"
+    },
+    "foundation": {
+      "run": 38869293917,
+      "conclusion": "success",
+      "jobs": {
+        "quality": 116869325196,
+        "test": 116869325347,
+        "docker-build": 116869324968
+      },
+      "tests_passed": 845,
+      "opt_in_benchmark_skipped_in_general_suite": 1,
+      "separate_benchmark_passed": 1,
+      "migration_and_drift": "passed",
+      "docker_runtime_admin_static": "passed",
+      "latency_artifact": 12032254416,
+      "benchmark_artifact": 12032856456
+    },
+    "release_scans": {
+      "run": 38869293916,
+      "conclusion": "success",
+      "dependency_audit": "no known vulnerabilities",
+      "critical": 0,
+      "fixable_high_critical": 0,
+      "unfixed_high_instances": 44,
+      "unfixed_high_ids": 8,
+      "dispositions": "docs/B4_SECURITY_REVIEW.md"
+    }
+  },
+  "local": {
+    "full_pytest": {
+      "passed": 845,
+      "skipped_opt_in_benchmark": 1,
+      "seconds": 280.78
+    },
+    "separate_benchmark": "1 passed in 58.87s",
+    "ruff": "passed",
+    "mypy": "416 source files passed",
+    "django_check": "passed",
+    "openapi_b3_b4_tap": "no drift",
+    "committed_fixture_bodies_runtime_validated": 19,
+    "migrations": "all seven applied on isolated PostgreSQL 17.11; no drift; no pending operations"
+  },
+  "paired_compatibility": {
+    "backend_sha": "ec6af7053dfc7e8755998418b826c59ca91191ea",
+    "frontend_sha": "fe7e93c56303d4b02125a974fa29efde9d59031e",
+    "api_controller_tests_passed": 29,
+    "browser_tests_passed": 13,
+    "postgres_database": "frocal_b3_b4_final_ec6af70",
+    "external_http": "forbidden; synthetic identities/storage/membership",
+    "historical_pins": "unchanged; direct unchanged test invocation with B3_BACKEND_ROOT set",
+    "limitation": "Compatibility proof; consumer final B4 pin/binding acceptance remains separately recorded on PR #5."
+  },
+  "consumer_interim_report": {
+    "sha": "815c00457169e61cf6f59fe7686e0a539d7eec98",
+    "backend_sha": "9a43048079bfc20bc5a030a88f84216c9451e4a8",
+    "api_controller_passed": 8,
+    "browser_passed": 15,
+    "source": "https://github.com/hassan-anari/WEDCAL/pull/29#issuecomment-6210605276",
+    "final_successor_pairing": "pending"
+  },
+  "latency": {
+    "environment": "isolated PostgreSQL 17 / Redis budgets / RabbitMQ / Celery; synthetic HTTP",
+    "samples": 12,
+    "reply_ms": [
+      307.02535700038425,
+      1402.3628110007849,
+      1481.0507590009365,
+      1598.8942549993226,
+      1462.0580129994778,
+      1511.407361998863,
+      1386.7740339992451,
+      1113.5258180001983,
+      1376.8568500017864,
+      1460.2467419972527,
+      1345.2614410016395,
+      1260.1721710016136
+    ],
+    "reply_p95_ms": 1598.8942549993226,
+    "webhook_ack_p95_ms": 86.36420800030464,
+    "callback_ack_ms": 413.29579100056435,
+    "duplicate_or_unauthorized_sends": 0,
+    "production_or_real_user_contacts": 0,
+    "limits": "Not a production, WAN, Telegram API or physical-device latency certification."
+  },
+  "production_changes_real_sends_deployments_merges": 0
+}

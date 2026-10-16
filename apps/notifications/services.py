@@ -5,7 +5,7 @@ from datetime import timedelta
 from typing import Any, cast
 
 from django.conf import settings
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Exists, F, OuterRef, Q
 from django.utils import timezone
@@ -14,13 +14,12 @@ from apps.notifications.audiences import (
     eligible_groups,
     eligible_users,
     estimated_targets,
-    verify_group,
+    verify_broadcast_group,
 )
 from apps.notifications.models import (
     BroadcastCampaign,
     BroadcastRecipient,
     DeliveryState,
-    GroupBroadcastSubscription,
     Notification,
     NotificationTemplate,
     OperatorAuditEvent,
@@ -28,6 +27,7 @@ from apps.notifications.models import (
 )
 from apps.players.models import Player
 from apps.telegram import bot_api
+from apps.telegram.models import TelegramGroup
 
 
 class NotificationIdempotencyConflict(ValidationError):
@@ -193,12 +193,18 @@ Delivery = TelegramDelivery | BroadcastRecipient
 
 
 def _claim(
-    model: type[TelegramDelivery] | type[BroadcastRecipient], *, limit: int
+    model: type[TelegramDelivery] | type[BroadcastRecipient],
+    *,
+    limit: int,
+    delivery_id: int | None = None,
 ) -> list[Delivery]:
     now = timezone.now()
     with transaction.atomic():
+        query = model.objects.all()
+        if delivery_id is not None:
+            query = query.filter(pk=delivery_id)
         rows = list(
-            model.objects.select_for_update(skip_locked=True)
+            query.select_for_update(skip_locked=True)
             .filter(
                 Q(state=DeliveryState.PENDING)
                 | Q(state=DeliveryState.RETRY_WAIT, next_attempt_at__lte=now)
@@ -224,21 +230,59 @@ def _claim(
     return [cast(Delivery, row) for row in rows if row.state == DeliveryState.PROCESSING]
 
 
+def _private_control_permitted(row: TelegramDelivery) -> bool:
+    from apps.notifications.models import BotAdminOperator
+
+    notification = row.notification
+    if notification.event_key != "BOT_PRIVATE":
+        return True
+    key = notification.idempotency_key
+    if key.startswith("bot-welcome:"):
+        return bool(settings.B3_BOT_WELCOME_ENABLED and settings.B4_PUBLIC_WELCOME_ENABLED)
+    if key.startswith(("bot-panel:", "bot-ack:", "welcome-test:")):
+        operator = (
+            BotAdminOperator.objects.select_related("user")
+            .filter(telegram_user_id=row.telegram_user_id, enabled=True)
+            .first()
+        )
+        permission = "test_welcome" if key.startswith("welcome-test:") else "manage_broadcasts"
+        return bool(
+            operator
+            and row.telegram_user_id in settings.TELEGRAM_ADMIN_IDS
+            and operator.user.is_active
+            and operator.user.has_perm(f"notifications.{permission}")
+            and (permission == "test_welcome" or settings.B3_BROADCAST_AUDIENCES_ENABLED)
+        )
+    return True
+
+
 def _deliver(row: Delivery, text: str) -> None:
+    if transaction.get_connection().in_atomic_block:
+        raise RuntimeError("Telegram delivery must run outside business transactions")
+    started_at = timezone.now()
     token = row.lease_token
+    if isinstance(row, TelegramDelivery) and not _private_control_permitted(row):
+        TelegramDelivery.objects.filter(
+            pk=row.pk, lease_token=token, state=DeliveryState.PROCESSING
+        ).update(
+            state=DeliveryState.SKIPPED,
+            completed_at=timezone.now(),
+            lease_token=None,
+            lease_expires_at=None,
+            error_category="operator_authorization_revoked",
+        )
+        return
     options = row.message_options if isinstance(row, TelegramDelivery) else {}
     if isinstance(row, BroadcastRecipient) and row.target_kind == "GROUP":
-        assert row.group_subscription_id is not None
+        group_id = row.group_id
+        if group_id is None and row.group_subscription_id:
+            group_id = row.group_subscription.group_id
+        assert group_id is not None  # Enforced by broadcast_exact_target for both layouts.
         try:
-            subscription = GroupBroadcastSubscription.objects.select_related("group").get(
-                pk=row.group_subscription_id
+            group = TelegramGroup.objects.get(pk=group_id)
+            permitted = group.telegram_chat_id == row.telegram_user_id and verify_broadcast_group(
+                group
             )
-            permitted = (
-                subscription.enabled
-                and subscription.revoked_at is None
-                and subscription.revision == row.subscription_revision
-            )
-            permitted = permitted and verify_group(subscription.group)
         except ValidationError:
             result = bot_api.TelegramResult(False, category="local_rate_limited", retry_after=30)
         else:
@@ -247,13 +291,27 @@ def _deliver(row: Delivery, text: str) -> None:
                     pk=row.pk, lease_token=token, state=DeliveryState.PROCESSING
                 ).update(
                     state=DeliveryState.SKIPPED,
-                    error_category="group_consent_or_permission_revoked",
+                    error_category="group_permission_unavailable",
                     completed_at=timezone.now(),
                     lease_token=None,
                     lease_expires_at=None,
                 )
                 return
             result = bot_api.send_message(row.telegram_user_id, text)
+    elif (
+        isinstance(row, BroadcastRecipient)
+        and not eligible_users()
+        .filter(pk=row.player_id, telegram_user_id=row.telegram_user_id)
+        .exists()
+    ):
+        type(row).objects.filter(pk=row.pk, lease_token=token).update(
+            state=DeliveryState.SKIPPED,
+            completed_at=timezone.now(),
+            lease_token=None,
+            lease_expires_at=None,
+            error_category="private_contact_unavailable",
+        )
+        return
     elif options.get("_method") == "answerCallbackQuery":
         result = bot_api.request(
             "answerCallbackQuery", {"callback_query_id": options["callback_query_id"]}
@@ -287,11 +345,19 @@ def _deliver(row: Delivery, text: str) -> None:
             # Admission refusal never dispatched a message and is not a delivery failure.
             locked.state = DeliveryState.RETRY_WAIT
             delay = max(result.retry_after or 1, min(60, 2 ** min(locked.attempt_count, 6)))
-            locked.next_attempt_at = now + timedelta(
-                seconds=delay + random.uniform(0, settings.TELEGRAM_API_RETRY_JITTER_SECONDS)
-            )
+            jitter = float(settings.TELEGRAM_API_RETRY_JITTER_SECONDS)
+            if (
+                isinstance(locked, TelegramDelivery)
+                and locked.notification.event_key == "BOT_PRIVATE"
+            ):
+                delay = max(result.retry_after or 1, 1)
+                jitter = settings.NOTIFICATION_INTERACTIVE_RETRY_JITTER_SECONDS
+            locked.next_attempt_at = now + timedelta(seconds=delay + random.uniform(0, jitter))
             locked.error_category = result.category
             locked.attempt_count = max(0, locked.attempt_count - 1)
+        elif result.category in {"forbidden", "chat_not_found"}:
+            locked.state, locked.completed_at = DeliveryState.SKIPPED, now
+            locked.error_category = result.category
         elif result.ambiguous:
             locked.state, locked.completed_at = DeliveryState.UNCERTAIN, now
             locked.error_category = result.category or "ambiguous"
@@ -299,6 +365,31 @@ def _deliver(row: Delivery, text: str) -> None:
             locked.state, locked.completed_at = DeliveryState.FAILED, now
             locked.error_category = result.category or "terminal"
         locked.save()
+        if isinstance(locked, TelegramDelivery) and locked.state == DeliveryState.RETRY_WAIT:
+            from apps.notifications.dispatch import dispatch_delivery
+
+            dispatch_delivery(locked.pk, locked.next_attempt_at)
+        if isinstance(locked, TelegramDelivery):
+            import structlog
+
+            origin = locked.source_received_at or locked.created_at
+            structlog.get_logger(__name__).info(
+                "telegram_interactive_delivery",
+                delivery_id=locked.pk,
+                method=locked.message_options.get("_method", "sendMessage"),
+                outcome=locked.state,
+                attempt=locked.attempt_count,
+                queue_ms=round((started_at - locked.created_at).total_seconds() * 1000),
+                delivery_ms=round((now - started_at).total_seconds() * 1000),
+                end_to_end_ms=round((now - origin).total_seconds() * 1000),
+            )
+
+
+def deliver_one_notification(delivery_id: int) -> int:
+    rows = _claim(TelegramDelivery, limit=1, delivery_id=delivery_id)
+    for row in rows:
+        _deliver(row, row.text_snapshot)
+    return len(rows)
 
 
 def deliver_notifications(limit: int | None = None) -> int:
@@ -310,8 +401,14 @@ def deliver_notifications(limit: int | None = None) -> int:
 
 @transaction.atomic
 def queue_campaign(*, campaign: BroadcastCampaign, actor: Any, reason: str) -> BroadcastCampaign:
+    if not actor.is_active or not actor.has_perm("notifications.manage_broadcasts"):
+        raise PermissionDenied("Broadcast operator authorization is required")
     campaign = BroadcastCampaign.objects.select_for_update().get(pk=campaign.pk)
     if campaign.state == BroadcastCampaign.State.MATERIALIZING:
+        if campaign.audience_policy_version != 2:
+            raise ValidationError(
+                "Cancel the legacy campaign and explicitly confirm a new campaign"
+            )
         return campaign
     if campaign.state != BroadcastCampaign.State.DRAFT or not reason.strip():
         raise ValidationError("Only a draft campaign with a reason can be queued")
@@ -322,9 +419,18 @@ def queue_campaign(*, campaign: BroadcastCampaign, actor: Any, reason: str) -> B
         raise ValidationError("B3 broadcast audiences are not enabled")
     estimates = estimated_targets(campaign.audience_type)
     campaign.estimated_users, campaign.estimated_groups = estimates["users"], estimates["groups"]
+    campaign.audience_policy_version = 2
     campaign.state = BroadcastCampaign.State.MATERIALIZING
     campaign.queued_at = timezone.now()
-    campaign.save(update_fields=("state", "queued_at", "estimated_users", "estimated_groups"))
+    campaign.save(
+        update_fields=(
+            "state",
+            "queued_at",
+            "estimated_users",
+            "estimated_groups",
+            "audience_policy_version",
+        )
+    )
     OperatorAuditEvent.objects.create(
         actor=actor,
         action="BROADCAST_QUEUE",
@@ -332,7 +438,7 @@ def queue_campaign(*, campaign: BroadcastCampaign, actor: Any, reason: str) -> B
         target_id=str(campaign.public_id),
         reason=reason,
         before_state={"state": "DRAFT"},
-        after_state={"state": campaign.state},
+        after_state={"state": campaign.state, "audience_policy_version": 2},
     )
     return campaign
 
@@ -342,9 +448,14 @@ def materialize_campaign(campaign_id: int, batch_size: int = 1000) -> int:
         campaign = BroadcastCampaign.objects.select_for_update().get(pk=campaign_id)
         if campaign.state != BroadcastCampaign.State.MATERIALIZING:
             return 0
+        if campaign.audience_policy_version != 2:
+            import structlog
+
+            structlog.get_logger(__name__).warning(
+                "broadcast_policy_reconfirmation_required", campaign_id=campaign.pk
+            )
+            return 0  # Never expand an old in-progress audience without new operator confirmation.
         users = eligible_users().filter(pk__gt=campaign.materialization_cursor).order_by("pk")
-        if campaign.audience_type == BroadcastCampaign.Audience.ALL:
-            users = Player.objects.filter(pk__gt=campaign.materialization_cursor).order_by("pk")
         if campaign.audience_type == BroadcastCampaign.Audience.GROUPS:
             users = Player.objects.none()
         batch = list(users[:batch_size])
@@ -369,22 +480,18 @@ def materialize_campaign(campaign_id: int, batch_size: int = 1000) -> int:
         if batch:
             campaign.materialization_cursor = batch[-1].pk
         groups = (
-            eligible_groups()
-            .filter(pk__gt=campaign.group_materialization_cursor)
-            .select_related("group")
-            .order_by("pk")
+            eligible_groups().filter(pk__gt=campaign.group_materialization_cursor).order_by("pk")
         )
         if campaign.audience_type not in {"GROUPS", "BOTH"}:
-            groups = GroupBroadcastSubscription.objects.none()
+            groups = TelegramGroup.objects.none()
         group_batch = list(groups[:batch_size])
         BroadcastRecipient.objects.bulk_create(
             [
                 BroadcastRecipient(
                     campaign=campaign,
-                    group_subscription=g,
+                    group=g,
                     target_kind="GROUP",
-                    telegram_user_id=g.group.telegram_chat_id,
-                    subscription_revision=g.revision,
+                    telegram_user_id=g.telegram_chat_id,
                 )
                 for g in group_batch
             ],
@@ -404,6 +511,8 @@ def materialize_campaign(campaign_id: int, batch_size: int = 1000) -> int:
 
 @transaction.atomic
 def cancel_campaign(*, campaign: BroadcastCampaign, actor: Any, reason: str) -> BroadcastCampaign:
+    if not actor.is_active or not actor.has_perm("notifications.manage_broadcasts"):
+        raise PermissionDenied("Broadcast operator authorization is required")
     campaign = BroadcastCampaign.objects.select_for_update().get(pk=campaign.pk)
     if campaign.state in {BroadcastCampaign.State.COMPLETED, BroadcastCampaign.State.CANCELLED}:
         return campaign

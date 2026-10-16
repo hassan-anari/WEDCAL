@@ -1,0 +1,72 @@
+{
+  "live": {
+    "offset": 0,
+    "limit": 1,
+    "total_count": 1,
+    "next_offset": null,
+    "season": "phase4-s1",
+    "season_status": "ACTIVE",
+    "archived": false,
+    "as_of": "2026-10-16T07:43:51.879Z",
+    "items": [
+      {
+        "rank": 1,
+        "player_id": 4,
+        "first_name": "Phase4",
+        "username": "",
+        "avatar_url": "",
+        "level": 1,
+        "season_points": 10,
+        "clan": null
+      }
+    ],
+    "own_standing": {
+      "rank": 1,
+      "player_id": 4,
+      "first_name": "Phase4",
+      "username": "",
+      "avatar_url": "",
+      "level": 1,
+      "season_points": 10,
+      "clan": null
+    }
+  },
+  "archived": {
+    "offset": 0,
+    "limit": 50,
+    "total_count": 1,
+    "next_offset": null,
+    "season": "phase4-s1",
+    "season_status": "CLOSED",
+    "archived": true,
+    "as_of": "2026-10-16T07:43:51.935Z",
+    "items": [
+      {
+        "rank": 1,
+        "player_id": 4,
+        "first_name": "Phase4",
+        "username": "",
+        "avatar_url": "",
+        "level": 1,
+        "season_points": 15,
+        "clan": null
+      }
+    ],
+    "own_standing": {
+      "rank": 1,
+      "player_id": 4,
+      "first_name": "Phase4",
+      "username": "",
+      "avatar_url": "",
+      "level": 1,
+      "season_points": 15,
+      "clan": null
+    }
+  },
+  "reconciling": {
+    "code": "RANKING_RECONCILING",
+    "detail": "ranking reconciling",
+    "retryable": true,
+    "retry_after_seconds": 2
+  }
+}

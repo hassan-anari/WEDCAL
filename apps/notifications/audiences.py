@@ -12,18 +12,38 @@ from apps.telegram.models import TelegramGroup
 
 
 def eligible_users() -> Any:
-    return Player.objects.filter(first_private_contact_at__isnull=False).exclude(
-        moderation_state__in=["BANNED", "SUSPENDED"]
-    )
+    return Player.objects.filter(first_private_contact_at__isnull=False)
 
 
 def eligible_groups() -> Any:
-    return GroupBroadcastSubscription.objects.filter(
-        enabled=True,
-        revoked_at__isnull=True,
-        group__bot_membership_status__in=["administrator", "creator", "member"],
-        group__telegram_chat_id__lt=0,
+    # Known membership observations only; Telegram cannot enumerate unknown groups.
+    return TelegramGroup.objects.filter(
+        chat_type__in=["group", "supergroup"],
+        telegram_chat_id__lt=0,
+        bot_membership_status__in=["administrator", "creator"],
+        bot_is_admin=True,
     )
+
+
+def verify_broadcast_group(group: TelegramGroup) -> bool:
+    """Bot admin authority, independent from Creator ownership and legacy preferences."""
+    if not eligible_groups().filter(pk=group.pk).exists() or not settings.TELEGRAM_BOT_ID:
+        return False
+    result = bot_api.get_chat_member(group.telegram_chat_id, settings.TELEGRAM_BOT_ID)
+    if not result.ok:
+        if result.category in {"forbidden", "chat_not_found"}:
+            return False
+        raise ValidationError("Telegram verification temporarily unavailable")
+    member = result.result or {}
+    if (
+        (member.get("user") or {}).get("id") != settings.TELEGRAM_BOT_ID
+        or member.get("status") not in {"administrator", "creator"}
+        or member.get("can_send_messages") is False
+        or member.get("is_member") is False
+    ):
+        return False
+    # A newer committed membership update may have observed loss during network I/O.
+    return bool(eligible_groups().filter(pk=group.pk).exists())
 
 
 def verify_group(group: TelegramGroup, user_id: int | None = None) -> bool:

@@ -68,7 +68,15 @@ class Notification(models.Model):
     read_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        indexes = [models.Index(fields=("recipient", "-created_at", "-id"))]
+        indexes = [
+            models.Index(fields=("recipient", "-created_at", "-id")),
+            models.Index(fields=("recipient", "-id"), name="notification_feed_page"),
+            models.Index(
+                fields=("recipient",),
+                name="notification_unread",
+                condition=models.Q(read_at__isnull=True) & ~models.Q(event_key="BOT_PRIVATE"),
+            ),
+        ]
 
 
 class DeliveryState(models.TextChoices):
@@ -104,8 +112,17 @@ class TelegramDelivery(DeliveryFields):
     notification = models.OneToOneField(
         Notification, on_delete=models.PROTECT, related_name="telegram_delivery"
     )
+    source_received_at = models.DateTimeField(null=True)
     text_snapshot = models.TextField(max_length=4096, blank=True)
     message_options = models.JSONField(default=dict)
+
+    def save(self, *args: object, **kwargs: object) -> None:
+        creating = self._state.adding
+        super().save(*args, **kwargs)  # type: ignore[arg-type]
+        if creating and self.state == DeliveryState.PENDING:
+            from apps.notifications.dispatch import dispatch_delivery
+
+            dispatch_delivery(self.pk)
 
 
 class BroadcastCampaign(models.Model):
@@ -120,7 +137,7 @@ class BroadcastCampaign(models.Model):
 
     class Audience(models.TextChoices):
         USERS = "USERS", "Eligible private users"
-        GROUPS = "GROUPS", "Opted-in groups"
+        GROUPS = "GROUPS", "Known authorized groups"
         BOTH = "BOTH", "Users and groups"
         ALL = "ALL", "All players"
         TELEGRAM_REACHABLE = "TELEGRAM_REACHABLE", "Telegram reachable"
@@ -134,6 +151,9 @@ class BroadcastCampaign(models.Model):
     purpose = models.CharField(max_length=1000)
     materialization_cursor = models.PositiveBigIntegerField(default=0)
     group_materialization_cursor = models.PositiveBigIntegerField(default=0)
+    audience_policy_version = models.PositiveSmallIntegerField(
+        default=2, db_default=1, editable=False
+    )
     estimated_users = models.PositiveBigIntegerField(default=0)
     estimated_groups = models.PositiveBigIntegerField(default=0)
     last_dispatch_at = models.DateTimeField(null=True)
@@ -148,6 +168,10 @@ class BroadcastCampaign(models.Model):
     def save(self, *args: object, **kwargs: object) -> None:
         if self.pk:
             original = BroadcastCampaign.objects.get(pk=self.pk)
+            if original.state != self.State.DRAFT and (
+                original.audience_policy_version != self.audience_policy_version
+            ):
+                raise ValidationError("Active campaign audience policy is immutable")
             defining_fields = ("audience_type", "title_snapshot", "body_snapshot", "purpose")
             if (original.state != self.State.DRAFT or self.state != self.State.DRAFT) and any(
                 getattr(original, field) != getattr(self, field) for field in defining_fields
@@ -161,6 +185,9 @@ class BroadcastRecipient(DeliveryFields):
         BroadcastCampaign, on_delete=models.PROTECT, related_name="recipients"
     )
     player = models.ForeignKey("players.Player", on_delete=models.PROTECT, null=True, blank=True)
+    group = models.ForeignKey(
+        "telegram.TelegramGroup", on_delete=models.PROTECT, null=True, blank=True
+    )
     group_subscription = models.ForeignKey(
         "GroupBroadcastSubscription", on_delete=models.PROTECT, null=True, blank=True
     )
@@ -177,13 +204,23 @@ class BroadcastRecipient(DeliveryFields):
             models.UniqueConstraint(
                 fields=("campaign", "group_subscription"), name="broadcast_unique_group"
             ),
+            models.UniqueConstraint(
+                fields=("campaign", "telegram_user_id"), name="broadcast_unique_chat"
+            ),
             models.CheckConstraint(
                 condition=(
                     models.Q(
-                        target_kind="USER", player__isnull=False, group_subscription__isnull=True
+                        target_kind="USER",
+                        player__isnull=False,
+                        group_subscription__isnull=True,
+                        group__isnull=True,
                     )
-                    | models.Q(
-                        target_kind="GROUP", player__isnull=True, group_subscription__isnull=False
+                    | (
+                        models.Q(target_kind="GROUP", player__isnull=True)
+                        & (
+                            models.Q(group__isnull=False, group_subscription__isnull=True)
+                            | models.Q(group__isnull=True, group_subscription__isnull=False)
+                        )
                     )
                 ),
                 name="broadcast_exact_target",
@@ -192,7 +229,7 @@ class BroadcastRecipient(DeliveryFields):
 
 
 class GroupBroadcastSubscription(models.Model):
-    """Explicit consent, independent from Creator rewards and bot observation."""
+    """Legacy B3 preference/audit history; does not authorize or exclude broadcasts."""
 
     group = models.OneToOneField("telegram.TelegramGroup", on_delete=models.PROTECT)
     enabled = models.BooleanField(default=False)
@@ -242,3 +279,40 @@ class GroupBroadcastConsentEvent(models.Model):
                 fields=("subscription", "revision"), name="group_consent_revision"
             )
         ]
+
+
+class WelcomeTemplate(models.Model):
+    version = models.PositiveIntegerField(unique=True)
+    body = models.TextField(max_length=4096)
+    keyboard = models.JSONField(
+        help_text='{"inline_keyboard":[[{"text":"Play","web_app":{"url":"https://your-app.example/"}}]]}'
+    )
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        permissions = [
+            ("activate_welcome", "Can activate or roll back Welcome"),
+            ("test_welcome", "Can test Welcome in own authorized operator chat"),
+        ]
+
+    def clean(self) -> None:
+        from apps.notifications.welcome_config import validate_template
+
+        validate_template(self.body, self.keyboard)
+
+    def save(self, *args: object, **kwargs: object) -> None:
+        if self.pk:
+            raise ValidationError("Welcome versions are immutable; create a new version")
+        self.full_clean()
+        super().save(*args, **kwargs)  # type: ignore[arg-type]
+
+
+class WelcomeConfiguration(models.Model):
+    # Singleton pointer; activation is separate from the disabled-by-default public delivery switch.
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    active_template = models.ForeignKey(WelcomeTemplate, null=True, on_delete=models.PROTECT)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.CheckConstraint(condition=models.Q(id=1), name="welcome_singleton")]

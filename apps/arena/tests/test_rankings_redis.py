@@ -312,6 +312,16 @@ def test_player_api_uses_redis_page_and_constant_time_own_rank(  # type: ignore[
         config, starts_at=now - timedelta(days=1), ends_at=now + timedelta(days=44)
     )
     players = [player_factory(12000 + index) for index in range(55)]
+    from apps.progression.models import PlayerProgression
+
+    for index, player in enumerate(players):
+        PlayerProgression.objects.create(
+            player=player,
+            lifetime_points=55 - index,
+            level=1,
+            dexo_stage="newborn",
+            config_version=config,
+        )
     for index, player in enumerate(players):
         PlayerSeason.objects.create(
             player=player,

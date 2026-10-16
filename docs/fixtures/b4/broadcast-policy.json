@@ -1,0 +1,56 @@
+{
+  "policy_version": 2,
+  "provenance": "isolated PostgreSQL; synthetic Bot API only",
+  "estimates": {
+    "users": 1,
+    "groups": 2
+  },
+  "metrics": {
+    "state": "COMPLETED",
+    "estimated_users": 1,
+    "estimated_groups": 2,
+    "users": {
+      "materialized": 1,
+      "pending": 0,
+      "processing": 0,
+      "retry_wait": 0,
+      "sent": 1,
+      "failed": 0,
+      "uncertain": 0,
+      "skipped": 0,
+      "oldest_pending_seconds": 0
+    },
+    "groups": {
+      "materialized": 2,
+      "pending": 0,
+      "processing": 0,
+      "retry_wait": 0,
+      "sent": 2,
+      "failed": 0,
+      "uncertain": 0,
+      "skipped": 0,
+      "oldest_pending_seconds": 0
+    }
+  },
+  "targets": [
+    {
+      "target_kind": "GROUP",
+      "telegram_user_id": -200,
+      "state": "SENT",
+      "group_subscription_id": null
+    },
+    {
+      "target_kind": "GROUP",
+      "telegram_user_id": -100,
+      "state": "SENT",
+      "group_subscription_id": null
+    },
+    {
+      "target_kind": "USER",
+      "telegram_user_id": 100,
+      "state": "SENT",
+      "group_subscription_id": null
+    }
+  ],
+  "legacy_preference_unchanged": true
+}

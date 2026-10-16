@@ -1,6 +1,34 @@
+from urllib.parse import urlsplit
+
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 from django.db import models
+from django.utils import timezone
+
+
+def validate_mission_parameters(family: str, parameters: object) -> None:
+    if not isinstance(parameters, dict):
+        raise ValidationError({"verification_parameters": "Enter a JSON object."})
+    destination = parameters.get("destination_url")
+    if family == "TIMED_EXTERNAL" or destination not in (None, ""):
+        try:
+            if not isinstance(destination, str) or any(
+                ord(c) < 33 or c == "\\" for c in destination
+            ):
+                raise ValidationError("Invalid URL")
+            URLValidator(schemes=["http", "https"])(destination)
+            parts = urlsplit(destination)
+            if parts.username or parts.password or parts.port not in (None, 80, 443):
+                raise ValidationError("Invalid URL")
+        except (ValidationError, ValueError, TypeError) as exc:
+            raise ValidationError(
+                {
+                    "verification_parameters": (
+                        "destination_url must be a full HTTP(S) URL without credentials, "
+                        'spaces or custom ports, e.g. {"destination_url":"https://example.com/"}.'
+                    )
+                }
+            ) from exc
 
 
 class MissionDefinition(models.Model):
@@ -34,9 +62,22 @@ class MissionDefinition(models.Model):
         ]
 
     def clean(self) -> None:
-        if self.verification_family == self.Verification.TIMED_EXTERNAL:
-            destination = self.verification_parameters.get("destination_url")
-            URLValidator(schemes=["http", "https"])(destination)
+        validate_mission_parameters(self.verification_family, self.verification_parameters)
+        if self.enabled:
+            from apps.game_config.services import resolve_effective_game_config
+            from apps.missions.services import MissionUnavailable, _require_policy_binding
+
+            try:
+                _require_policy_binding(self, resolve_effective_game_config(timezone.now()))
+            except (MissionUnavailable, LookupError, ValueError, ValidationError) as exc:
+                raise ValidationError(
+                    {
+                        "enabled": (
+                            "Publish a matching effective GameConfig mission rule before enabling "
+                            "this definition (same key, verification family and repeat policy)."
+                        )
+                    }
+                ) from exc
         if self.pk and PlayerMission.objects.filter(definition=self).exists():
             old = MissionDefinition.objects.get(pk=self.pk)
             protected = (

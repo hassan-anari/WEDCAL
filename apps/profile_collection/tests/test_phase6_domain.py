@@ -31,7 +31,7 @@ def mission(
     definition = MissionDefinition.objects.create(
         key=key,
         version=1,
-        enabled=True,
+        enabled=key == "complete-profile",  # Only a configured live rule may be enabled.
         verification_family=MissionDefinition.Verification.INTERNAL,
         repeat_policy=MissionDefinition.Repeat.ONCE,
     )
@@ -136,7 +136,7 @@ def test_durable_facts_unlock_achievements_and_only_current_career_medals(
     DailyClaim.objects.create(
         player=player,
         season=season,
-        claim_period="current-reset",
+        claim_period=(BASE + timedelta(days=3)).isoformat(),
         period_start=BASE + timedelta(days=3),
         period_end=BASE + timedelta(days=4),
         streak_count_after_claim=1,

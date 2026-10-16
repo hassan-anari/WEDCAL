@@ -6,6 +6,7 @@ from datetime import datetime
 
 import structlog
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q
 
@@ -13,7 +14,7 @@ from apps.core.b3 import B3Error
 from apps.core.periods import resolve_daily_period
 from apps.game_config.models import GameConfigVersion
 from apps.game_config.services import ResolvedGameConfig, resolve_effective_game_config
-from apps.missions.models import MissionDefinition, PlayerMission
+from apps.missions.models import MissionDefinition, PlayerMission, validate_mission_parameters
 from apps.players.models import Player
 from apps.rewards.services import settle_player_reward
 from apps.seasons.services import require_reward_earning_time, resolve_current_season
@@ -58,8 +59,11 @@ def _definition(key: str, at: datetime) -> MissionDefinition:
 
 def _require_policy_binding(definition: MissionDefinition, resolved: ResolvedGameConfig) -> None:
     try:
+        validate_mission_parameters(
+            definition.verification_family, definition.verification_parameters
+        )
         rule = resolved.missions.definition(definition.key)
-    except (ValueError, LookupError) as exc:
+    except (ValidationError, ValueError, LookupError) as exc:
         raise MissionUnavailable("Mission policy is unavailable") from exc
     if (
         definition.verification_family != rule.verification
@@ -130,8 +134,14 @@ def list_missions(player: Player, at: datetime) -> list[dict[str, object]]:
     }
     result = []
     for definition in latest.values():
-        rule = resolved.missions.definition(definition.key)
-        _require_policy_binding(definition, resolved)
+        if not isinstance(definition.verification_parameters, dict):
+            continue
+        try:
+            _require_policy_binding(definition, resolved)
+            rule = resolved.missions.definition(definition.key)
+        except (MissionUnavailable, ValueError, LookupError):
+            logger.warning("mission_definition_unavailable", definition_id=definition.pk)
+            continue  # Quarantine malformed/legacy rows; one definition cannot break Bootstrap.
         period = _mission_period(definition, at, resolved)
         row = progress.get((definition.pk, period))
         result.append(

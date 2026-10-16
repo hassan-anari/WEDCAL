@@ -50,3 +50,40 @@ class S3AvatarStorage:
 
 def get_storage() -> AvatarStorage:
     return S3AvatarStorage()
+
+
+class S3GroupAvatarStorage(S3AvatarStorage):
+    def __init__(self) -> None:
+        if not (
+            settings.GROUP_IMAGE_S3_ACCESS_KEY_ID and settings.GROUP_IMAGE_S3_SECRET_ACCESS_KEY
+        ):
+            raise ValueError("group_image_credentials_required")
+        self.bucket = settings.GROUP_IMAGE_S3_BUCKET
+        self.client = boto3.client(
+            "s3",
+            endpoint_url=settings.GROUP_IMAGE_S3_ENDPOINT_URL or None,
+            region_name=settings.GROUP_IMAGE_S3_REGION,
+            aws_access_key_id=settings.GROUP_IMAGE_S3_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.GROUP_IMAGE_S3_SECRET_ACCESS_KEY,
+            config=Config(connect_timeout=3, read_timeout=5, retries={"max_attempts": 1}),
+        )
+
+    def put(self, key: str, content: bytes) -> None:
+        self._check(key)
+        super().put(key, content)
+
+    def get(self, key: str) -> bytes:
+        self._check(key)
+        return super().get(key)
+
+    def delete(self, key: str) -> None:
+        if key:
+            self._check(key)
+            super().delete(key)
+
+    @staticmethod
+    def _check(key: str) -> None:
+        import re
+
+        if not re.fullmatch(r"group-images/[a-f0-9-]+\.jpg", key):
+            raise ValueError("group_image_key_scope")

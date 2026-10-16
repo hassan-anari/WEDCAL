@@ -1,0 +1,172 @@
+{
+  "first_page": {
+    "period": "current",
+    "period_key": "2026-01-01T10:00:00+00:00",
+    "period_start": "2026-01-01T10:00:00Z",
+    "period_end": "2026-01-02T10:00:00Z",
+    "items": [
+      {
+        "reset_period": "2026-01-01T10:00:00+00:00",
+        "score": 4500,
+        "attempt_id": "d024d0b6-cb39-4e1d-874b-cb3e0ae59c7d",
+        "status": "VALID",
+        "started_at": "2026-01-02T09:59:40Z",
+        "submitted_at": "2026-01-02T09:59:45Z",
+        "accuracy_bps": 10000,
+        "wpm": 45,
+        "reward_amount": 70,
+        "season": "phase4-s1",
+        "config_version": "phase4-v1",
+        "claimed": false
+      }
+    ],
+    "next_cursor": 3
+  },
+  "last_page": {
+    "period": "current",
+    "period_key": "2026-01-01T10:00:00+00:00",
+    "period_start": "2026-01-01T10:00:00Z",
+    "period_end": "2026-01-02T10:00:00Z",
+    "items": [
+      {
+        "reset_period": "2026-01-01T10:00:00+00:00",
+        "score": 4500,
+        "attempt_id": "6d378918-85ae-4e5a-b2dd-614bc03984c3",
+        "status": "VALID",
+        "started_at": "2026-01-02T00:00:01Z",
+        "submitted_at": "2026-01-02T00:00:06Z",
+        "accuracy_bps": 10000,
+        "wpm": 45,
+        "reward_amount": 70,
+        "season": "phase4-s1",
+        "config_version": "phase4-v1",
+        "claimed": false
+      }
+    ],
+    "next_cursor": null
+  },
+  "empty": {
+    "period": "current",
+    "period_key": "2026-01-01T10:00:00+00:00",
+    "period_start": "2026-01-01T10:00:00Z",
+    "period_end": "2026-01-02T10:00:00Z",
+    "items": [],
+    "next_cursor": null
+  },
+  "exact_reset": {
+    "period": "current",
+    "period_key": "2026-01-02T10:00:00+00:00",
+    "period_start": "2026-01-02T10:00:00Z",
+    "period_end": "2026-01-03T10:00:00Z",
+    "items": [],
+    "next_cursor": null
+  },
+  "stale_cursor": {
+    "code": "TYPING_PERIOD_CHANGED",
+    "detail": "typing period changed",
+    "retryable": false,
+    "retry_after_seconds": null
+  },
+  "new_period": {
+    "period": "current",
+    "period_key": "2026-01-02T10:00:00+00:00",
+    "period_start": "2026-01-02T10:00:00Z",
+    "period_end": "2026-01-03T10:00:00Z",
+    "items": [
+      {
+        "reset_period": "2026-01-02T10:00:00+00:00",
+        "score": 4500,
+        "attempt_id": "41ffa9d3-df78-4f9f-8ec2-c307a096e65e",
+        "status": "VALID",
+        "started_at": "2026-01-02T10:00:05Z",
+        "submitted_at": "2026-01-02T10:00:10Z",
+        "accuracy_bps": 10000,
+        "wpm": 45,
+        "reward_amount": 70,
+        "season": "phase4-s1",
+        "config_version": "phase4-v1",
+        "claimed": false
+      }
+    ],
+    "next_cursor": null
+  },
+  "all": {
+    "period": "all",
+    "period_key": null,
+    "period_start": null,
+    "period_end": null,
+    "items": [
+      {
+        "reset_period": "2026-01-02T10:00:00+00:00",
+        "score": 4500,
+        "attempt_id": "41ffa9d3-df78-4f9f-8ec2-c307a096e65e",
+        "status": "VALID",
+        "started_at": "2026-01-02T10:00:05Z",
+        "submitted_at": "2026-01-02T10:00:10Z",
+        "accuracy_bps": 10000,
+        "wpm": 45,
+        "reward_amount": 70,
+        "season": "phase4-s1",
+        "config_version": "phase4-v1",
+        "claimed": false
+      },
+      {
+        "reset_period": "2026-01-01T10:00:00+00:00",
+        "score": 4500,
+        "attempt_id": "4d0cad41-309d-4edb-8b91-fd21ba1fbf49",
+        "status": "VALID",
+        "started_at": "2026-01-02T09:59:59Z",
+        "submitted_at": "2026-01-02T10:00:04Z",
+        "accuracy_bps": 10000,
+        "wpm": 45,
+        "reward_amount": 70,
+        "season": "phase4-s1",
+        "config_version": "phase4-v1",
+        "claimed": false
+      },
+      {
+        "reset_period": "2026-01-01T10:00:00+00:00",
+        "score": 4500,
+        "attempt_id": "d024d0b6-cb39-4e1d-874b-cb3e0ae59c7d",
+        "status": "VALID",
+        "started_at": "2026-01-02T09:59:40Z",
+        "submitted_at": "2026-01-02T09:59:45Z",
+        "accuracy_bps": 10000,
+        "wpm": 45,
+        "reward_amount": 70,
+        "season": "phase4-s1",
+        "config_version": "phase4-v1",
+        "claimed": false
+      },
+      {
+        "reset_period": "2026-01-01T10:00:00+00:00",
+        "score": 4500,
+        "attempt_id": "6d378918-85ae-4e5a-b2dd-614bc03984c3",
+        "status": "VALID",
+        "started_at": "2026-01-02T00:00:01Z",
+        "submitted_at": "2026-01-02T00:00:06Z",
+        "accuracy_bps": 10000,
+        "wpm": 45,
+        "reward_amount": 70,
+        "season": "phase4-s1",
+        "config_version": "phase4-v1",
+        "claimed": false
+      },
+      {
+        "reset_period": "2025-12-31T10:00:00+00:00",
+        "score": 4500,
+        "attempt_id": "5620c2f2-1137-475b-8b21-5388ea382fb1",
+        "status": "VALID",
+        "started_at": "2026-01-01T09:59:50Z",
+        "submitted_at": "2026-01-01T09:59:55Z",
+        "accuracy_bps": 10000,
+        "wpm": 45,
+        "reward_amount": 70,
+        "season": "phase4-s1",
+        "config_version": "phase4-v1",
+        "claimed": false
+      }
+    ],
+    "next_cursor": null
+  }
+}

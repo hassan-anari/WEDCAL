@@ -3,6 +3,7 @@ from datetime import datetime
 from ninja import Schema
 
 from apps.core.b3 import CanonicalState
+from apps.rewards.reveals import ConfirmedReward
 
 
 class DailyOutput(Schema):
@@ -19,6 +20,7 @@ class DailyOutput(Schema):
 
 
 class DailyClaimOutput(Schema):
+    reward: ConfirmedReward | None
     created: bool
     claim_period: str
     streak: int

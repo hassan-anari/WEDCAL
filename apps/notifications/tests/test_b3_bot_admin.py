@@ -16,10 +16,29 @@ from apps.notifications.models import (
     BroadcastCampaign,
     OperatorAuditEvent,
     TelegramDelivery,
+    WelcomeConfiguration,
+    WelcomeTemplate,
 )
 from apps.players.models import Player
 from apps.telegram.services import persist_inbound_update, process_inbound_update
-from apps.telegram.welcome import WELCOME, keyboard
+
+WELCOME_FIXTURE = json.loads(Path("docs/fixtures/b3/start-welcome.json").read_text())
+WELCOME = WELCOME_FIXTURE["text"]
+
+
+def keyboard():
+    return WELCOME_FIXTURE["options"]["reply_markup"]
+
+
+@pytest.fixture(autouse=True)
+def configured_welcome(settings):
+    settings.B4_PUBLIC_WELCOME_ENABLED = True  # Synthetic-only compatibility fixture.
+    actor = User.objects.create_user("welcome-fixture-author")
+    template = WelcomeTemplate.objects.create(
+        version=1, body=WELCOME, keyboard=keyboard(), created_by=actor
+    )
+    WelcomeConfiguration.objects.create(pk=1, active_template=template)
+
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -234,6 +253,7 @@ def test_default_disabled_rollout_switches_do_not_queue_or_open_panel(settings):
     process(message(text="/start"))
     assert not TelegramDelivery.objects.exists()
     actor = User.objects.create_user("disabled-rollout")
+    actor.user_permissions.add(Permission.objects.get(codename="manage_broadcasts"))
     row = BroadcastCampaign.objects.create(
         created_by=actor, audience_type="BOTH", body_snapshot="blocked", purpose="test"
     )

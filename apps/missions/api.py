@@ -14,6 +14,7 @@ from apps.missions.schemas import (
 )
 from apps.missions.services import claim_mission, list_missions, start_mission, verify_mission
 from apps.players.models import Player
+from apps.rewards.reveals import confirmed_reward
 from apps.telegram.mini_app_auth import mini_app_auth
 
 router = Router(tags=["missions"], auth=mini_app_auth)
@@ -66,12 +67,23 @@ def verify(request: HttpRequest, mission_key: str, payload: VerifyInput) -> dict
 @router.post("/{mission_key}/claim", response=b3_responses(MissionClaimOutput))
 @transaction.atomic
 def claim(request: HttpRequest, mission_key: str) -> dict[str, Any]:
+    Player.objects.select_for_update().get(pk=_player(request).pk)
+    before = canonical_state(_player(request), timezone.now())
     row, created = claim_mission(_player(request), mission_key, timezone.now())
+    after = canonical_state(_player(request), timezone.now())
     return {
+        "reward": confirmed_reward(
+            rows=[row.reward_ledger] if row.reward_ledger else [],
+            event_id=f"mission:{row.pk}",
+            source="MISSIONS",
+            created=created,
+            before=before,
+            after=after,
+        ),
         "key": mission_key,
         "version": row.definition.version,
         "state": row.status,
-        "canonical": canonical_state(_player(request), timezone.now()),
+        "canonical": after,
         "created": created,
         "reward_amount": row.reward_amount,
         "claimed_at": row.claimed_at,

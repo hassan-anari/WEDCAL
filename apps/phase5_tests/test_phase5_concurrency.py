@@ -173,7 +173,7 @@ def test_concurrent_creator_group_activation_never_exceeds_three(monkeypatch) ->
         registrations.append(CreatorGroupRegistration.objects.create(creator=creator, group=group))
     monkeypatch.setattr(
         "apps.network.services.get_chat_member",
-        lambda *_args: TelegramResult(True, {"status": "administrator"}),
+        lambda _chat, user: TelegramResult(True, {"status": "administrator", "user": {"id": user}}),
     )
     monkeypatch.setattr("apps.network.services.settings.TELEGRAM_BOT_ID", 99999)
     monkeypatch.setattr("apps.network.services.timezone.now", lambda: AT)

@@ -1,0 +1,50 @@
+{
+  "first_page": {
+    "period": "all",
+    "period_key": null,
+    "period_start": null,
+    "period_end": null,
+    "items": [
+      {
+        "reset_period": "2026-10-16T00:00:00+00:00",
+        "score": 5700,
+        "attempt_id": "378d71cb-602e-4db5-916b-735e6e841cb4",
+        "status": "VALID",
+        "started_at": "2026-10-16T07:43:48.411Z",
+        "submitted_at": "2026-10-16T07:43:53.411Z",
+        "accuracy_bps": 10000,
+        "wpm": 57,
+        "reward_amount": 70,
+        "season": "phase4-s1",
+        "config_version": "api-config",
+        "claimed": false
+      }
+    ],
+    "next_cursor": 3
+  },
+  "last_page": {
+    "period": "all",
+    "period_key": null,
+    "period_start": null,
+    "period_end": null,
+    "items": [
+      {
+        "reset_period": "2026-10-16T00:00:00+00:00",
+        "score": 0,
+        "attempt_id": "1d27a678-00cb-4d61-bae9-6c09521edf01",
+        "status": "REJECTED",
+        "started_at": "2026-10-16T07:43:43.411Z",
+        "submitted_at": "2026-10-16T07:43:48.411Z",
+        "accuracy_bps": 0,
+        "wpm": 57,
+        "reward_amount": 0,
+        "season": "phase4-s1",
+        "config_version": "api-config",
+        "claimed": false
+      }
+    ],
+    "next_cursor": null
+  },
+  "unfinished_is_omitted": "053d1649-8b64-4ecd-b5fb-ea3aee5d040a",
+  "duplicate_created": false
+}

@@ -34,6 +34,7 @@ class ReferralOutput(Schema):
 
 
 class InviteeOutput(Schema):
+    photo_url: str = ""
     name: str
     status: str
     attributed_at: datetime
