@@ -131,7 +131,7 @@ class StateOut(Schema):
     unlock_level: int | None
     max_voluntary_leaves: int
     leave_cooldown_hours: int
-    owner_decisions_pending: list[str] = ["PH-045", "PH-048"]
+    owner_decisions_pending: list[str] = ["PH-048"]
 
 
 class RemovalCaseIn(Schema):

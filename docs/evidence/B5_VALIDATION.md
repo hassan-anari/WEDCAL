@@ -14,6 +14,8 @@ Scope: the full B5 runtime and fixtures in Draft PR #30. Synthetic Telegram tran
 | B2 / B3 / B4 / B5 generated OpenAPI checks | Passed |
 | Latest-main ancestry and `git diff --check` | Passed |
 
+A final contract-metadata correction removes resolved PH-045 from `state.owner_decisions_pending`; its HTTP fixture/schema check was rerun, and full hosted regression covers the final runtime pin. No economic or governance transition changed in that follow-up.
+
 The sole full-suite skip is the opt-in B2 benchmark, executed successfully in the separate row. One existing Ninja tuple-response deprecation warning remains; no test failure is suppressed. Test runs were serialized against the isolated database.
 
 `b5-b2-benchmark.json` contains the separate benchmark measurements (64 synthetic Players, 16 workers, 512 accepted batches, 12,800 taps). `b5-b4-interactive-latency.json` contains the compatibility latency samples from synthetic Telegram HTTP. These are local evidence, not production/device latency claims.

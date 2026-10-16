@@ -11451,7 +11451,6 @@
           },
           "owner_decisions_pending": {
             "default": [
-              "PH-045",
               "PH-048"
             ],
             "items": {

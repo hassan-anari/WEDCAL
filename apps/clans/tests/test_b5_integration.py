@@ -91,6 +91,7 @@ def test_actual_clan_reads_privacy_economy_and_generated_fixtures(clan_world, b5
         assert response.status_code == 200, (path, response.content)
         assert response["Cache-Control"] == "private, no-store"
         captured[path] = response.json()
+    assert captured["state"]["owner_decisions_pending"] == ["PH-048"]
     assert captured["roster"]["total_count"] == 2
     assert {m["membership_id"] for m in captured["roster"]["items"]} == {
         member.pk,
