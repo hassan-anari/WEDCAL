@@ -2,8 +2,8 @@
 
 Backend Draft [WEDCAL #29](https://github.com/hassan-anari/WEDCAL/pull/29), branch
 `ai/b4-backend-integration`; consumer Draft [FROCAL #5](https://github.com/hassan-anari/FROCAL/pull/5).
-This publication contains runtime implementation, not just the initial inventory. Current runtime,
-schema and fixture implementation HEAD: `ec6af7053dfc7e8755998418b826c59ca91191ea`.
+This publication contains runtime implementation, not just the initial inventory. Prior runtime/schema/fixture pin: `ec6af7053dfc7e8755998418b826c59ca91191ea`.
+The owner-policy successor is implemented on this branch; its exact SHA is shared on PR #29.
 A later documentation/evidence-only PR HEAD may contain this same implementation; `2d2a856` is documentation
 only and must not be used as the implementation pin. Final CI and consumer acceptance are tracked below and in PR comments.
 
@@ -30,8 +30,8 @@ only and must not be used as the implementation pin. Final CI and consumer accep
 - Canonical progression owns balances. Reward reveals require a newly created confirmed ledger
   event and event-ID deduplication; zero/duplicate claims cannot fabricate a reveal.
 - Optional photo URLs fall back to initials. Notification navigation uses `deep_link.path` only.
-- Existing intentional Add Bot action may send `authorize_group_messages:true` only when its
-  copy conveys that authorization. False/default never grants consent; no new Mini App toggle.
+- Add Bot remains the existing Creator registration flow. No broadcast opt-in/checkbox/flag is
+  required. Optional legacy intent/preference API fields remain compatible but never gate broadcasts.
 
 ## Endpoint readiness
 
@@ -48,7 +48,7 @@ error/retry, pagination, archive and cross-player cases against the final exact 
 
 ## Migrations and operation
 
-New migrations (no economic backfill):
+B4 migrations (no economic backfill):
 
 - `network.0006`: intentional registration authorization and nullable bound intent.
 - `notifications.0004`: nullable ingress timestamp for delivery latency.
@@ -57,6 +57,9 @@ New migrations (no economic backfill):
 - `notifications.0007`: concurrent feed/read-state indexes, non-atomic migration.
 - `players.0006`: optional private group image cache table, no historical download/enrollment.
 - `typing_game.0002`: concurrent partial submitted-history index, non-atomic migration.
+- `notifications.0008`: direct nullable group FK, campaign policy version, chat uniqueness and target/
+  immutable-policy guards. Existing campaigns are version 1; new confirmed campaigns use version 2.
+  Legacy subscription rows/targets are retained, not deleted or rewritten.
 
 Keep existing recovery scanners. New durable rows dispatch through Celery after the outermost
 commit; an unavailable broker leaves recoverable pending rows. Optional
@@ -77,12 +80,20 @@ expiring capabilities; do not log or publish them. No Telegram credentials/direc
 returned. See `.env.example` for exact bounds and configuration names.
 
 Apply migrations before new workers/API; run concurrent indexes outside an encompassing atomic
-transaction, check failed/invalid indexes before retry. Table additions/nullable fields leave
-old code compatible. Rollback runtime first, leave additive tables/columns/history intact;
+transaction, check failed/invalid indexes before retry. For the broadcast-policy migration, pause broadcast workers/materialization and inspect active
+campaigns and duplicate (campaign, chat) rows before applying. Existing DRAFT campaigns can be
+confirmed under version 2. Version-1 MATERIALIZING campaigns must be cancelled and recreated using
+the existing confirmation flow; never reinterpret their old subscription cursor. Legacy queued
+targets remain fixed and revalidate current bot authority. The new unique constraint validates
+the recipient table under a schema lock: assess table size/lock budget in the rollout window.
+New application instances default to version 2; database default 1 safely labels old-writer inserts.
+Before rolling back workers, stop/cancel/drain new direct-group deliveries with new code and resolve
+in-flight uncertainty. Old workers do not understand direct group targets. Retain additive schema
+and history rather than unapplying 0008 over new recipients;
 never drop economic ledgers. Disable image/public Welcome flags and drain newly routed queues
 before reverting workers. Migration SQL and final verification evidence will accompany review.
 
-## Final implementation verification
+## Previous implementation verification (before owner policy correction)
 
 Runtime/source/fixture pin: `ec6af7053dfc7e8755998418b826c59ca91191ea`.
 All hosted checks are green on that implementation:
@@ -134,3 +145,28 @@ Activity has no approved secondary active-day evidence. Do not fabricate it.
 
 No merge, deployment, production data modification, public message or real test-send. Keep Draft;
 stop for independent review. Public Welcome stays disabled. B5 is not authorized.
+
+
+## Owner policy correction handoff — 2026-10-16
+
+The direct owner instruction supersedes all previous consent/revocation eligibility prose:
+all privately started contacts and all known bot-authorized admin groups/supergroups are operator
+broadcast candidates, including pre-B4 and non-Creator groups. Legacy preference rows and creator
+identity are not eligibility gates. Actual sending revalidates configured bot identity/admin/send
+permission and committed membership loss. Telegram forbidden/chat-not-found skips only that target.
+Unknown groups cannot be enumerated; existing membership records/updates are the discovery source.
+No public Welcome activation, actual campaign, production migration or real test-send occurred.
+
+FROCAL #5 must replace only its separate B4 backend source/fixture pin and paired CI checkout with
+the new runtime SHA posted on #29. Preserve historical B2/B3 pins. Synchronize the generated B4
+OpenAPI/fixtures; legacy consent fields keep their wire shape but are documented as deprecated
+metadata. Keep Add Bot unchanged: no checkbox, opt-in request or new UI control. Rerun original
+B2/B3 and B4 API/controller/browser checks on isolated PostgreSQL/Redis with synthetic transports.
+The successor changes operator audience semantics, not Profile/Typing/reward/canonical values.
+
+Focused tests: 137 pre-existing/revised regressions passed; 22 owner-policy/migration tests passed,
+including no subscription, historical/unrelated groups, recorded/fresh permission loss, blocked
+user/group, real mixed send budgets/retry/idempotency, PostgreSQL concurrency/uniqueness and actual
+0007→0008 migration retention. Full successor CI and exact SHA evidence follow in the PR comment.
+Previous 845-test/CI evidence above proves only the prior runtime and must not be presented as
+verification of this correction. Stop after the successor checks are green for independent review.

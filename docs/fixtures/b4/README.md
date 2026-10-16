@@ -13,6 +13,8 @@ configuration, identities and timestamps; numbers are not production economy pol
   exact reset, empty period, pagination, stale cursor rejection and cross-reset submission.
 - `typing-history.json`: real valid/rejected submissions, keyset pagination and omitted unfinished run.
 - `rankings.json`: real projected pages, drift failure and immutable archive behavior.
+- `broadcast-policy.json`: actual synthetic operator-confirmed mixed campaign, direct group targets,
+  historical revoked preference retained and ignored for eligibility; real delivery state metrics.
 - `private-images.json`: actor-scoped invitee/group private capabilities and start-only metadata.
 - `notifications-errors.json`: confirmed read-all, safe navigation and actual typed error bodies.
 - `dlx-confirmed.json`: settled allocation and audited hold/release/forfeit/reversal, no XP mutation.

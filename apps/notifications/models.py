@@ -137,7 +137,7 @@ class BroadcastCampaign(models.Model):
 
     class Audience(models.TextChoices):
         USERS = "USERS", "Eligible private users"
-        GROUPS = "GROUPS", "Opted-in groups"
+        GROUPS = "GROUPS", "Known authorized groups"
         BOTH = "BOTH", "Users and groups"
         ALL = "ALL", "All players"
         TELEGRAM_REACHABLE = "TELEGRAM_REACHABLE", "Telegram reachable"
@@ -151,6 +151,9 @@ class BroadcastCampaign(models.Model):
     purpose = models.CharField(max_length=1000)
     materialization_cursor = models.PositiveBigIntegerField(default=0)
     group_materialization_cursor = models.PositiveBigIntegerField(default=0)
+    audience_policy_version = models.PositiveSmallIntegerField(
+        default=2, db_default=1, editable=False
+    )
     estimated_users = models.PositiveBigIntegerField(default=0)
     estimated_groups = models.PositiveBigIntegerField(default=0)
     last_dispatch_at = models.DateTimeField(null=True)
@@ -165,6 +168,10 @@ class BroadcastCampaign(models.Model):
     def save(self, *args: object, **kwargs: object) -> None:
         if self.pk:
             original = BroadcastCampaign.objects.get(pk=self.pk)
+            if original.state != self.State.DRAFT and (
+                original.audience_policy_version != self.audience_policy_version
+            ):
+                raise ValidationError("Active campaign audience policy is immutable")
             defining_fields = ("audience_type", "title_snapshot", "body_snapshot", "purpose")
             if (original.state != self.State.DRAFT or self.state != self.State.DRAFT) and any(
                 getattr(original, field) != getattr(self, field) for field in defining_fields
@@ -178,6 +185,9 @@ class BroadcastRecipient(DeliveryFields):
         BroadcastCampaign, on_delete=models.PROTECT, related_name="recipients"
     )
     player = models.ForeignKey("players.Player", on_delete=models.PROTECT, null=True, blank=True)
+    group = models.ForeignKey(
+        "telegram.TelegramGroup", on_delete=models.PROTECT, null=True, blank=True
+    )
     group_subscription = models.ForeignKey(
         "GroupBroadcastSubscription", on_delete=models.PROTECT, null=True, blank=True
     )
@@ -194,13 +204,23 @@ class BroadcastRecipient(DeliveryFields):
             models.UniqueConstraint(
                 fields=("campaign", "group_subscription"), name="broadcast_unique_group"
             ),
+            models.UniqueConstraint(
+                fields=("campaign", "telegram_user_id"), name="broadcast_unique_chat"
+            ),
             models.CheckConstraint(
                 condition=(
                     models.Q(
-                        target_kind="USER", player__isnull=False, group_subscription__isnull=True
+                        target_kind="USER",
+                        player__isnull=False,
+                        group_subscription__isnull=True,
+                        group__isnull=True,
                     )
-                    | models.Q(
-                        target_kind="GROUP", player__isnull=True, group_subscription__isnull=False
+                    | (
+                        models.Q(target_kind="GROUP", player__isnull=True)
+                        & (
+                            models.Q(group__isnull=False, group_subscription__isnull=True)
+                            | models.Q(group__isnull=True, group_subscription__isnull=False)
+                        )
                     )
                 ),
                 name="broadcast_exact_target",
@@ -209,7 +229,7 @@ class BroadcastRecipient(DeliveryFields):
 
 
 class GroupBroadcastSubscription(models.Model):
-    """Explicit consent, independent from Creator rewards and bot observation."""
+    """Legacy B3 preference/audit history; does not authorize or exclude broadcasts."""
 
     group = models.OneToOneField("telegram.TelegramGroup", on_delete=models.PROTECT)
     enabled = models.BooleanField(default=False)

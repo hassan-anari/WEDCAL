@@ -290,7 +290,7 @@ All migrations are forward-safe and rollback-tested on backups/synthetic copies.
 | B1 | IN_PROGRESS | Backend [Draft PR #26](https://github.com/hassan-anari/WEDCAL/pull/26); frontend B1 PR pending | Backend PR_OPEN; initial implementation `90bf6930a5036ea6cd720605ef4f1d6079153eda`; latest head/CI evidence in PR #26. P-01/P-04 contract and regression delivery: [handoff](docs/B1_BACKEND_HANDOFF.md). Frontend/paired Telegram and cache verification pending; no batch acceptance or next-batch approval. |
 | B2 | BACKEND_DRAFT | Backend [Draft #27](https://github.com/hassan-anari/WEDCAL/pull/27), branch `ai/b2-backend`; paired frontend [Draft #3](https://github.com/hassan-anari/FROCAL/pull/3)/E2E pending | [wire contract](docs/B2_TAP_V2_CONTRACT.md), [handoff](docs/B2_BACKEND_HANDOFF.md), immediate atomic leases, exactly-once legacy drain; no deployment/activation acceptance |
 | B3 | BACKEND_DRAFT | Backend [Draft #28](https://github.com/hassan-anari/WEDCAL/pull/28), `ai/b3-backend-integration`; paired FROCAL [Draft #4](https://github.com/hassan-anari/FROCAL/pull/4) | [implemented contract](docs/B3_BACKEND_CONTRACT.md), [handoff](docs/B3_BACKEND_HANDOFF.md); P-05/P-06/P-07 plus owner-authorized session/banner/bot/broadcast extensions; independent review and paired frontend/device acceptance pending |
-| B4 | BACKEND_CI_GREEN / PAIRED_PENDING | Backend [Draft #29](https://github.com/hassan-anari/WEDCAL/pull/29); frontend [Draft #5](https://github.com/hassan-anari/FROCAL/pull/5) | Runtime implementation `ec6af7053dfc7e8755998418b826c59ca91191ea`; [contract](docs/B4_BACKEND_CONTRACT.md), [handoff](docs/B4_BACKEND_HANDOFF.md), generated fixtures. P-08/P-09 plus owner B3 corrections; 845 hosted tests plus separate benchmark and all checks green; final consumer pin/paired acceptance pending. No activation or next batch approval. |
+| B4 | OWNER_POLICY_CORRECTION_VERIFYING | Backend [Draft #29](https://github.com/hassan-anari/WEDCAL/pull/29); frontend [Draft #5](https://github.com/hassan-anari/FROCAL/pull/5) | Runtime implementation `ec6af7053dfc7e8755998418b826c59ca91191ea`; [contract](docs/B4_BACKEND_CONTRACT.md), [handoff](docs/B4_BACKEND_HANDOFF.md), generated fixtures. P-08/P-09 plus owner B3 corrections; 845 hosted tests plus separate benchmark and all checks green; final consumer pin/paired acceptance pending. No activation or next batch approval. |
 | B5 | PLANNED | — | Clan lifecycle/governance/Recovery/Treasury/Shop |
 | B6 | PLANNED | — | Staging E2E, measured load, release gates/rollback |
 
@@ -401,3 +401,19 @@ Foundation 38869293917 and Release Scans 38869293916 all green. 845 tests plus s
 benchmark, migrations/no drift, quality and Docker runtime/Admin/static. Backend-run unchanged
 FROCAL compatibility: 29 API/controller + 13 browser against that exact runtime. Final consumer
 B4 successor-pin acceptance is separate; independent review required. No next batch authorized.
+
+
+### Owner broadcast eligibility supersession — 2026-10-16
+
+Direct owner instruction in the B4 task overrides the previous separate-consent policy. Authorized
+operators explicitly confirm each campaign to all started private contacts and all known Telegram
+groups/supergroups where bot admin/send authority remains valid. No Creator registration/creator
+opt-in/legacy enabled or revoked preference is an audience gate. Unknown Telegram groups cannot
+be enumerated. Membership observations and live send-time bot checks fail closed on authority loss;
+Telegram blocks/forbidden outcomes do not stop other recipients. Creator economy/moderation remains
+unchanged. B3 preference APIs/history are retained as compatibility metadata; no frontend control.
+
+Backend successor remains Draft #29; consumer Draft #5 currently pins prior runtime ec6af70 and
+must advance only its B4 pin/CI checkout after the successor is published. No next batch, deployment,
+production write, actual message or public Welcome enablement. Updated policy/schema/fixtures and
+migration 0008 safety/cancellation/reconfirmation instructions live in the B4 handoff.

@@ -1405,3 +1405,25 @@ latency slice passes (local reply p95 1.60 s, no duplicate/unauthorized send). P
 gate remains enforced; eight existing unfixed HIGH IDs (44 package instances) have individual
 applicability dispositions in the B4 security review. No critical/fixable findings or new ignores.
 Final frontend successor-pin acceptance remains tracked on the paired PR. No activation/deployment.
+
+
+### B4 owner broadcast policy correction — 2026-10-16
+
+Previous consent/creator-revocation broadcast eligibility is explicitly superseded by direct owner
+instruction. All real private contacts and known bot-admin groups may be targeted after operator
+confirmation; current bot admin/send permission remains mandatory. Legacy preference API/history
+is preserved but does not gate the audience. No frontend opt-in or extra control is required.
+
+- PH-019 WATCH: group authority checks now validate the bot rather than an authorizing creator;
+  recorded loss and fresh Telegram denial skip delivery. Creator verification/reward behavior is
+  separate and unchanged. No discovery beyond known TelegramGroup observations is claimed.
+- PH-034 VERIFYING SLICE: mixed audiences retain shared rate budgets/retry/leases, terminal uncertain
+  handling, cancellation and audit. Explicit 403/chat-not-found skips prevent blocked targets from
+  disrupting a campaign. Private group-only/Mini-App-only Players are excluded.
+- Migration 0008 is additive: retain old subscription/recipient history, direct group FK for new
+  recipients, unique campaign/chat and immutable policy version. Old unfinished materialization is
+  blocked pending cancellation/new confirmation; no silent cursor/audience expansion. Pause workers,
+  inspect uniqueness/schema locks, and drain new direct targets before rolling workers back.
+
+Prior 845-test green evidence is historical. Successor exact runtime SHA/CI evidence is recorded
+on Draft #29; independent review remains required. No actual send, deployment or production change.

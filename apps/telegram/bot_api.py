@@ -21,6 +21,20 @@ class TelegramResult:
     ambiguous: bool = False
 
 
+def _error_category(code: Any, payload: Any, *, fallback: str) -> str:
+    if code == 429:
+        return "rate_limited"
+    if code == 403:
+        return "forbidden"
+    if (
+        code == 400
+        and isinstance(payload, dict)
+        and str(payload.get("description", "")).casefold() == "bad request: chat not found"
+    ):
+        return "chat_not_found"
+    return fallback
+
+
 def request(method: str, parameters: dict[str, Any]) -> TelegramResult:
     token = settings.TELEGRAM_BOT_TOKEN
     if not token:
@@ -47,6 +61,7 @@ def request(method: str, parameters: dict[str, Any]) -> TelegramResult:
         )
     except urllib.error.HTTPError as exc:
         retry_after = None
+        error = {}
         try:
             error = json.loads(exc.read(65536))
             retry_after = retry_after_from_payload(error)
@@ -55,7 +70,7 @@ def request(method: str, parameters: dict[str, Any]) -> TelegramResult:
         if exc.code == 429:
             retry_after = retry_after or settings.TELEGRAM_API_DEFAULT_RETRY_SECONDS
             defer_bot_api(retry_after)
-        category = "rate_limited" if exc.code == 429 else "http_error"
+        category = _error_category(exc.code, error, fallback="http_error")
         logger.warning(
             "telegram_api_failure",
             method=method,
@@ -88,7 +103,13 @@ def request(method: str, parameters: dict[str, Any]) -> TelegramResult:
             retry = retry or settings.TELEGRAM_API_DEFAULT_RETRY_SECONDS
             defer_bot_api(retry)
         return TelegramResult(
-            False, category="rate_limited" if is_429 else "telegram_not_ok", retry_after=retry
+            False,
+            category=_error_category(
+                payload.get("error_code") if isinstance(payload, dict) else None,
+                payload,
+                fallback="telegram_not_ok",
+            ),
+            retry_after=retry,
         )
     result = payload.get("result")
     return TelegramResult(True, result if isinstance(result, dict) else {})

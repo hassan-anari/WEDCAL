@@ -12,7 +12,7 @@ from apps.network.services import (
     verify_registration,
 )
 from apps.network.tasks import refresh_due_owned_groups
-from apps.notifications.audiences import grant_registration_consent, set_group_consent
+from apps.notifications.audiences import set_group_consent
 from apps.notifications.models import GroupBroadcastSubscription
 from apps.notifications.services import deliver_broadcasts, materialize_campaign, queue_campaign
 from apps.notifications.tests.test_b3_audiences import audience_world, campaign  # noqa: F401
@@ -46,7 +46,7 @@ def registration_world(phase4_config_factory, player_factory, settings, monkeypa
     return creator, group
 
 
-def test_registration_requires_creator_bound_intent_and_verified_explicit_consent(
+def test_registration_keeps_creator_bound_intent_without_broadcast_enrollment(
     registration_world, player_factory
 ):
     creator, group = registration_world
@@ -57,13 +57,11 @@ def test_registration_requires_creator_bound_intent_and_verified_explicit_consen
     assert registration and registration.authorization_intent_id == intent.pk
     assert not GroupBroadcastSubscription.objects.exists()
     assert verify_registration(registration.pk) == "ACTIVE"
-    consent = GroupBroadcastSubscription.objects.get()
-    assert consent.enabled and consent.authorized_telegram_user_id == creator.telegram_user_id
+    assert not GroupBroadcastSubscription.objects.exists()
     assert consume_registration_token(token, creator, group) is None
     set_group_consent(group, creator.telegram_user_id, enabled=False)
     assert verify_registration(registration.pk) == "ACTIVE"
-    consent.refresh_from_db()
-    assert not consent.enabled and consent.revoked_at
+    assert not GroupBroadcastSubscription.objects.get().enabled
 
 
 def test_historical_registration_and_default_intent_never_enroll(registration_world):
@@ -76,7 +74,6 @@ def test_historical_registration_and_default_intent_never_enroll(registration_wo
     consume_registration_token(link.split("startgroup=", 1)[1], creator, group)
     registration.refresh_from_db()
     assert registration.authorization_intent_id is None
-    grant_registration_consent(registration.pk)
     assert not GroupBroadcastSubscription.objects.exists()
 
 
@@ -103,62 +100,23 @@ def test_polling_owned_groups_coalesces_verification_dispatch(registration_world
     assert dispatched == [row.pk]
 
 
-def test_creator_authority_loss_prevents_later_broadcast_send(audience_world, monkeypatch):  # noqa: F811
+def test_creator_authority_loss_does_not_revoke_owner_authorized_bot_broadcast(
+    audience_world, monkeypatch
+):
     actor, creator, group = audience_world
     set_group_consent(group, creator.telegram_user_id, enabled=True)
     row = campaign(actor, "GROUPS")
-    queue_campaign(campaign=row, actor=actor, reason="Explicit authorized confirmation")
+    queue_campaign(campaign=row, actor=actor, reason="Explicit operator confirmation")
     materialize_campaign(row.pk)
+    calls = []
 
-    def lost(chat, user):
+    def member(chat, user):
+        calls.append(user)
         return TelegramResult(
-            True,
-            {
-                "status": "member" if user == creator.telegram_user_id else "administrator",
-                "user": {"id": user},
-            },
+            True, {"status": "administrator" if user == 999 else "member", "user": {"id": user}}
         )
 
-    monkeypatch.setattr("apps.notifications.audiences.bot_api.get_chat_member", lost)
-    calls = []
-    monkeypatch.setattr("apps.telegram.bot_api.send_message", lambda *args: calls.append(args))
+    monkeypatch.setattr("apps.telegram.bot_api.get_chat_member", member)
     deliver_broadcasts()
-    target = row.recipients.get()
-    assert target.state == "SKIPPED" and not calls
-
-
-@pytest.mark.parametrize(
-    "interleaving", ["registration_inactive", "bot_removed", "consent_revoked"]
-)
-def test_registration_consent_rechecks_state_after_external_verification(
-    registration_world, monkeypatch, interleaving
-):
-    creator, group = registration_world
-    intent, link = create_registration_intent(creator, authorize_group_messages=True)
-    registration = consume_registration_token(link.split("startgroup=", 1)[1], creator, group)
-    assert registration
-    CreatorGroupRegistration.objects.filter(pk=registration.pk).update(state="ACTIVE")
-
-    def verify(*args):
-        # Deterministically interleave a committed authority/revocation change during network I/O.
-        if interleaving == "registration_inactive":
-            CreatorGroupRegistration.objects.filter(pk=registration.pk).update(state="INACTIVE")
-        elif interleaving == "bot_removed":
-            TelegramGroup.objects.filter(pk=group.pk).update(
-                bot_is_admin=False,
-                bot_membership_status="left",
-                bot_membership_last_update_id=123,
-            )
-        else:
-            GroupBroadcastSubscription.objects.create(
-                group=group,
-                enabled=False,
-                revision=1,
-                authorized_telegram_user_id=creator.telegram_user_id,
-                revoked_at=timezone.now(),
-            )
-        return True
-
-    monkeypatch.setattr("apps.notifications.audiences.verify_group", verify)
-    grant_registration_consent(registration.pk)
-    assert not GroupBroadcastSubscription.objects.filter(enabled=True).exists()
+    assert row.recipients.get().state == "SENT"
+    assert calls == [999]  # Creator reward/registration authorization remains a separate workflow.

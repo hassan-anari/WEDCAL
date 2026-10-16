@@ -51,7 +51,11 @@ def groups(
 
 
 class IntentInput(Schema):
-    authorize_group_messages: bool = Field(default=False, strict=True)
+    authorize_group_messages: bool = Field(
+        default=False,
+        strict=True,
+        description="Legacy preference metadata; never required for operator broadcasts.",
+    )
 
 
 @router.post("/groups/intents", response=b3_responses(IntentOutput))
@@ -98,7 +102,11 @@ class BroadcastConsentInput(Schema):
     enabled: bool = Field(strict=True)
 
 
-@router.post("/groups/{public_id}/broadcast-consent", response=b3_responses(BroadcastConsentOutput))
+@router.post(
+    "/groups/{public_id}/broadcast-consent",
+    response=b3_responses(BroadcastConsentOutput),
+    deprecated=True,
+)
 def broadcast_consent(
     request: HttpRequest, public_id: UUID, payload: BroadcastConsentInput
 ) -> dict[str, Any]:

@@ -68,12 +68,12 @@ def campaign(actor, audience="BOTH"):
     )
 
 
-def test_observed_groups_never_enroll_and_consent_revocation_prevents_dispatch(audience_world):
+def test_known_authorized_groups_do_not_require_or_consult_legacy_consent(audience_world):
     actor, p, group = audience_world
     row = campaign(actor)
     queue_campaign(campaign=row, actor=actor, reason="synthetic")
-    assert materialize_campaign(row.pk) == 1
-    assert not row.recipients.filter(target_kind="GROUP").exists()
+    assert materialize_campaign(row.pk) == 2
+    assert row.recipients.filter(target_kind="GROUP").exists()
     assert not GroupBroadcastSubscription.objects.exists()
     set_group_consent(group, p.telegram_user_id, enabled=True)
     row2 = campaign(actor)
@@ -82,7 +82,7 @@ def test_observed_groups_never_enroll_and_consent_revocation_prevents_dispatch(a
     set_group_consent(group, p.telegram_user_id, enabled=False)
     deliver_broadcasts()
     deliver_broadcasts()
-    assert row2.recipients.get(target_kind="GROUP").state == DeliveryState.SKIPPED
+    assert row2.recipients.get(target_kind="GROUP").state == DeliveryState.SENT
     assert row2.recipients.get(target_kind="USER").state == DeliveryState.SENT
 
 

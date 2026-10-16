@@ -60,13 +60,24 @@ again before queued panel/ACK/test delivery. Callback ACK is independently durab
 execute privileged actions for invalid/expired interactions. Actual broadcasts require explicit
 authorized operator confirmation, existing preview flow and audit. No real campaign was sent.
 
-Intentional one-use creator-bound Add Bot authorization may enroll only a new verified registration.
-No historical enrollment. Existing subscription rows, especially revocation tombstones, are never
-overwritten by automatic registration verification. Registration/creator/bot state is rechecked after
-external verification under the group lock. Broadcast sends check current creator/bot Telegram
-authority and subscription revision/revocation again after verification. Concurrent revocation or
-observed bot loss fails closed before dispatch. An already dispatched operation cannot be recalled;
-there is no promise to undo a message already handed to Telegram.
+The owner's 2026-10-16 correction withdraws separate broadcast consent. Eligibility is all real
+private contacts and known groups where the bot has current admin/send authority. Creator
+registration, creator opt-in fields, legacy enabled/revoked records and creator authority do not
+control this operator audience. These records/events remain intact as history and compatibility
+metadata. No synthetic subscription is created to enroll old or unrelated groups.
+
+Fresh configured-bot identity/admin checks and committed membership-loss checks precede every group
+send. Demoted/removed/restricted bots and explicit send denial are skipped. Telegram 403/chat-not-found
+is terminal per recipient; a blocked user/group cannot stop other targets. Private users must have
+started private contact even when an old row or ALL audience is used. Gameplay moderation is retained;
+announcement eligibility is distinct from permission to earn rewards.
+
+Campaigns snapshot policy version 2 only through the existing explicitly confirmed operator path;
+policy becomes immutable after draft (model + PostgreSQL guard). Version-1 unfinished materialization
+is blocked until cancellation/new confirmation, preventing silent audience expansion and cursor
+reinterpretation. Legacy queued targets remain fixed and use current bot authorization. Direct
+and legacy group references cannot duplicate the same campaign/chat. Leases, cancellation, retries,
+rate budgets, audit and terminal uncertainty remain; no already dispatched message can be recalled.
 
 ## Dynamic Welcome
 

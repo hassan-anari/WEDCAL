@@ -2,6 +2,7 @@ from datetime import datetime
 from uuid import UUID
 
 from ninja import Schema
+from pydantic import Field
 
 from apps.core.b3 import CanonicalState
 
@@ -24,7 +25,9 @@ class CreatorGroupOutput(Schema):
     photo_url: str = ""
     state: str
     bot_admin: bool
-    broadcast_opted_in: bool
+    broadcast_opted_in: bool = Field(
+        description="Legacy preference only; does not determine broadcast eligibility."
+    )
     creator_verified_at: datetime | None
     bot_verified_at: datetime | None
     next_verification_at: datetime

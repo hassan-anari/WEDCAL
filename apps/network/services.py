@@ -232,10 +232,6 @@ def verify_registration(registration_id: int) -> str:
             locked.bot_verified_at = timezone.now()
             locked.creator_verified_at = timezone.now()
         locked.save()
-        if state == CreatorGroupRegistration.State.ACTIVE and locked.authorization_intent_id:
-            from apps.notifications.audiences import grant_registration_consent
-
-            transaction.on_commit(lambda: grant_registration_consent(locked.pk))
         CreatorRegistrationStateEvent.objects.create(
             registration=locked,
             state=locked.state,

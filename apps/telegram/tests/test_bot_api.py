@@ -62,6 +62,8 @@ def test_bot_api_success_uses_bounded_request(settings) -> None:  # type: ignore
         (urllib.error.URLError("offline"), "connection_error"),
         (OSError("offline"), "connection_error"),
         (http_error(400), "http_error"),
+        (http_error(403), "forbidden"),
+        (http_error(400, {"description": "Bad Request: chat not found"}), "chat_not_found"),
         (http_error(500), "http_error"),
     ],
 )
@@ -101,6 +103,13 @@ def test_create_invite_http_server_failures_are_conservatively_ambiguous(
     [
         (b"not-json", "non_json_response"),
         (json.dumps({"ok": False, "error_code": 400}).encode(), "telegram_not_ok"),
+        (json.dumps({"ok": False, "error_code": 403}).encode(), "forbidden"),
+        (
+            json.dumps(
+                {"ok": False, "error_code": 400, "description": "Bad Request: chat not found"}
+            ).encode(),
+            "chat_not_found",
+        ),
         (json.dumps(["unexpected"]).encode(), "telegram_not_ok"),
     ],
 )

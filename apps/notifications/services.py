@@ -14,13 +14,12 @@ from apps.notifications.audiences import (
     eligible_groups,
     eligible_users,
     estimated_targets,
-    verify_group,
+    verify_broadcast_group,
 )
 from apps.notifications.models import (
     BroadcastCampaign,
     BroadcastRecipient,
     DeliveryState,
-    GroupBroadcastSubscription,
     Notification,
     NotificationTemplate,
     OperatorAuditEvent,
@@ -28,6 +27,7 @@ from apps.notifications.models import (
 )
 from apps.players.models import Player
 from apps.telegram import bot_api
+from apps.telegram.models import TelegramGroup
 
 
 class NotificationIdempotencyConflict(ValidationError):
@@ -274,25 +274,14 @@ def _deliver(row: Delivery, text: str) -> None:
         return
     options = row.message_options if isinstance(row, TelegramDelivery) else {}
     if isinstance(row, BroadcastRecipient) and row.target_kind == "GROUP":
-        assert row.group_subscription_id is not None
+        group_id = row.group_id
+        if group_id is None and row.group_subscription_id:
+            group_id = row.group_subscription.group_id
+        assert group_id is not None  # Enforced by broadcast_exact_target for both layouts.
         try:
-            subscription = GroupBroadcastSubscription.objects.select_related("group").get(
-                pk=row.group_subscription_id
-            )
-            permitted = (
-                subscription.enabled
-                and subscription.revoked_at is None
-                and subscription.revision == row.subscription_revision
-            )
-            permitted = permitted and verify_group(
-                subscription.group, subscription.authorized_telegram_user_id
-            )
-            subscription.refresh_from_db()
-            permitted = (
-                permitted
-                and subscription.enabled
-                and subscription.revoked_at is None
-                and subscription.revision == row.subscription_revision
+            group = TelegramGroup.objects.get(pk=group_id)
+            permitted = group.telegram_chat_id == row.telegram_user_id and verify_broadcast_group(
+                group
             )
         except ValidationError:
             result = bot_api.TelegramResult(False, category="local_rate_limited", retry_after=30)
@@ -302,13 +291,27 @@ def _deliver(row: Delivery, text: str) -> None:
                     pk=row.pk, lease_token=token, state=DeliveryState.PROCESSING
                 ).update(
                     state=DeliveryState.SKIPPED,
-                    error_category="group_consent_or_permission_revoked",
+                    error_category="group_permission_unavailable",
                     completed_at=timezone.now(),
                     lease_token=None,
                     lease_expires_at=None,
                 )
                 return
             result = bot_api.send_message(row.telegram_user_id, text)
+    elif (
+        isinstance(row, BroadcastRecipient)
+        and not eligible_users()
+        .filter(pk=row.player_id, telegram_user_id=row.telegram_user_id)
+        .exists()
+    ):
+        type(row).objects.filter(pk=row.pk, lease_token=token).update(
+            state=DeliveryState.SKIPPED,
+            completed_at=timezone.now(),
+            lease_token=None,
+            lease_expires_at=None,
+            error_category="private_contact_unavailable",
+        )
+        return
     elif options.get("_method") == "answerCallbackQuery":
         result = bot_api.request(
             "answerCallbackQuery", {"callback_query_id": options["callback_query_id"]}
@@ -352,6 +355,9 @@ def _deliver(row: Delivery, text: str) -> None:
             locked.next_attempt_at = now + timedelta(seconds=delay + random.uniform(0, jitter))
             locked.error_category = result.category
             locked.attempt_count = max(0, locked.attempt_count - 1)
+        elif result.category in {"forbidden", "chat_not_found"}:
+            locked.state, locked.completed_at = DeliveryState.SKIPPED, now
+            locked.error_category = result.category
         elif result.ambiguous:
             locked.state, locked.completed_at = DeliveryState.UNCERTAIN, now
             locked.error_category = result.category or "ambiguous"
@@ -399,6 +405,10 @@ def queue_campaign(*, campaign: BroadcastCampaign, actor: Any, reason: str) -> B
         raise PermissionDenied("Broadcast operator authorization is required")
     campaign = BroadcastCampaign.objects.select_for_update().get(pk=campaign.pk)
     if campaign.state == BroadcastCampaign.State.MATERIALIZING:
+        if campaign.audience_policy_version != 2:
+            raise ValidationError(
+                "Cancel the legacy campaign and explicitly confirm a new campaign"
+            )
         return campaign
     if campaign.state != BroadcastCampaign.State.DRAFT or not reason.strip():
         raise ValidationError("Only a draft campaign with a reason can be queued")
@@ -409,9 +419,18 @@ def queue_campaign(*, campaign: BroadcastCampaign, actor: Any, reason: str) -> B
         raise ValidationError("B3 broadcast audiences are not enabled")
     estimates = estimated_targets(campaign.audience_type)
     campaign.estimated_users, campaign.estimated_groups = estimates["users"], estimates["groups"]
+    campaign.audience_policy_version = 2
     campaign.state = BroadcastCampaign.State.MATERIALIZING
     campaign.queued_at = timezone.now()
-    campaign.save(update_fields=("state", "queued_at", "estimated_users", "estimated_groups"))
+    campaign.save(
+        update_fields=(
+            "state",
+            "queued_at",
+            "estimated_users",
+            "estimated_groups",
+            "audience_policy_version",
+        )
+    )
     OperatorAuditEvent.objects.create(
         actor=actor,
         action="BROADCAST_QUEUE",
@@ -419,7 +438,7 @@ def queue_campaign(*, campaign: BroadcastCampaign, actor: Any, reason: str) -> B
         target_id=str(campaign.public_id),
         reason=reason,
         before_state={"state": "DRAFT"},
-        after_state={"state": campaign.state},
+        after_state={"state": campaign.state, "audience_policy_version": 2},
     )
     return campaign
 
@@ -429,9 +448,14 @@ def materialize_campaign(campaign_id: int, batch_size: int = 1000) -> int:
         campaign = BroadcastCampaign.objects.select_for_update().get(pk=campaign_id)
         if campaign.state != BroadcastCampaign.State.MATERIALIZING:
             return 0
+        if campaign.audience_policy_version != 2:
+            import structlog
+
+            structlog.get_logger(__name__).warning(
+                "broadcast_policy_reconfirmation_required", campaign_id=campaign.pk
+            )
+            return 0  # Never expand an old in-progress audience without new operator confirmation.
         users = eligible_users().filter(pk__gt=campaign.materialization_cursor).order_by("pk")
-        if campaign.audience_type == BroadcastCampaign.Audience.ALL:
-            users = Player.objects.filter(pk__gt=campaign.materialization_cursor).order_by("pk")
         if campaign.audience_type == BroadcastCampaign.Audience.GROUPS:
             users = Player.objects.none()
         batch = list(users[:batch_size])
@@ -456,22 +480,18 @@ def materialize_campaign(campaign_id: int, batch_size: int = 1000) -> int:
         if batch:
             campaign.materialization_cursor = batch[-1].pk
         groups = (
-            eligible_groups()
-            .filter(pk__gt=campaign.group_materialization_cursor)
-            .select_related("group")
-            .order_by("pk")
+            eligible_groups().filter(pk__gt=campaign.group_materialization_cursor).order_by("pk")
         )
         if campaign.audience_type not in {"GROUPS", "BOTH"}:
-            groups = GroupBroadcastSubscription.objects.none()
+            groups = TelegramGroup.objects.none()
         group_batch = list(groups[:batch_size])
         BroadcastRecipient.objects.bulk_create(
             [
                 BroadcastRecipient(
                     campaign=campaign,
-                    group_subscription=g,
+                    group=g,
                     target_kind="GROUP",
-                    telegram_user_id=g.group.telegram_chat_id,
-                    subscription_revision=g.revision,
+                    telegram_user_id=g.telegram_chat_id,
                 )
                 for g in group_batch
             ],

@@ -2321,6 +2321,7 @@
         "tags": [
           "network"
         ],
+        "deprecated": true,
         "requestBody": {
           "content": {
             "application/json": {
@@ -6253,6 +6254,7 @@
             "type": "boolean"
           },
           "broadcast_opted_in": {
+            "description": "Legacy preference only; does not determine broadcast eligibility.",
             "title": "Broadcast Opted In",
             "type": "boolean"
           },
@@ -6383,6 +6385,7 @@
         "properties": {
           "authorize_group_messages": {
             "default": false,
+            "description": "Legacy preference metadata; never required for operator broadcasts.",
             "title": "Authorize Group Messages",
             "type": "boolean"
           }

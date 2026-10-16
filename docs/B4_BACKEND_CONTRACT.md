@@ -1,6 +1,6 @@
 # B4 backend integration contract
 
-Runtime/source/fixture implementation HEAD: `ec6af7053dfc7e8755998418b826c59ca91191ea`.
+Prior runtime pin: `ec6af7053dfc7e8755998418b826c59ca91191ea`; owner-policy successor on this branch supersedes its broadcast eligibility. Exact successor SHA is published on Draft #29.
 Contract owner: WEDCAL, branch `ai/b4-backend-integration`. Consumer: FROCAL B4.
 Merged baseline WEDCAL `1fa937af4628a10cec384b711210755ff28a6a8a`;
 FROCAL `ae91624f23a48d8a9973154520284706a9df1c21` (verified via GitHub).
@@ -17,7 +17,7 @@ responses are private/no-store. Reuse B3 canonical progression and receipt order
 | Typing | B3 attempt/start/submit/claim and resume | Authenticated paginated real run history at GET `/typing/history`; schema and fixtures below. |
 | Claims | B3 Daily/Mission/Typing canonical results | Add confirmed ledger evidence and server progression before/after for existing reveals; duplicate response must never trigger a second reveal. |
 | Referral/groups | Existing invitee/group pages and reverify | Optional private image delivery, automatic bounded status refresh; initials on unavailable images. No Bot API/file URL or credential exposure. |
-| Creator consent | Explicit consent endpoint | Intentional verified Add Bot authorization, current creator/bot authority, preserve revocation. No historical enrollment; broadcast still requires operator confirmation. |
+| Broadcast audience | Legacy preference API retained | All started private contacts and known groups with current bot admin/send authority. No consent/Creator restriction; each campaign requires operator confirmation. |
 | Bot Admin | Durable private delivery and scanner | Immediate after-commit Celery dispatch; prompt callback ACK; scanner retained for recovery. |
 | Welcome | Versioned disabled-by-default welcome | Versioned Admin content/keyboard with validation, preview, operator-only test send, activation/rollback. Public switch remains disabled without explicit owner authorization. |
 
@@ -70,13 +70,14 @@ Keep its historical B3 source/fixture pin intact; add a separate exact B4 pin.
   refresh works for `/start`-only Players without Mini App photo metadata. Images use the
   existing private avatar delivery path or new opaque `/profile/group-avatar/{UUID}` capability.
   No Bot API credentials, file IDs or direct Telegram file URLs appear in new contracts.
-- `POST /network/groups/intents` accepts `{authorize_group_messages:false}` by default.
-  Pass true only when the existing intentional Add Bot action clearly authorizes group
-  messaging. Token is creator-bound, one-use and expiring; actual bot/creator Telegram
-  authority must verify before a new subscription can be enrolled. Existing or explicitly
-  revoked subscriptions are never automatically replaced/re-enabled. No manual broadcast
-  toggle or verification action is required in the Mini App. GET owned group pages schedules
-  due verification with a bounded reservation; existing scanner recovers dispatch loss.
+- Creator registration remains intentional, one-use, creator-bound and verified for Creator rewards.
+  `POST /network/groups/intents` still accepts omitted body, `{}` and the optional legacy
+  `authorize_group_messages` boolean. It is NOT required for broadcasts and never creates a
+  broadcast subscription. `broadcast_opted_in` remains legacy preference metadata only.
+  The old `/network/groups/{uuid}/broadcast-consent` request/response and audit behavior remain
+  compatible but deprecated: changing it does not allow or prevent operator broadcasts.
+  No checkbox, dialog, Enable Broadcast action or extra frontend control is required.
+  GET owned groups still schedules bounded actual Creator verification; rewards are unchanged.
 - Notifications add `deep_link:{path}` or null, chosen by canonical source domain from the
   existing internal route allowlist. CLAN events point to `/clan`; arbitrary payload URL,
   query, script, protocol-relative or unknown route is never navigable. Page adds authoritative
@@ -118,8 +119,8 @@ Retries schedule from durable due time; the periodic scanner remains recovery/re
 Rollback emits no task. Row leases, SKIP LOCKED claims and terminal ambiguity prevent duplicate
 sends. Callback ACKs have an independent durable row and dispatch immediately after commit.
 Operator permissions/allowlist are rechecked before a queued private panel/test send. Group
-broadcast dispatch rechecks subscription revision/revocation and current bot/authorizing creator
-Telegram authority. Already dispatched/uncertain operations cannot be recalled or auto-resent.
+broadcast dispatch rechecks the known TelegramGroup and current bot admin/send authority;
+legacy subscription enabled/revoked/revision and Creator identity are not audience gates. Already dispatched/uncertain operations cannot be recalled or auto-resent.
 Actual broadcasts still require authorized operator confirmation and audit; no economic rules change.
 
 WelcomeTemplate stores immutable versioned validated Telegram HTML and multiple URL/Web App
@@ -129,3 +130,33 @@ Welcome requires BOTH existing `B3_BOT_WELCOME_ENABLED` and new `B4_PUBLIC_WELCO
 (default false), plus an active version. No migration creates an active template. Activation
 sends nothing; canonical `bot-welcome:{player}` deduplication survives template version changes.
 Testing this batch never contacts real Telegram users.
+
+
+## Owner broadcast policy correction — 2026-10-16
+
+This direct owner instruction supersedes the previous consent-based B4 policy. Operator audiences:
+
+- USERS and legacy ALL/TELEGRAM_REACHABLE aliases: Players with actual prior private contact.
+  Mini App/group-only identities are excluded. Gameplay moderation states and rewards remain
+  unchanged; operator announcements do not grant gameplay permission and reach all private contacts.
+- GROUPS: known TelegramGroup group/supergroup records with recorded bot administrator/creator
+  membership. Historical groups, groups without subscriptions and groups outside Creator all qualify.
+  Telegram cannot enumerate unknown groups. Existing `my_chat_member` observations maintain the
+  candidate set; ordinary group metadata/Creator registration does not fabricate bot authority.
+- BOTH combines those candidates. Estimates are candidates, not guaranteed successful deliveries.
+  Every group dispatch uses fresh getChatMember for the configured bot ID, requires administrator/
+  creator authority and no explicit send restriction, and rechecks committed membership loss after
+  network I/O. Demotion to member/restricted is insufficient even if regular members can post.
+  Normal group default permissions do not restrict an administrator's Telegram send authority.
+- Telegram 403 and confirmed chat-not-found are terminal SKIPPED outcomes per recipient; other
+  recipients continue. Rate-limit/budget refusals remain durable RETRY_WAIT; ambiguous sends remain
+  UNCERTAIN and never auto-resend. Private reachability is rechecked at dispatch.
+
+New campaign policy version 2 uses direct group recipients and a unique (campaign, chat) identity.
+Legacy consent rows/events are retained unchanged and are not backfilled or enrolled. Existing
+materialized legacy group recipients resolve their group from the retained subscription reference,
+then use bot authority only. Existing version-1 MATERIALIZING campaigns must be cancelled and
+recreated/explicitly confirmed: their subscription cursors must not be reinterpreted as group IDs
+or silently expand to the new audience. Already queued/sending legacy targets retain their fixed
+recipient set, with new bot-authority validation and unchanged cancellation/lease safety.
+No public broadcast API, new UI, Creator economics or public Welcome activation is introduced.
