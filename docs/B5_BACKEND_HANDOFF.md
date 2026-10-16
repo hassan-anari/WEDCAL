@@ -47,8 +47,8 @@ Additive tables/columns/indexes and PostgreSQL immutability guards; no historica
 
 ## Independent review handoff
 
-Local full PostgreSQL regression: **975 passed, 1 benchmark skipped**; the benchmark runs separately. Ruff, formatting, mypy, Django checks, migration drift, repository contract and B2/B3/B4/B5 schema checks are required. Final hosted results and exact SHA are attached to the PR before handoff; earlier green runs are not substituted for the final runtime checks.
+Local full PostgreSQL regression: **980 passed, 1 benchmark skipped**; the benchmark runs separately. Ruff, formatting, mypy, Django checks, migration drift, repository contract and B2/B3/B4/B5 schema checks are required. Final hosted results and exact SHA are attached to the PR before handoff; earlier green runs are not substituted for the final runtime checks.
 
-Review PostgreSQL snapshot/source guards; announcement authorization and atomic cursor/notification writes; native source freezing and serialized preview selection; irreversible partial/ambiguous copy handling; copy API budgets; source-time economics; recovery evidence freshness and independent causes; voting/finalization lock order; closed credential cleanup and mission drain. The coding task stops for owner and independent review after all required hosted checks are green.
+Review PostgreSQL snapshot/source guards; announcement authorization and atomic cursor/notification writes; native source freezing and serialized preview selection; irreversible partial/ambiguous copy handling; copy API budgets; source-time economics; whole-second versus precise evidence ordering, in-flight verification fencing and independent recovery causes; voting/finalization lock order; closed credential cleanup and mission drain. The coding task stops for owner and independent review after all required hosted checks are green.
 
 No merge, deployment, live broadcast, public test send, unrelated UI change or next phase is authorized or performed.

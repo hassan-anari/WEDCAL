@@ -624,6 +624,7 @@ def _observe_bot_membership(event: BotMembershipChanged, telegram_update_id: int
             clan_season_id,
             is_admin=group.bot_is_admin and group.bot_can_invite_users,
             authoritative=True,
+            whole_second_update=True,
             observed_at=event.observed_at,
         )
     if not group.bot_is_admin:
@@ -708,6 +709,7 @@ def _observe_user_membership(event: UserMembershipChanged, telegram_update_id: i
                 captain_cs_id,
                 has_authority=is_admin,
                 authoritative=True,
+                whole_second_update=True,
                 observed_at=event.observed_at,
             )
         from apps.clans.services import reconcile_telegram_membership

@@ -68,6 +68,7 @@ def observe_captain_authority(
     observed_at: datetime,
     fresh_verification: bool = False,
     bot_authorized: bool = False,
+    whole_second_update: bool = False,
 ) -> ClanSeason:
     from apps.clans.governance import _event
     from apps.notifications.services import emit_notification
@@ -77,28 +78,42 @@ def observe_captain_authority(
         if (
             not authoritative
             or cs.state == ClanSeason.State.ENDED
-            or (cs.captain_authority_observed_at and observed_at < cs.captain_authority_observed_at)
+            or (
+                cs.captain_authority_observed_at
+                and observed_at < cs.captain_authority_observed_at
+                and (
+                    has_authority
+                    or not whole_second_update
+                    or observed_at.replace(microsecond=0)
+                    < cs.captain_authority_observed_at.replace(microsecond=0)
+                )
+            )
             or (has_authority and cs.captain_authority_observed_at == observed_at)
         ):
             return cs
         preserve_recovery_causes(cs)
-        cs.captain_authority_observed_at = observed_at
+        cs.captain_authority_observed_at = max(
+            observed_at, cs.captain_authority_observed_at or observed_at
+        )
         if not has_authority and cs.captain_authority_lost_at is None:
-            cs.captain_authority_lost_at = observed_at
+            # A whole-second loss tied with a more precise verification is
+            # conservatively ordered after that verification, never before it.
+            effective_at = cs.captain_authority_observed_at
+            cs.captain_authority_lost_at = effective_at
             _event(
                 cs,
                 "RECOVERY_ENTERED",
-                observed_at,
+                effective_at,
                 source_type="CAPTAIN_AUTHORITY",
-                source_id=observed_at.isoformat(),
+                source_id=effective_at.isoformat(),
                 metadata={"reason": "CAPTAIN_AUTHORITY_LOSS"},
             )
             _event(
                 cs,
                 "CAPTAIN_AUTHORITY_LOST",
-                observed_at,
+                effective_at,
                 source_type="TELEGRAM",
-                source_id=observed_at.isoformat(),
+                source_id=effective_at.isoformat(),
             )
             # Durable In-App notification commits with the transition; Telegram is
             # queued only through the existing configured notification machinery.
@@ -108,7 +123,7 @@ def observe_captain_authority(
                 source_domain="CLAN",
                 source_type="CLAN_SEASON",
                 source_id=str(cs.pk),
-                idempotency_key=f"clan-authority-loss:{cs.pk}:{observed_at.isoformat()}",
+                idempotency_key=f"clan-authority-loss:{cs.pk}:{effective_at.isoformat()}",
                 title="Clan recovery",
                 body=(
                     "Restore your Telegram group administrator authority "
@@ -163,7 +178,12 @@ def verify_captain_authority(clan_season_id: int) -> ClanSeason:
         else False
     )
     with transaction.atomic():
-        if bot_known:
+        locked = ClanSeason.objects.select_for_update().get(pk=cs.pk)
+        # Any committed transition during the remote calls fences positive
+        # restoration. Negative evidence can still safely pause the Clan. This
+        # also covers source updates whose timestamps have only whole seconds.
+        positive_fresh = locked.updated_at == cs.updated_at
+        if bot_known and (positive_fresh or not bot_authorized):
             observe_bot_admin_state(
                 cs.pk, is_admin=bot_authorized, authoritative=True, observed_at=observed_at
             )
@@ -173,7 +193,7 @@ def verify_captain_authority(clan_season_id: int) -> ClanSeason:
                 has_authority=captain_status in {"creator", "administrator"},
                 authoritative=True,
                 observed_at=observed_at,
-                fresh_verification=True,
+                fresh_verification=positive_fresh,
                 bot_authorized=bot_authorized,
             )
     if not captain.ok or captain_status not in statuses or not bot_known:

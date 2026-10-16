@@ -552,7 +552,12 @@ def sweep_inactivity(*, now: datetime | None = None, limit: int = 100) -> int:
 
 
 def observe_bot_admin_state(
-    clan_season_id: int, *, is_admin: bool, authoritative: bool, observed_at: datetime | None = None
+    clan_season_id: int,
+    *,
+    is_admin: bool,
+    authoritative: bool,
+    observed_at: datetime | None = None,
+    whole_second_update: bool = False,
 ) -> ClanSeason:
     observed_at = observed_at or timezone.now()
     if not authoritative:
@@ -562,18 +567,27 @@ def observe_bot_admin_state(
         if cs.state == ClanSeason.State.ENDED or (
             cs.bot_admin_observed_at is not None
             and (
-                observed_at < cs.bot_admin_observed_at
+                (
+                    observed_at < cs.bot_admin_observed_at
+                    and (
+                        is_admin
+                        or not whole_second_update
+                        or observed_at.replace(microsecond=0)
+                        < cs.bot_admin_observed_at.replace(microsecond=0)
+                    )
+                )
                 or (is_admin and observed_at == cs.bot_admin_observed_at)
             )
         ):
             return cs
         preserve_recovery_causes(cs)
-        cs.bot_admin_observed_at = observed_at
+        cs.bot_admin_observed_at = max(observed_at, cs.bot_admin_observed_at or observed_at)
         policy = _policy(cs)
         if not is_admin and cs.bot_admin_lost_at is None:
+            effective_at = cs.bot_admin_observed_at
             cs.bot_admin_lost_at, cs.bot_admin_restore_deadline = (
-                observed_at,
-                observed_at + timedelta(hours=policy.bot_admin_restore_grace_hours),
+                effective_at,
+                effective_at + timedelta(hours=policy.bot_admin_restore_grace_hours),
             )
             sync_recovery(cs, observed_at)
             cs.save(
@@ -587,9 +601,9 @@ def observe_bot_admin_state(
             _event(
                 cs,
                 "BOT_ADMIN_LOST",
-                observed_at,
+                effective_at,
                 source_type="TELEGRAM",
-                source_id=str(int(observed_at.timestamp())),
+                source_id=effective_at.isoformat(),
             )
             from apps.notifications.services import emit_notification_safely
 
@@ -601,7 +615,7 @@ def observe_bot_admin_state(
                     source_type="CLAN_SEASON",
                     source_id=str(clan_season.pk),
                     idempotency_key=(
-                        f"clan-bot-admin-lost:{clan_season.pk}:{int(observed_at.timestamp())}"
+                        f"clan-bot-admin-lost:{clan_season.pk}:{effective_at.isoformat()}"
                     ),
                     telegram=True,
                 )
@@ -625,7 +639,7 @@ def observe_bot_admin_state(
                 "BOT_ADMIN_RESTORED",
                 observed_at,
                 source_type="TELEGRAM",
-                source_id=str(int(observed_at.timestamp())),
+                source_id=observed_at.isoformat(),
             )
         cs.save()
         return cs

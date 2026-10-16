@@ -4,9 +4,9 @@ Scope: the full B5 runtime and fixtures in Draft PR #30. Synthetic Telegram tran
 
 | Check | Result |
 | --- | --- |
-| Full `pytest -q`, with HTTP fixture export | **975 passed, 1 skipped**, 333.66 seconds |
+| Full `pytest -q --maxfail=1` | **980 passed, 1 skipped**, 350.83 seconds |
 | Separate `B2_BENCHMARK=1 pytest apps/base_tap/tests/test_benchmark.py -q` | **1 passed**, 50.59 seconds |
-| Ruff check / format | Passed; 468 files formatted |
+| Ruff check / format | Passed |
 | mypy | Passed; 435 source files |
 | Django system check | No issues |
 | Migration drift | No changes detected |
@@ -14,7 +14,7 @@ Scope: the full B5 runtime and fixtures in Draft PR #30. Synthetic Telegram tran
 | B2 / B3 / B4 / B5 generated OpenAPI checks | Passed |
 | Latest-main ancestry and `git diff --check` | Passed |
 
-A final contract-metadata correction removes resolved PH-045 from `state.owner_decisions_pending`; its HTTP fixture/schema check was rerun, and full hosted regression covers the final runtime pin. No economic or governance transition changed in that follow-up.
+The final full run includes removal of resolved PH-045 from `state.owner_decisions_pending` and five additional same-second/precise evidence regressions. Whole-second Telegram loss evidence cannot be hidden by a same-second verification; precisely timed older API results remain stale. Positive restoration is fenced against committed transitions during remote calls. Rapid loss/restoration/relapse preserves economic pause and canonical source-time accounting. HTTP fixtures were exported in the corresponding isolated integration runs.
 
 The sole full-suite skip is the opt-in B2 benchmark, executed successfully in the separate row. One existing Ninja tuple-response deprecation warning remains; no test failure is suppressed. Test runs were serialized against the isolated database.
 

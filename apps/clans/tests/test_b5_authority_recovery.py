@@ -348,3 +348,77 @@ def test_authority_restore_never_cancels_opened_governance(authority_world):
     state["captain"] = "creator"
     cs = verify_captain_authority(cs.pk)
     assert cs.state == "RECOVERY" and cs.captain_authority_lost_at is None
+
+
+@pytest.mark.parametrize("bot_loss", [False, True])
+def test_same_second_demotion_dominates_a_positive_verification(authority_world, bot_loss):
+    cs, state, _ = authority_world
+    state["captain"] = "creator"
+    verified = verify_captain_authority(cs.pk)
+    assert verified.captain_authority_observed_at is not None
+    at = verified.captain_authority_observed_at.replace(microsecond=0)
+    if bot_loss:
+        observe_bot_admin_state(
+            cs.pk, is_admin=False, authoritative=True, observed_at=at, whole_second_update=True
+        )
+        cs.refresh_from_db()
+        assert cs.bot_admin_lost_at is not None
+    else:
+        observe_captain_authority(
+            cs.pk, has_authority=False, authoritative=True, observed_at=at, whole_second_update=True
+        )
+        cs.refresh_from_db()
+        assert cs.state == "RECOVERY" and cs.captain_authority_lost_at is not None
+    assert not home_integrity_at(cs, timezone.now())
+
+
+def test_whole_second_loss_during_inflight_verification_never_restores(
+    authority_world, monkeypatch, settings
+):
+    cs, _, _ = authority_world
+    verify_captain_authority(cs.pk)
+
+    def stale_success(chat_id, user_id):
+        if user_id == settings.TELEGRAM_BOT_ID:
+            observe_captain_authority(
+                cs.pk,
+                has_authority=False,
+                authoritative=True,
+                observed_at=timezone.now().replace(microsecond=0),
+                whole_second_update=True,
+            )
+        return TelegramResult(True, result={"status": "administrator", "can_invite_users": True})
+
+    monkeypatch.setattr("apps.telegram.bot_api.get_chat_member", stale_success)
+    assert verify_captain_authority(cs.pk).state == "RECOVERY"
+
+
+def test_precise_older_query_cannot_override_a_newer_success(authority_world):
+    cs, state, _ = authority_world
+    state["captain"] = "creator"
+    verified = verify_captain_authority(cs.pk)
+    # Unlike whole-second Telegram events, precise request-start evidence is ordered.
+    assert verified.captain_authority_observed_at is not None
+    older = verified.captain_authority_observed_at - timedelta(microseconds=1)
+    observe_captain_authority(cs.pk, has_authority=False, authoritative=True, observed_at=older)
+    observe_bot_admin_state(cs.pk, is_admin=False, authoritative=True, observed_at=older)
+    cs.refresh_from_db()
+    assert cs.state == "ACTIVE" and cs.bot_admin_lost_at is None
+
+
+def test_loss_restore_and_same_second_relapse_preserve_economic_pause(authority_world):
+    cs, state, _ = authority_world
+    verify_captain_authority(cs.pk)
+    state["captain"] = "creator"
+    restored = verify_captain_authority(cs.pk)
+    assert restored.state == "ACTIVE" and home_integrity_at(restored, timezone.now())
+    assert restored.captain_authority_observed_at is not None
+    observe_captain_authority(
+        cs.pk,
+        has_authority=False,
+        authoritative=True,
+        observed_at=restored.captain_authority_observed_at.replace(microsecond=0),
+        whole_second_update=True,
+    )
+    cs.refresh_from_db()
+    assert cs.state == "RECOVERY" and not home_integrity_at(cs, timezone.now())
