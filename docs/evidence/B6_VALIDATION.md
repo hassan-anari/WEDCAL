@@ -1,5 +1,28 @@
 # B6 validation evidence
 
+## Independent source-time lifecycle follow-up
+
+Reviewed head: `28a6b8805db5f9a8c70b78c5eadf5c6276dbccd1`. Current runtime/source/database-schema revision: **`e99aa45474f7a9f372738a95eb96c2716b06b1d4`**. Main re-fetched and unchanged at `b4c72f292ab0ea967d62af7b8e5fdcab1f27e03f`, already an ancestor. The full [lifecycle review](../B6_MISSION_LIFECYCLE_REVIEW.md) documents the confirmed defect, owner-approved prospective observation/uncertain-history holds, transactional safety and rollback requirements.
+
+| Check | Follow-up evidence |
+| --- | --- |
+| Full local PostgreSQL suite | **1095 passed, 1 opt-in benchmark skipped**, 343.70 seconds; one pre-existing Ninja tuple-response deprecation warning |
+| Final lifecycle PostgreSQL rerun | **17 passed**, 27.82 seconds |
+| Existing mission/Admin/concurrency/pipeline regressions | **54 passed**, 39.12 seconds |
+| Separate B2 benchmark | **1 passed**, 35.91 seconds |
+| Ruff / formatting / mypy | Passed; mypy 451 source files |
+| Django system check | No issues |
+| Migration / drift / SQL | Migration 0019 applied only locally; real reverse/forward PostgreSQL cutover tested; no model drift; full rendered SQL committed |
+| Contract / B2–B6 OpenAPI | Passed; HTTP schema unchanged, SHA-256 `6dabd02986eebe01c0a605670d2d99becb8cda2b012e1088c9a03f0708d96993` |
+| Final-code container / Admin static smoke | Local image built; Admin login and hashed static asset HTTP 200, non-root UID 999, DEBUG false |
+| Source/economic scope / whitespace | No GameConfig, Clan economy, reward primitive or Clan HTTP API implementation changes; diff check passed |
+
+The 17 added cases cover Group/Individual delayed settlement after deactivation, pre-activation and inactive-gap rejection, multiple cycles, exact schedule/lifecycle boundaries, participant eligibility, replay/worker retry, transaction rollback, stale full-cycle previews, database guards, both real PostgreSQL Admin/worker lock orderings, Season/recovery/finalization, published config identity and actual migration preservation of historical progress/settlements/processed signals. Known ineligible signals terminate without progress; uncertain history is held without attempts/rewards and remains a Season-drain obligation.
+
+Final exact artifact head and complete hosted Contract/Foundation/Release Scans links, conclusions and counts are published together in [Draft PR #31](https://github.com/hassan-anari/WEDCAL/pull/31) and the FROCAL handoff. No earlier green result substitutes for final-head checks. New frontend acknowledgement/repin/paired evidence is required in [FROCAL #8](https://github.com/hassan-anari/FROCAL/issues/8) / [Draft #9](https://github.com/hassan-anari/FROCAL/pull/9); prior paired acceptance remains evidence for the old backend pin only. No production migration, historical resolution, reward backfill, live bot send, merge or deployment.
+
+## Prior B6 evidence (superseded runtime)
+
 All tests use isolated local/CI PostgreSQL, Redis, RabbitMQ and synthetic Telegram/storage transports. No production requests, test rewards, credits, broadcasts, migrations or backfills are part of this evidence.
 
 | Check | Evidence |
