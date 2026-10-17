@@ -1,0 +1,19 @@
+# B6 backend handoff
+
+Scope: original A–H Clan operations/integration request plus the owner's prospective fractional Treasury and canonical Clan-standing correction. Repository WEDCAL, branch `ai/b6-backend-operations`, authoritative base `b4c72f292ab0ea967d62af7b8e5fdcab1f27e03f`. Final publication pin, Draft PR and hosted checks will be recorded together in `B6_RUNTIME_PIN.md` and FROCAL coordination issue [#8](https://github.com/hassan-anari/FROCAL/issues/8).
+
+- [Initial audit and boundaries](B6_AUDIT.md)
+- [Exact additive fields/endpoints, timestamps and Treasury cutover](B6_BACKEND_CONTRACT.md)
+- [Admin instructions for Group and Individual missions, QA plan](B6_OPERATOR_GUIDE.md)
+- [Detailed security/economic proof, migrations and rollback](B6_SECURITY_ECONOMIC_REVIEW.md)
+- [Generated OpenAPI and representative HTTP responses](fixtures/b6/README.md)
+
+The server uses existing mission signals/settlement, Arena projections, Daily claims, invite state machines, avatar proxy and economic ledgers. No alternative reward engine, frontend claim action, new event source, numerical rebalance or Season 2 behavior is introduced. The new internal zero-net Clan split option retains all canonical reward eligibility/accounting checks while leaving Player points/rank ties untouched. Historical economic records and balances remain unchanged; carry starts at zero prospectively per published config.
+
+Migrations: `missions.0003_b6_mission_administration`, `clans.0017_b6_mission_administration`, `clans.0018_b6_treasury_fractional_carry`. Rendered SQL is in `docs/evidence/B6_*.sql`. New activation metadata/permissions, immutable version/history guards, Clan display text and integer remainder/range constraint are additive. Only activation observation metadata is initialized; there is no historical Treasury reconstruction. Stop/drain old economic/invite workers for any approved rollout. Rollback must retain carry-aware accounting and credential-send blocking for pending obligations.
+
+Frontend integration: consume applicant rank/status/streak; populate HQ Standing from home.rank/rank_status or ClanOut.rank/rank_status; render safe group image_url or existing fallback; use mission title/description and actual automatic reward state; retrieve invites through authenticated Mini App only; bind the existing Recent activity card to `/clans/activity` without deriving achievements from Treasury alone. Preserve Treasury history. Source times and nullable recorded_at are explicit in the contract; refresh page one for late finalized records. WEDCAL's final exact revision must be acknowledged and pinned by FROCAL before frontend implementation or paired tests. No consumer acknowledgement/device acceptance is assumed.
+
+Validation in progress is distinguished from completed evidence. The initial full local suite ran 1067 passes with one outdated Welcome expectation and the separate benchmark excluded. That assertion now requires one response for duplicate redelivery and two for distinct commands. Mission test setup now schedules while a draft before enabling; its original visibility/history assertions are unchanged. B6-specific initial run passed 24 tests; the expanded run passed 34, including fractional carry/version/concurrency/rollback and canonical standing. Final full run, separate benchmark, final-head schema/type/contract/migration/Docker/security gates and exact counts belong in the final evidence/PR handoff; earlier runs are not substituted for them.
+
+PH-037 branch rules and PH-043 Season-brief product evidence remain owner release gates. Frontend acknowledgement/pinned CI, paired staging/device acceptance, production storage setup and realistic load evidence remain separate follow-up. Backend green CI does not authorize release. No production rewards, migrations/backfills, live messages/broadcasts, frontend changes, merge, deployment or next phase are authorized or performed.

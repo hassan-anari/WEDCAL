@@ -239,7 +239,7 @@ def _process_claimed_inbound(inbound_id: int, token: uuid.UUID) -> None:
         else TelegramInboundUpdate.State.PROCESSED
     )
     if event is not None:
-        _apply_event(event, telegram_update_id=inbound.update_id)
+        _apply_event(event, telegram_update_id=inbound.update_id, received_at=inbound.received_at)
     inbound.processed_at = timezone.now()
     inbound.last_error_category = ""
     inbound.next_retry_at = None
@@ -400,7 +400,9 @@ def _lock_telegram_user(telegram_user_id: int) -> None:
         cursor.execute("SELECT pg_advisory_xact_lock(%s)", [telegram_user_id])
 
 
-def _apply_event(event: object, *, telegram_update_id: int) -> None:
+def _apply_event(
+    event: object, *, telegram_update_id: int, received_at: datetime | None = None
+) -> None:
     if isinstance(event, BotStarted):
         resolution = resolve_telegram_player(
             event.user,
@@ -415,7 +417,9 @@ def _apply_event(event: object, *, telegram_update_id: int) -> None:
         attribute_start(resolution.player, event.parameter, at=event.observed_at)
         from apps.telegram.welcome import queue_welcome
 
-        queue_welcome(resolution.player)
+        queue_welcome(
+            resolution.player, telegram_update_id=telegram_update_id, received_at=received_at
+        )
     elif isinstance(event, TelegramMessageObserved):
         _observe_message(event, telegram_update_id)
     elif isinstance(event, BotMembershipChanged):

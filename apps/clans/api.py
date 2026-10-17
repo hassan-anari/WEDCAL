@@ -10,6 +10,7 @@ from ninja import Router, Schema
 from ninja.errors import HttpError
 from pydantic import Field
 
+from apps.arena.services import RankingStanding, RankStatus, read_clan_standings
 from apps.clans.governance import cast_vote, open_case, request_dissolution
 from apps.clans.models import (
     ClanGovernanceCase,
@@ -64,6 +65,18 @@ class GroupOut(Schema):
     image_url: str | None = None
 
 
+def group_out(group, *, verified: bool = False) -> GroupOut:  # type: ignore[no-untyped-def]
+    from apps.players.group_avatars import group_avatar_url
+
+    return GroupOut(
+        id=group.pk,
+        title=group.title,
+        username=group.username,
+        verification_state="VERIFIED" if verified else "CANDIDATE",
+        image_url=group_avatar_url(group) or None,
+    )
+
+
 class ClanCreateIn(Schema):
     telegram_group_id: int = Field(
         gt=0, description="Internal group ID from eligible-groups; never a raw Telegram chat ID"
@@ -82,6 +95,7 @@ class ClanOut(Schema):
     capacity: int
     accepting_members: bool
     rank: int | None = None
+    rank_status: RankStatus = "UNAVAILABLE"
     level: int = 1
     score: int = 0
     state: str = "ACTIVE"
@@ -98,6 +112,9 @@ class RequestOut(Schema):
 
 
 class ApplicantOut(Schema):
+    rank: int | None = None
+    rank_status: Literal["RANKED", "UNRANKED", "UNAVAILABLE", "RECONCILING"] = "UNAVAILABLE"
+    current_streak: int = 0
     request_id: int
     first_name: str
     username: str
@@ -177,6 +194,8 @@ class RecoveryOut(Schema):
 
 
 class ClanHomeOut(Schema):
+    rank: int | None = None
+    rank_status: RankStatus = "UNAVAILABLE"
     clan_id: int
     state: str
     hq_level: int
@@ -238,6 +257,8 @@ class MutationOut(Schema):
 
 
 class ClanMissionOut(Schema):
+    title: str = ""
+    description: str = ""
     key: str
     version: int
     kind: str
@@ -254,6 +275,35 @@ class ClanMissionOut(Schema):
     direct_hq_xp: int | None
     reward_state: str
     own_player_reward: int | None
+
+
+class ClanActivityOut(Schema):
+    id: str
+    event_type: Literal[
+        "CLAN_REWARD_SETTLED",
+        "MISSION_COMPLETED",
+        "TREASURY_CREDIT",
+        "TREASURY_DEBIT",
+        "ITEM_PURCHASED",
+        "ITEM_ACTIVATED",
+        "MEMBER_JOINED",
+    ]
+    occurred_at: datetime
+    recorded_at: datetime | None = None
+    actor_name: str | None = None
+    amount: int | None = None
+    unit: Literal["PLAYER_POINTS", "TREASURY_CREDITS"] | None = None
+    treasury_amount: int | None = None
+    contribution_amount: int | None = None
+    item_id: str | None = None
+    mission_key: str | None = None
+    mission_version: int | None = None
+
+
+class ClanActivityPage(Schema):
+    items: list[ClanActivityOut]
+    next_cursor: str | None
+    as_of: datetime
 
 
 def own_mission_reward(participation) -> int | None:  # type: ignore[no-untyped-def]
@@ -323,7 +373,7 @@ def fail(exc: Exception) -> B3Error:
     return B3Error("CLAN_STATE_CONFLICT")
 
 
-def clan_out(row: ClanSeason, policy=None) -> ClanOut:  # type: ignore[no-untyped-def]
+def clan_out(row: ClanSeason, policy=None, standing: RankingStanding | None = None) -> ClanOut:  # type: ignore[no-untyped-def]
     member_count = getattr(row, "current_member_count", None)
     if member_count is None:
         member_count = row.memberships.filter(ended_at__isnull=True).count()
@@ -334,7 +384,11 @@ def clan_out(row: ClanSeason, policy=None) -> ClanOut:  # type: ignore[no-untype
     from apps.clans.economy import hq_rule
     from apps.players.group_avatars import group_avatar_url
 
+    if standing is None:
+        standing = read_clan_standings(row.season, [row.pk])[row.pk]
     return ClanOut(
+        rank=standing.rank,
+        rank_status=standing.status,
         image_url=group_avatar_url(row.clan.telegram_group) or None,
         level=hq_rule(policy, row.hq_xp).level,
         score=row.competitive_score,
@@ -390,7 +444,10 @@ def home(request: HttpRequest) -> ClanHomeOut:
 
     rule = hq_rule(config.clan, cs.hq_xp)
     later = [x for x in config.clan.hq_curve if x.level > rule.level]
+    standing = read_clan_standings(cs.season, [cs.pk])[cs.pk]
     return ClanHomeOut(
+        rank=standing.rank,
+        rank_status=standing.status,
         clan_id=cs.clan_id,
         state=cs.state,
         hq_level=rule.level,
@@ -548,6 +605,8 @@ def clan_missions(request: HttpRequest) -> list[ClanMissionOut]:
 
     return [
         ClanMissionOut(
+            title=row.title or row.key,
+            description=row.description,
             key=row.key,
             version=row.version,
             kind=row.kind,
@@ -600,10 +659,7 @@ def role(request: HttpRequest, payload: RoleIn) -> RoleOut:
 def groups(request: HttpRequest) -> list[GroupOut]:
     season, config = context()
     try:
-        return [
-            GroupOut(id=x.pk, title=x.title, username=x.username)
-            for x in eligible_groups(player(request), season, config)
-        ]
+        return [group_out(x) for x in eligible_groups(player(request), season, config)]
     except (ValidationError, PermissionDenied) as exc:
         raise fail(exc) from exc
 
@@ -648,7 +704,8 @@ def discover(request: HttpRequest, q: str = "", limit: int = 20, offset: int = 0
         config_id: resolve_game_config_version(config_id).clan
         for config_id in {row.config_version_id for row in page}
     }
-    return [clan_out(row, policies[row.config_version_id]) for row in page]
+    standings = read_clan_standings(season, [row.pk for row in page])
+    return [clan_out(row, policies[row.config_version_id], standings[row.pk]) for row in page]
 
 
 class OwnRequestOut(Schema):
@@ -778,32 +835,36 @@ def revoke_accepted(request: HttpRequest, request_id: int) -> RequestOut:
 
 @router.get("/applicants", response=b3_responses(list[ApplicantOut]))
 def applicants(request: HttpRequest, limit: int = 50) -> list[ApplicantOut]:
-    season, _ = context()
-    rows = (
+    from apps.arena.services import read_player_standings
+    from apps.daily.services import current_streaks
+
+    season, config = context()
+    rows = list(
         ClanJoinRequest.objects.filter(
             clan_season__captain=player(request),
             clan_season__season=season,
             state=ClanJoinRequest.State.PENDING,
         )
         .select_related("applicant__progression")
-        .prefetch_related("applicant__seasons")[: min(max(limit, 1), 100)]
+        .order_by("pk")[: min(max(limit, 1), 100)]
     )
-    result = []
-    for row in rows:
-        season_projection = next(
-            (x for x in row.applicant.seasons.all() if x.season_id == season.pk), None
+    people = [row.applicant for row in rows]
+    standings = read_player_standings(season, [p.pk for p in people])
+    streaks = current_streaks(people, timezone.now(), config)
+    return [
+        ApplicantOut(
+            request_id=row.pk,
+            first_name=row.applicant.first_name,
+            username=row.applicant.username,
+            level=row.applicant.progression.level,
+            season_points=standings[row.applicant_id].score,
+            state=row.state,
+            rank=standings[row.applicant_id].rank,
+            rank_status=standings[row.applicant_id].status,
+            current_streak=streaks[row.applicant_id],
         )
-        result.append(
-            ApplicantOut(
-                request_id=row.pk,
-                first_name=row.applicant.first_name,
-                username=row.applicant.username,
-                level=row.applicant.progression.level,
-                season_points=season_projection.season_points if season_projection else 0,
-                state=row.state,
-            )
-        )
-    return result
+        for row in rows
+    ]
 
 
 @router.get("/invite/current", response=b3_responses(InviteOut))
@@ -1224,18 +1285,22 @@ def verify_group_candidate(request: HttpRequest, group_id: int) -> GroupOut:
         from apps.clans.services import _fresh_authority
 
         _fresh_authority(player(request), candidate)
-        return GroupOut(
-            id=candidate.pk,
-            title=candidate.title,
-            username=candidate.username,
-            verification_state="VERIFIED",
-        )
+        return group_out(candidate, verified=True)
     except (ValidationError, PermissionDenied) as exc:
         raise fail(exc) from exc
 
 
 # Ninja resolves routes in registration order. Keep dynamic identifiers last so
 # static Phase 7A operations are never parsed as integer Clan identifiers.
+@router.get("/activity", response=b3_responses(ClanActivityPage))
+def recent_activity(
+    request: HttpRequest, limit: int = 20, cursor: str | None = None
+) -> dict[str, object]:
+    from apps.clans.feed import activity_page
+
+    return activity_page(current_membership(request), limit=limit, cursor=cursor)
+
+
 @router.get("/{clan_id}", response=b3_responses(ClanOut))
 def details(request: HttpRequest, clan_id: int) -> ClanOut:
     season, _ = context()

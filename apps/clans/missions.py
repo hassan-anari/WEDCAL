@@ -44,8 +44,10 @@ def record_mission_progress(
         "MISSION_PROGRESS",
         f"{definition.pk}:{membership.pk}:{units}:{occurred_at.isoformat()}",
     )
-    definition = ClanMissionDefinition.objects.select_related("config_version").get(
-        pk=definition.pk
+    definition = (
+        ClanMissionDefinition.objects.select_for_update(of=("self",))
+        .select_related("config_version")
+        .get(pk=definition.pk)
     )
     config = resolve_game_config_version(definition.config_version_id)
     if resolved_config is not None and resolved_config.id != config.id:

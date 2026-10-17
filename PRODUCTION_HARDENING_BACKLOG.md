@@ -1435,3 +1435,18 @@ Owner-policy runtime `3fd6d87a1d738b8ba78d98788c76b81cb1dc7715`: local full 868 
 final review includes 869 tests and hosted separate benchmark. New schema/migration, shared budgets,
 negative authorization and authoritative bot checks are verified without real sends. Final CI
 review-HEAD evidence is linked on #29; PH-019/PH-034 broader operational WATCH items remain open.
+
+
+## B6 Clan operations and prospective Treasury correction — 2026-10-17
+
+Owner-authorized scope is documented in `docs/B6_AUDIT.md`, `docs/B6_BACKEND_CONTRACT.md`
+and `docs/B6_SECURITY_ECONOMIC_REVIEW.md`. Dedicated branch `ai/b6-backend-operations`;
+FROCAL coordination issue #8 requires explicit consumer acknowledgement/pin before paired tests.
+Admin mission controls/history guards, canonical applicant/Daily/Clan standing reads, repeated
+Welcome, Mini App-only invite credentials, coherent Network exclusion, group image candidates and
+a durable private activity feed are implemented for verification. Prospective config-scoped Treasury
+carry reuses the canonical accumulator/settlement and records B6_FRACTIONAL_V1 audit semantics;
+no historical credit/balance/config rewrite or production backfill. Zero-net rollovers keep canonical
+eligibility/accounting without moving Player ranking ties. Exact-head tests/CI and migration/rollback
+evidence are attached to the B6 Draft PR before independent review. No release acceptance is implied.
+PH-037 and PH-043 remain owner launch gates; Season 2 and production rollout remain excluded.

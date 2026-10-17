@@ -264,6 +264,18 @@ def _deliver(row: Delivery, text: str) -> None:
         raise RuntimeError("Telegram delivery must run outside business transactions")
     started_at = timezone.now()
     token = row.lease_token
+    # Fence legacy queued/retry credentials as well as new invite creation.
+    if isinstance(row, TelegramDelivery) and row.notification.source_type == "CLAN_INVITE":
+        TelegramDelivery.objects.filter(
+            pk=row.pk, lease_token=token, state=DeliveryState.PROCESSING
+        ).update(
+            state=DeliveryState.SKIPPED,
+            completed_at=timezone.now(),
+            lease_token=None,
+            lease_expires_at=None,
+            error_category="invite_miniapp_only",
+        )
+        return
     if isinstance(row, TelegramDelivery) and not _private_control_permitted(row):
         TelegramDelivery.objects.filter(
             pk=row.pk, lease_token=token, state=DeliveryState.PROCESSING

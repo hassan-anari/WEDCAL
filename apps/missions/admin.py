@@ -1,6 +1,7 @@
 from django import forms
 from django.contrib import admin
 
+from apps.missions.admin_workflow import ControlledMissionAdmin
 from apps.missions.models import MissionDefinition, PlayerMission
 
 
@@ -19,15 +20,22 @@ class MissionDefinitionForm(forms.ModelForm):  # type: ignore[type-arg]
 
 
 @admin.register(MissionDefinition)
-class MissionDefinitionAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
+class MissionDefinitionAdmin(ControlledMissionAdmin):
     form = MissionDefinitionForm
     list_display = ("key", "version", "verification_family", "repeat_policy", "enabled")
     list_filter = ("enabled", "verification_family", "repeat_policy")
 
+    search_fields = ("key", "title")
+    semantic_fields = (
+        "verification_family",
+        "repeat_policy",
+        "verification_parameters",
+        "available_from",
+        "available_until",
+    )
+
     def get_readonly_fields(self, request, obj=None):  # type: ignore[no-untyped-def]
-        if obj:
-            return ("key", "version", "verification_family", "repeat_policy", "created_at")
-        return ("created_at",)
+        return super().get_readonly_fields(request, obj) + ("created_at",)
 
 
 @admin.register(PlayerMission)

@@ -224,9 +224,10 @@ def test_private_start_deduplication_welcome_html_and_keyboard(settings):
     payload = message(text="/start")
     process(payload)
     process(copy.deepcopy(payload))
-    process(message(2, text="/start"))
     assert Player.objects.count() == 1 and TelegramDelivery.objects.count() == 1
-    delivery = TelegramDelivery.objects.get()
+    process(message(2, text="/start"))
+    assert Player.objects.count() == 1 and TelegramDelivery.objects.count() == 2
+    delivery = TelegramDelivery.objects.order_by("pk")[0]
     assert delivery.text_snapshot == WELCOME and len(WELCOME) < 4096
     from django.test import RequestFactory
 

@@ -240,11 +240,23 @@ def eligible_groups(
             clan__seasons__season=season,
             clan__seasons__state__in=[ClanSeason.State.ACTIVE, ClanSeason.State.RECOVERY],
         )
+        .exclude(
+            models.Q(creator_registration__isnull=False)
+            & ~models.Q(creator_registration__state="INACTIVE")
+        )
         .distinct()
     )
 
 
+def _require_no_network_context(group: TelegramGroup) -> None:
+    from apps.network.models import CreatorGroupRegistration
+
+    if CreatorGroupRegistration.objects.filter(group=group).exclude(state="INACTIVE").exists():
+        raise ClanConflict("Telegram group already has a live economic context")
+
+
 def _fresh_authority(player: Player, group: TelegramGroup) -> tuple[datetime, int]:
+    _require_no_network_context(group)
     user = bot_api.get_chat_member(group.telegram_chat_id, player.telegram_user_id)
     bot_id = settings.TELEGRAM_BOT_ID
     bot = bot_api.get_chat_member(group.telegram_chat_id, bot_id) if bot_id is not None else None
@@ -263,6 +275,7 @@ def _fresh_authority(player: Player, group: TelegramGroup) -> tuple[datetime, in
         .first()
         or 0
     )
+    _require_no_network_context(group)
     return timezone.now().replace(microsecond=0), observed_id
 
 
@@ -305,14 +318,7 @@ def register_clan(
     with transaction.atomic():
         group = TelegramGroup.objects.select_for_update().get(pk=group.pk)
         Player.objects.select_for_update().get(pk=player.pk)
-        from apps.network.models import CreatorGroupRegistration
-
-        if (
-            CreatorGroupRegistration.objects.filter(group=group)
-            .exclude(state=CreatorGroupRegistration.State.INACTIVE)
-            .exists()
-        ):
-            raise ClanConflict("Telegram group already has a live economic context")
+        _require_no_network_context(group)
         existing = ClanSeason.objects.filter(
             captain=player,
             season=season,
@@ -657,10 +663,10 @@ def create_personal_invite(invite: ClanInvite) -> ClanInvite:
     if dispatch_revoke:
         _dispatch_revoke(locked.pk)
     elif locked.state == ClanInvite.State.ACTIVE:
-        from apps.notifications.models import DeliveryState, TelegramDelivery
         from apps.notifications.services import emit_notification
 
-        notification, _ = emit_notification(
+        # Credential retrieval belongs exclusively to the authenticated Mini App.
+        emit_notification(
             recipient=target,
             event_key="CLAN_INVITE_READY",
             source_domain="CLAN",
@@ -668,22 +674,7 @@ def create_personal_invite(invite: ClanInvite) -> ClanInvite:
             source_id=str(locked.pk),
             idempotency_key=f"clan-invite-ready:{locked.pk}",
             payload={"invite_id": locked.pk},
-        )
-        TelegramDelivery.objects.get_or_create(
-            notification=notification,
-            defaults={
-                "telegram_user_id": target.telegram_user_id,
-                "text_snapshot": locked.invite_link,
-                "state": (
-                    DeliveryState.PENDING
-                    if target.first_private_contact_at
-                    else DeliveryState.SKIPPED
-                ),
-                "error_category": (
-                    "" if target.first_private_contact_at else "private_contact_unavailable"
-                ),
-                "completed_at": None if target.first_private_contact_at else timezone.now(),
-            },
+            telegram=False,
         )
     return ClanInvite.objects.get(pk=invite.pk)
 

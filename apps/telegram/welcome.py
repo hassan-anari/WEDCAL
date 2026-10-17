@@ -19,6 +19,7 @@ def queue_private_message(
     options: dict[str, object] | None = None,
     received_at: datetime | None = None,
     copy_source: BroadcastSource | None = None,
+    payload: dict[str, object] | None = None,
 ) -> TelegramDelivery:
     notification, _ = Notification.objects.get_or_create(
         idempotency_key=key,
@@ -29,6 +30,7 @@ def queue_private_message(
             "source_type": "PRIVATE_CONTROL",
             "source_id": key,
             "body": "",
+            "payload": payload or {},
             "read_at": timezone.now(),
         },
     )
@@ -45,7 +47,9 @@ def queue_private_message(
     return delivery
 
 
-def queue_welcome(player: Player) -> None:
+def queue_welcome(
+    player: Player, *, telegram_update_id: int, received_at: datetime | None = None
+) -> None:
     if not (settings.B3_BOT_WELCOME_ENABLED and settings.B4_PUBLIC_WELCOME_ENABLED):
         return
     from apps.notifications.models import WelcomeConfiguration
@@ -57,7 +61,13 @@ def queue_welcome(player: Player) -> None:
     template.full_clean()
     queue_private_message(
         player,
-        key=f"bot-welcome:{player.pk}",
+        key=f"bot-welcome:update:{telegram_update_id}",
+        received_at=received_at,
+        payload={
+            "template_id": template.pk,
+            "template_version": template.version,
+            "telegram_update_id": telegram_update_id,
+        },
         text=template.body,
         options={
             "parse_mode": "HTML",

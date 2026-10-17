@@ -115,10 +115,22 @@ def settle_reward(
     allow_closed_source_season: bool = False,
     projection_at: datetime | None = None,
     source_eligibility_verified: bool = False,
+    allow_treasury_only_split: bool = False,
 ) -> tuple[RewardLedger, bool]:
     """Canonical reward primitive; callers own related domain mutations in this transaction."""
     amount = player_amount
-    if type(amount) is not int or amount <= 0:
+    treasury_only = (
+        allow_treasury_only_split
+        and type(amount) is int
+        and amount == 0
+        and type(gross_amount) is int
+        and gross_amount > 0
+        and type(clan_treasury_amount) is int
+        and clan_treasury_amount == gross_amount
+        and context == "CLAN_HOME"
+        and source_type in {"CLAN_ACTIVITY", "CLAN_MISSION"}
+    )
+    if type(amount) is not int or (amount <= 0 and not treasury_only):
         raise InvalidReward("Player reward amount must be a positive integer")
     if any(type(x) is not int or x < 0 for x in (gross_amount, clan_treasury_amount)):
         raise InvalidReward("Reward split amounts must be nonnegative integers")
@@ -232,38 +244,51 @@ def settle_reward(
             return existing, False
         if after_ledger_hook:
             after_ledger_hook()
-        progression, _ = PlayerProgression.objects.get_or_create(
-            player=locked_player,
-            defaults={
-                "config_version": projection_config_model,
-                "dexo_stage": projection_config.progression.dexo_stages[0].key,
-            },
-        )
-        progression.lifetime_points += amount
-        result = calculate_progression(progression.lifetime_points, projection_config.progression)
-        progression.level = result.level
-        progression.dexo_stage = result.dexo_stage
-        progression.config_version = projection_config_model
-        progression.save(
-            update_fields=["lifetime_points", "level", "dexo_stage", "config_version", "updated_at"]
-        )
-        player_season, _ = PlayerSeason.objects.get_or_create(player=locked_player, season=season)
-        player_season.season_points += amount
-        player_season.score_reached_at = max(
-            filter(None, (player_season.score_reached_at, occurred_at))
-        )
-        player_season.ranking_generation += 1
-        player_season.save(
-            update_fields=[
-                "season_points",
-                "score_reached_at",
-                "ranking_generation",
-                "updated_at",
-            ]
-        )
-        from apps.arena.services import publish_player_ranking
+        # A fully conserved Clan Treasury rollover still records provenance/outbox,
+        # but cannot move a Player's score, tie timestamp, generation or progression.
+        if amount:
+            progression, _ = PlayerProgression.objects.get_or_create(
+                player=locked_player,
+                defaults={
+                    "config_version": projection_config_model,
+                    "dexo_stage": projection_config.progression.dexo_stages[0].key,
+                },
+            )
+            progression.lifetime_points += amount
+            result = calculate_progression(
+                progression.lifetime_points, projection_config.progression
+            )
+            progression.level = result.level
+            progression.dexo_stage = result.dexo_stage
+            progression.config_version = projection_config_model
+            progression.save(
+                update_fields=[
+                    "lifetime_points",
+                    "level",
+                    "dexo_stage",
+                    "config_version",
+                    "updated_at",
+                ]
+            )
+            player_season, _ = PlayerSeason.objects.get_or_create(
+                player=locked_player, season=season
+            )
+            player_season.season_points += amount
+            player_season.score_reached_at = max(
+                filter(None, (player_season.score_reached_at, occurred_at))
+            )
+            player_season.ranking_generation += 1
+            player_season.save(
+                update_fields=[
+                    "season_points",
+                    "score_reached_at",
+                    "ranking_generation",
+                    "updated_at",
+                ]
+            )
+            from apps.arena.services import publish_player_ranking
 
-        publish_player_ranking(player_season, source_id=f"reward:{ledger.pk}")
+            publish_player_ranking(player_season, source_id=f"reward:{ledger.pk}")
         if outbox is not None:
             transaction.on_commit(lambda: dispatch_reward_outbox_safely(outbox.pk))
     logger.info(
