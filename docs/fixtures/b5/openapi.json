@@ -4968,6 +4968,16 @@
               "type": "integer"
             },
             "required": false
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "default": 0,
+              "title": "Offset",
+              "type": "integer"
+            },
+            "required": false
           }
         ],
         "responses": {
@@ -5072,6 +5082,7 @@
             }
           }
         },
+        "description": "All global active/unsafe paths, then a bounded current-Season history page.\n\nlimit/offset apply only to safe terminal history, never to reservations.\nOlder-Season paths are informational; this read grants no activation rights.",
         "tags": [
           "clans"
         ],
@@ -12114,6 +12125,47 @@
           "cancellation_pending": {
             "title": "Cancellation Pending",
             "type": "boolean"
+          },
+          "clan_season_id": {
+            "title": "Clan Season Id",
+            "type": "integer"
+          },
+          "season_id": {
+            "title": "Season Id",
+            "type": "integer"
+          },
+          "season_code": {
+            "title": "Season Code",
+            "type": "string"
+          },
+          "is_current_season": {
+            "title": "Is Current Season",
+            "type": "boolean"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "reserves_capacity": {
+            "title": "Reserves Capacity",
+            "type": "boolean"
+          },
+          "credential_unresolved": {
+            "title": "Credential Unresolved",
+            "type": "boolean"
+          },
+          "blocks_new_application": {
+            "title": "Blocks New Application",
+            "type": "boolean"
+          },
+          "handling": {
+            "enum": [
+              "CURRENT_SEASON",
+              "OPERATOR_REQUIRED",
+              "HISTORY"
+            ],
+            "title": "Handling",
+            "type": "string"
           }
         },
         "required": [
@@ -12125,7 +12177,16 @@
           "decided_at",
           "invite_state",
           "delivery_state",
-          "cancellation_pending"
+          "cancellation_pending",
+          "clan_season_id",
+          "season_id",
+          "season_code",
+          "is_current_season",
+          "is_active",
+          "reserves_capacity",
+          "credential_unresolved",
+          "blocks_new_application",
+          "handling"
         ],
         "title": "OwnRequestOut",
         "type": "object"

@@ -29,6 +29,7 @@ from apps.clans.services import (
     get_or_create_rejoin_invite,
     register_clan,
     request_join,
+    unsafe_clan_credential_filter,
     voluntary_leave,
 )
 from apps.core.b3 import B3Error, b3_responses
@@ -660,30 +661,84 @@ class OwnRequestOut(Schema):
     invite_state: str | None
     delivery_state: str | None
     cancellation_pending: bool
+    clan_season_id: int
+    season_id: int
+    season_code: str
+    is_current_season: bool
+    is_active: bool
+    reserves_capacity: bool
+    credential_unresolved: bool
+    blocks_new_application: bool
+    handling: Literal["CURRENT_SEASON", "OPERATOR_REQUIRED", "HISTORY"]
 
 
 @router.get("/join-requests/current", response=b3_responses(list[OwnRequestOut]))
-def own_requests(request: HttpRequest, limit: int = 20) -> list[OwnRequestOut]:
-    season, _ = context()
-    rows = (
-        ClanJoinRequest.objects.filter(applicant=player(request), clan_season__season=season)
-        .select_related("clan_season__clan", "invite")
-        .order_by("-pk")[: max(1, min(limit, 100))]
-    )
-    return [
-        OwnRequestOut(
-            id=r.pk,
-            clan_id=r.clan_season.clan_id,
-            clan_name=r.clan_season.clan.name,
-            state=r.state,
-            created_at=r.created_at,
-            decided_at=r.decided_at,
-            invite_state=r.invite.state if hasattr(r, "invite") else None,
-            delivery_state=r.invite.delivery_state if hasattr(r, "invite") else None,
-            cancellation_pending=bool(hasattr(r, "invite") and r.invite.desired_terminal_state),
+def own_requests(request: HttpRequest, limit: int = 20, offset: int = 0) -> list[OwnRequestOut]:
+    """All global active/unsafe paths, then a bounded current-Season history page.
+
+    limit/offset apply only to safe terminal history, never to reservations.
+    Older-Season paths are informational; this read grants no activation rights.
+    """
+    season = resolve_current_season(at=timezone.now(), required=False)
+    current_season_id = season.pk if season else None
+    active = models.Q(state__in=[ClanJoinRequest.State.PENDING, ClanJoinRequest.State.ACCEPTED])
+    blocking = active | models.Q(credential_unresolved=True)
+    owned = ClanJoinRequest.objects.filter(applicant=player(request)).annotate(
+        credential_unresolved=models.Exists(
+            ClanInvite.objects.filter(join_request_id=models.OuterRef("pk")).filter(
+                unsafe_clan_credential_filter()
+            )
         )
-        for r in rows
-    ]
+    )
+    history = (
+        (owned.filter(clan_season__season=season) if season else owned.none())
+        .exclude(blocking)
+        .order_by("-pk")
+        .values("pk")[max(offset, 0) : max(offset, 0) + max(1, min(limit, 100))]
+    )
+    # One SQL statement gives active paths and history a consistent snapshot.
+    rows = (
+        owned.filter(blocking | models.Q(pk__in=models.Subquery(history)))
+        .select_related("clan_season__clan", "clan_season__season", "invite")
+        .order_by(models.Case(models.When(blocking, then=0), default=1), "-pk")
+    )
+    result = []
+    for row in rows:
+        is_active = row.state in {ClanJoinRequest.State.PENDING, ClanJoinRequest.State.ACCEPTED}
+        unresolved = bool(row.credential_unresolved)
+        blocks = is_active or unresolved
+        current = row.clan_season.season_id == current_season_id
+        result.append(
+            OwnRequestOut(
+                id=row.pk,
+                clan_id=row.clan_season.clan_id,
+                clan_name=row.clan_season.clan.name,
+                state=row.state,
+                created_at=row.created_at,
+                decided_at=row.decided_at,
+                invite_state=row.invite.state if hasattr(row, "invite") else None,
+                delivery_state=row.invite.delivery_state if hasattr(row, "invite") else None,
+                cancellation_pending=bool(
+                    hasattr(row, "invite") and row.invite.desired_terminal_state
+                ),
+                clan_season_id=row.clan_season_id,
+                season_id=row.clan_season.season_id,
+                season_code=row.clan_season.season.code,
+                is_current_season=current,
+                is_active=is_active,
+                reserves_capacity=row.state == ClanJoinRequest.State.ACCEPTED,
+                credential_unresolved=unresolved,
+                blocks_new_application=blocks,
+                handling=(
+                    "HISTORY"
+                    if not blocks
+                    else "OPERATOR_REQUIRED"
+                    if not current or not is_active
+                    else "CURRENT_SEASON"
+                ),
+            )
+        )
+    return result
 
 
 @router.post("/join-requests/{request_id}/decision", response=b3_responses(RequestOut))
@@ -754,6 +809,16 @@ def applicants(request: HttpRequest, limit: int = 50) -> list[ApplicantOut]:
 @router.get("/invite/current", response=b3_responses(InviteOut))
 def invite(request: HttpRequest) -> InviteOut:
     owner = player(request)
+    active_paths = list(
+        ClanJoinRequest.objects.filter(
+            applicant=owner,
+            state__in=[ClanJoinRequest.State.PENDING, ClanJoinRequest.State.ACCEPTED],
+        ).values_list("clan_season__season_id", flat=True)
+    )
+    if active_paths:
+        season, _ = context()
+        if len(active_paths) != 1 or active_paths[0] != season.pk:
+            raise B3Error("CLAN_STATE_CONFLICT")
     row = (
         ClanInvite.objects.filter(
             models.Q(

@@ -174,14 +174,9 @@ def _other_active_join_request_exists(applicant_id: int, *, exclude_id: int | No
     return rows.exists()
 
 
-def _unsafe_player_clan_credential_exists(
-    applicant_id: int, *, exclude_invite_id: int | None = None
-) -> bool:
-    """Terminal request labels cannot hide unresolved JOIN or REJOIN credentials."""
-    rows = ClanInvite.objects.filter(
-        models.Q(join_request__applicant_id=applicant_id)
-        | models.Q(membership__player_id=applicant_id)
-    ).filter(
+def unsafe_clan_credential_filter() -> models.Q:
+    """Shared conservative predicate for write eligibility and owner-only reads."""
+    return (
         models.Q(unknown_credential_risk=True)
         | models.Q(
             state__in=[
@@ -195,6 +190,16 @@ def _unsafe_player_clan_credential_exists(
         )
         | ~models.Q(invite_link="")
     )
+
+
+def _unsafe_player_clan_credential_exists(
+    applicant_id: int, *, exclude_invite_id: int | None = None
+) -> bool:
+    """Terminal request labels cannot hide unresolved JOIN or REJOIN credentials."""
+    rows = ClanInvite.objects.filter(
+        models.Q(join_request__applicant_id=applicant_id)
+        | models.Q(membership__player_id=applicant_id)
+    ).filter(unsafe_clan_credential_filter())
     if exclude_invite_id is not None:
         rows = rows.exclude(pk=exclude_invite_id)
     return rows.exists()

@@ -19,7 +19,7 @@ Use existing `Authorization: tma <initData>`. Every Clan read/mutation is privat
 | POST `/` | Existing registration with `telegram_group_id` **equal to candidate `id`**, name/tag/motto. No raw Telegram chat ID. Identity/tag uniqueness and exclusive CLAN_HOME context retained |
 | GET `/`, `/{clan_id}` | Bounded discovery/search and preview; canonical member count/capacity, HQ level, score, state, optional private-cache image; rank remains null when not supplied by Arena |
 | POST `/{clan_id}/join-requests` | Existing Soldier progression/role/capacity/application checks |
-| GET `/join-requests/current` | Own bounded current-Season request history (including declined/cancelled/activated), request/Clan identity, invite/delivery state and cancellation-pending flag; no invite URLs |
+| GET `/join-requests/current` | Every own global PENDING/ACCEPTED request and unsafe credential-backed request, then bounded current-Season terminal history. `limit` (default 20, max 100) and additive `offset` affect only safe terminal history. Additive Season/lifecycle fields distinguish active paths, reservations and operator handling; no invite URLs |
 | GET `/applicants` | Captain's own pending applicants, request IDs, safe identity/progression/Season Points; no fabricated rank, active-day, medal or contribution-preview numbers |
 | POST `/join-requests/{request_id}/decision` | Existing Captain accept/reject. Acceptance reserves capacity and starts personal credential lifecycle; membership activates only after actual Telegram presence verification |
 | DELETE `/join-requests/{request_id}`; POST `/join-requests/{request_id}/revoke` | Applicant or own Captain cancellation through existing safe revoke state machine |
@@ -30,6 +30,26 @@ Use existing `Authorization: tma <initData>`. Every Clan read/mutation is privat
 One Soldier may have zero or one active application **across all Clans and Seasons**: both `PENDING` and `ACCEPTED` count. Re-submission to the same eligible Clan returns the existing request (existing unsafe Home Base guards can still reject a replay without creating another row); another target returns HTTP 409 `{code: "CLAN_STATE_CONFLICT", detail, retryable: false, retry_after_seconds: null}` through the existing safe envelope, with no other request/Clan identifiers. Explicit decline or safe cancellation releases the application; pending/failed revocation, CREATING, UNCERTAIN and MANUAL_REVIEW do not. Terminal request labels do not hide unsafe JOIN/REJOIN credentials, including older Seasons. No automatic cancel/replace/transfer occurs on acceptance.
 
 Applicant Player locking serializes submission, acceptance, fresh JOIN credential issuance and membership activation. Existing per-Clan live-request and global accepted-path constraints remain. No migration or history rewrite is needed: new service writes obey the global rule; legacy overlaps fail closed until explicit cancellation/decline or safe credential resolution. Existing accepted credentials/reservations are retained and their activation/revocation obligations continue; new issuance is blocked while overlapping active paths remain. Season identity is never transferred. See [review correction evidence](evidence/B5_SINGLE_APPLICATION.md).
+
+### Complete authenticated application visibility
+
+`GET /join-requests/current` keeps its list root and existing fields. Every PENDING/ACCEPTED application across all Seasons is returned, without a limit or offset on those records, including every legacy overlap. Requests with an unsafe JOIN credential are also always returned even if a legacy request label is terminal. The unsafe predicate is shared with write eligibility: CREATING/ACTIVE/UNCERTAIN/REVOKE_PENDING/REVOKE_FAILED/MANUAL_REVIEW, unknown credential risk or a retained credential link. Only safe terminal current-Season history is paginated; older safe history is omitted. Blocking rows appear first, newest ID first within each section. One SQL statement reads both sections consistently. With no current Season, global blocking paths remain visible and history is empty.
+
+Additive row metadata:
+
+| Field | Meaning |
+| --- | --- |
+| `clan_season_id`, `season_id`, `season_code` | Original reservation/request ownership; never reassigned to the current Season |
+| `is_current_season` | Belongs to the currently eligible active Season; false when none exists |
+| `is_active` | Request state is PENDING or ACCEPTED; not final membership |
+| `reserves_capacity` | ACCEPTED request still counts as a reservation in its original ClanSeason |
+| `credential_unresolved` | Conservative unsafe JOIN credential predicate, including inconsistent terminal labels |
+| `blocks_new_application` | Active application or unresolved credential; a terminal label alone is insufficient release proof |
+| `handling` | `HISTORY` for safe terminal history; `OPERATOR_REQUIRED` for older-Season blocking paths or unsafe terminal-label credentials; otherwise `CURRENT_SEASON` |
+
+FROCAL must inspect **all** rows, never select `response[0]` or assume the list length is bounded by `limit`. Separate `is_active` from terminal history, retain every `blocks_new_application` path, and detect multiple active/unsafe paths before selecting a single current-Season application. `CURRENT_SEASON` identifies ownership, not authorization or a guarantee that a mutation succeeds. Multiple paths require explicit existing lifecycle/operator resolution; no auto-cancel, replacement or preferred winner. Older-Season blocking records are informational and require authorized handling; they grant no current-Season membership, acceptance, issuance or activation rights. Existing owner-authorized cancellation can still be requested by request ID, but cancellation-pending does not release an accepted reservation until safe terminalization.
+
+`GET /invite/current` fails with the existing safe 409 `CLAN_STATE_CONFLICT` before credential lookup/issuance if active applications overlap or the sole active application belongs to an older Season. It cannot silently choose an older/legacy application. Once exactly one current-Season path remains, existing authenticated credential behavior applies. The application list never returns links or Telegram file identifiers; all paths are authenticated owner-only, private/no-store. An empty application list is not a guarantee of eligibility: membership, REJOIN credentials and other server checks remain independent. No economic or source-time activation rules change.
 
 Do not display a candidate as guaranteed eligible before registration. Do not fabricate match percentages, freshness labels, Telegram member counts, rank or activity statistics from old frontend fixtures. Cosmetic art and editorial catalog copy can remain frontend mappings; authoritative economics must come from the response.
 

@@ -11,6 +11,7 @@ Backend main was fetched and checked before final validation: `6aaa362daecec8610
 - [Django Admin and native Broadcast operator guide](B5_OPERATOR_GUIDE.md)
 - [Original B5 local validation and migration evidence](evidence/B5_VALIDATION.md)
 - [Final-review single-application correction and evidence](evidence/B5_SINGLE_APPLICATION.md)
+- [Complete active-request visibility correction and consumer rules](evidence/B5_REQUEST_VISIBILITY.md)
 
 Clan core, governance, ledgers, rewards, Shop/inventory and missions reuse the existing Phase 7/8 models/services. New read contracts close roster, own-request history, equipment/effects and Trophy Hall gaps. Durable server-event adapters invoke the canonical mission progress/settlement engine; no demo rewards or parallel economic system are introduced.
 
@@ -24,6 +25,7 @@ FROCAL mapping requirements:
 
 - Consume additive `GET /recovery` fields and Captain-only `POST /recovery/verify`, including independent `reasons`. At audited FROCAL main, `ClanPage.tsx` derives recovery from the demo `supply-cache` effect; it has no authority-loss lifecycle adapter or verification action. Reuse approved Recovery presentation, report missing representation, and do not substitute the demo item state for server governance.
 - Enforce zero/one application in the existing approved flow: PENDING and ACCEPTED both block applying elsewhere; cancellation remains pending until safe terminalization. Handle the existing `CLAN_STATE_CONFLICT` 409 without replacing another application. Pin the new runtime/fixtures from the final PR comment; the owner documentation-only commit did not require a runtime pin change, but this fix does. No UI redesign is authorized.
+- Consume the complete `/join-requests/current` list: every global active/unsafe path precedes the bounded current-Season terminal history; `limit`/`offset` affect history only. Use additive Season IDs, `is_active`, `reserves_capacity`, `credential_unresolved`, `blocks_new_application` and `handling`. Detect overlaps across all rows; never select the first row or infer an old reservation has transferred Seasons. Older-Season paths and unsafe terminal labels require authorized handling. `/invite/current` rejects overlapping/older active applications with the same safe typed 409 before issuance. See [visibility blocker evidence](evidence/B5_REQUEST_VISIBILITY.md) and new real HTTP fixtures.
 - Use member-only roster `membership_id` for removal targets; keep invitation URLs confined to the authenticated applicant/member. Persist own pending/accepted/uncertain/cancellation states from the actual request/invite endpoints.
 - Use `telegram_group_id` as the internal candidate PK, not a client Telegram chat ID. Registration re-verifies authority.
 - Use versioned server Shop/equipment/mission amounts and availability. Unknown ranks, Telegram member counts, applicant activity metrics and match percentages remain unknown; do not synthesize them from demo fixtures. Season 2 Defence/War remains unavailable.
