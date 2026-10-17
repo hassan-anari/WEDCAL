@@ -52,7 +52,7 @@ def get_daily_state(
     cycle = ((next_streak - 1) % len(policy.reward_cycle_points)) + 1
     return DailyState(
         True,
-        previous.streak_count_after_claim if consecutive and previous else 0,
+        _current_streak(current, previous, period.previous_start),
         cycle,
         policy.reward_cycle_points[cycle - 1],
         period.start,
@@ -114,3 +114,40 @@ def claim_daily(player: Player, at: datetime) -> tuple[DailyClaim, bool]:
         claim.save(update_fields=["reward_ledger", "updated_at"])
     logger.info("daily_claimed", player_id=player.pk, period=period.key, reward=reward)
     return claim, True
+
+
+def current_streaks(
+    players: list[Player], at: datetime, resolved: ResolvedGameConfig | None = None
+) -> dict[int, int]:
+    """Read actual Daily streaks in two bounded queries using canonical period rules."""
+    config = resolved or resolve_effective_game_config(at)
+    policy = config.daily
+    period = resolve_daily_period(at, policy.reset_timezone, policy.reset_hour, policy.reset_minute)
+    ids = list(dict.fromkeys(p.pk for p in players))
+    if len(ids) > 100:
+        raise ValueError("Daily streak summary is limited to 100 Players")
+    if not ids:
+        return {}
+    current = {
+        row.player_id: row
+        for row in DailyClaim.objects.filter(player_id__in=ids, claim_period=period.key)
+    }
+    latest = {
+        row.player_id: row
+        for row in DailyClaim.objects.filter(player_id__in=ids)
+        .order_by("player_id", "-period_start")
+        .distinct("player_id")
+    }
+    return {
+        pk: _current_streak(current.get(pk), latest.get(pk), period.previous_start) for pk in ids
+    }
+
+
+def _current_streak(
+    current: DailyClaim | None, previous: DailyClaim | None, previous_start: datetime
+) -> int:
+    if current:
+        return current.streak_count_after_claim
+    if previous and previous.period_start == previous_start:
+        return previous.streak_count_after_claim
+    return 0

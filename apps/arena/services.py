@@ -1,7 +1,7 @@
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from django.conf import settings
 from django.core.cache import cache
@@ -450,3 +450,92 @@ def player_ranking_queryset(season: Season) -> QuerySet[PlayerSeason]:
     return PlayerSeason.objects.filter(season=season).order_by(
         "-season_points", F("score_reached_at").asc(nulls_last=True), "player_id"
     )
+
+
+RankStatus = Literal["RANKED", "UNRANKED", "UNAVAILABLE", "RECONCILING"]
+
+
+@dataclass(frozen=True, slots=True)
+class RankingStanding:
+    rank: int | None
+    status: RankStatus
+    score: int
+
+
+_BATCH_RANK_SCRIPT = """
+if not redis.call('get', KEYS[4]) then return false end
+local rows = {}
+for i=1,#ARGV do
+  local member = redis.call('hget', KEYS[2], ARGV[i])
+  local rank = member and redis.call('zrevrank', KEYS[1], member) or false
+  local score = member and redis.call('zscore', KEYS[1], member) or ''
+  local gen = redis.call('hget', KEYS[3], ARGV[i]) or '-1'
+  table.insert(rows, {rank or -1, score or '', gen})
+end
+return rows
+"""
+
+
+def read_player_standings(season: Season, player_ids: list[int]) -> dict[int, RankingStanding]:
+    ids = list(dict.fromkeys(player_ids))
+    rows = (
+        {r.player_id: r for r in PlayerSeason.objects.filter(season=season, player_id__in=ids)}
+        if ids
+        else {}
+    )
+    return _read_standings(season, "PLAYER", ids, rows, "season_points")
+
+
+def read_clan_standings(season: Season, clan_season_ids: list[int]) -> dict[int, RankingStanding]:
+    ids = list(dict.fromkeys(clan_season_ids))
+    rows = {r.pk: r for r in ClanSeason.objects.filter(season=season, pk__in=ids)} if ids else {}
+    return _read_standings(season, "CLAN", ids, rows, "competitive_score")
+
+
+def _read_standings(
+    season: Season, entity: str, ids: list[int], rows: dict[int, Any], score_field: str
+) -> dict[int, RankingStanding]:
+    """Canonical Arena summary: one atomic Redis read; no independent leaderboard."""
+    if len(ids) > 100:
+        raise ValueError("Ranking summary is limited to 100 entities")
+    if not ids:
+        return {}
+    points = {pk: int(getattr(rows[pk], score_field)) if pk in rows else 0 for pk in ids}
+
+    def unavailable(status: RankStatus) -> dict[int, RankingStanding]:
+        return {pk: RankingStanding(None, status, points[pk]) for pk in ids}
+
+    pending = RankingProjectionEvent.objects.filter(
+        season=season, entity_type=entity, processed_at__isnull=True
+    )
+    if pending.exists():
+        return unavailable("RECONCILING")
+    minimum = resolve_game_config_version(season.baseline_config_id).rankings.minimum_score
+    try:
+        result = _redis().eval(_BATCH_RANK_SCRIPT, 4, *_keys(ranking_key(season.pk, entity)), *ids)
+        if not result or len(result) != len(ids):
+            raise RankingProjectionUnavailable
+        standings = {}
+        for pk, (rank, score, generation) in zip(ids, result, strict=True):
+            row = rows.get(pk)
+            ranked = int(rank) >= 0
+            if (
+                ranked != (points[pk] >= minimum)
+                or ranked
+                and (
+                    row is None
+                    or int(float(score)) != points[pk]
+                    or int(generation) != row.ranking_generation
+                )
+            ):
+                dispatch_rebuild_safely(season.pk, entity)
+                return unavailable("RECONCILING")
+            standings[pk] = RankingStanding(
+                int(rank) + 1 if ranked else None, "RANKED" if ranked else "UNRANKED", points[pk]
+            )
+    except Exception:
+        dispatch_rebuild_safely(season.pk, entity)
+        return unavailable("UNAVAILABLE")
+    if pending.exists():
+        return unavailable("RECONCILING")
+    return standings

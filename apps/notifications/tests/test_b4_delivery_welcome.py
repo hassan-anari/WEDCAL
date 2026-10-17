@@ -253,13 +253,13 @@ def test_welcome_activation_rollback_deduplication_and_operator_only_test_send(s
     activate_welcome(first, actor, reason="Review only")
     assert not TelegramDelivery.objects.exists()
     settings.B3_BOT_WELCOME_ENABLED = False
-    queue_welcome(recipient)
+    queue_welcome(recipient, telegram_update_id=1)
     assert not TelegramDelivery.objects.exists()
     settings.B3_BOT_WELCOME_ENABLED = True
     settings.B4_PUBLIC_WELCOME_ENABLED = True  # Explicit synthetic activation only.
-    queue_welcome(recipient)
+    queue_welcome(recipient, telegram_update_id=1)
     activate_welcome(second, actor, reason="New approved version")
-    queue_welcome(recipient)
+    queue_welcome(recipient, telegram_update_id=1)
     assert TelegramDelivery.objects.count() == 1
     assert TelegramDelivery.objects.get().text_snapshot == first.body
     activate_welcome(first, actor, reason="Rollback")
@@ -320,7 +320,7 @@ def test_old_b3_flag_alone_cannot_activate_public_dynamic_welcome(settings):
     activate_welcome(template, actor, reason="Configuration only")
     settings.B3_BOT_WELCOME_ENABLED = True
     settings.B4_PUBLIC_WELCOME_ENABLED = False
-    queue_welcome(player())
+    queue_welcome(player(), telegram_update_id=1)
     assert not TelegramDelivery.objects.exists()
 
 

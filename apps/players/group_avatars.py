@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 import structlog
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.http import HttpResponse
 from django.utils import timezone
 
@@ -72,6 +73,9 @@ def refresh_group_avatar(group_id: int) -> None:
         or ClanSeason.objects.filter(
             clan__telegram_group_id=group_id, state__in=["ACTIVE", "RECOVERY"]
         ).exists()
+        or TelegramGroup.objects.filter(pk=group_id, bot_is_admin=True, bot_can_invite_users=True)
+        .filter(Q(memberships__is_admin=True) | Q(candidates__isnull=False))
+        .exists()
     ):
         return
     now, token = timezone.now(), uuid4()

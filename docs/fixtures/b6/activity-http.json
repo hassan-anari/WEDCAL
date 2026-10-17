@@ -1,0 +1,70 @@
+[
+  {
+    "items": [
+      {
+        "id": "purchase:00000000000000000001",
+        "event_type": "ITEM_PURCHASED",
+        "occurred_at": "2026-10-17T12:39:23.202Z",
+        "recorded_at": "2026-10-17T12:39:23.202Z",
+        "actor_name": "Dexo",
+        "amount": 2400,
+        "unit": "TREASURY_CREDITS",
+        "treasury_amount": null,
+        "contribution_amount": null,
+        "item_id": "rally-beacon",
+        "mission_key": null,
+        "mission_version": null
+      },
+      {
+        "id": "use:00000000000000000001",
+        "event_type": "ITEM_ACTIVATED",
+        "occurred_at": "2026-10-17T12:39:23.084Z",
+        "recorded_at": null,
+        "actor_name": "Dexo",
+        "amount": null,
+        "unit": null,
+        "treasury_amount": null,
+        "contribution_amount": null,
+        "item_id": "rally-beacon",
+        "mission_key": null,
+        "mission_version": null
+      }
+    ],
+    "next_cursor": "eyJ2ZXJzaW9uIjoxLCJjbGFuX3NlYXNvbiI6NiwiYXQiOiIyMDI2LTEwLTE3VDEyOjM5OjIzLjA4NDg3OCswMDowMCIsImlkIjoidXNlOjAwMDAwMDAwMDAwMDAwMDAwMDAxIn0:1xI3h5:mHLk_Y0eKf8CRJjO-vAbOwuNaOp8KijcbeD4jPBNMAM",
+    "as_of": "2026-10-17T12:39:23.244Z"
+  },
+  {
+    "items": [
+      {
+        "id": "reward:00000000000000000009",
+        "event_type": "CLAN_REWARD_SETTLED",
+        "occurred_at": "2026-10-17T12:39:23.084Z",
+        "recorded_at": "2026-10-17T12:39:23.149Z",
+        "actor_name": "Dexo",
+        "amount": 90000,
+        "unit": "PLAYER_POINTS",
+        "treasury_amount": 10000,
+        "contribution_amount": 100000,
+        "item_id": null,
+        "mission_key": null,
+        "mission_version": null
+      },
+      {
+        "id": "join:00000000000000000005",
+        "event_type": "MEMBER_JOINED",
+        "occurred_at": "2026-10-17T12:39:23.084Z",
+        "recorded_at": null,
+        "actor_name": "Dexo",
+        "amount": null,
+        "unit": null,
+        "treasury_amount": null,
+        "contribution_amount": null,
+        "item_id": null,
+        "mission_key": null,
+        "mission_version": null
+      }
+    ],
+    "next_cursor": null,
+    "as_of": "2026-10-17T12:39:23.265Z"
+  }
+]

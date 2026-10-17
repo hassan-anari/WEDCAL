@@ -227,6 +227,7 @@ def test_same_mission_source_event_concurrency_progresses_once(clan_world) -> No
         enabled=True,
         config_version=config,
     )
+    now = definition.active_intervals.get().starts_at
     results = parallel(
         [
             lambda: record_mission_progress(
@@ -408,6 +409,7 @@ def test_two_sources_complete_group_mission_once(clan_world) -> None:  # type: i
         enabled=True,
         config_version=config,
     )
+    now = definition.active_intervals.get().starts_at
     results = parallel(
         [
             partial(
@@ -620,6 +622,7 @@ def test_mission_completion_races_clan_activity_settlement_without_deadlock(clan
         enabled=True,
         config_version=config,
     )
+    now = definition.active_intervals.get().starts_at
     results = parallel(
         [
             lambda: record_mission_progress(

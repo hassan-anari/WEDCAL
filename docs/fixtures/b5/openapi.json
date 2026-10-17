@@ -7151,6 +7151,146 @@
         ]
       }
     },
+    "/api/v1/clans/activity": {
+      "get": {
+        "operationId": "apps_clans_api_recent_activity",
+        "summary": "Recent Activity",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 20,
+              "title": "Limit",
+              "type": "integer"
+            },
+            "required": false
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClanActivityPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorOutput"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/B3ErrorOutput"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ThrottleOutput"
+                    }
+                  ],
+                  "title": "Response"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/B3ErrorOutput"
+                    },
+                    {
+                      "$ref": "#/components/schemas/IntegrationErrorOutput"
+                    }
+                  ],
+                  "title": "Response"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "clans"
+        ],
+        "security": [
+          {
+            "MiniAppAuth": []
+          }
+        ]
+      }
+    },
     "/api/v1/clans/{clan_id}": {
       "get": {
         "operationId": "apps_clans_api_details",
@@ -11484,6 +11624,28 @@
       },
       "ClanHomeOut": {
         "properties": {
+          "rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank"
+          },
+          "rank_status": {
+            "default": "UNAVAILABLE",
+            "enum": [
+              "RANKED",
+              "UNRANKED",
+              "UNAVAILABLE",
+              "RECONCILING"
+            ],
+            "title": "Rank Status",
+            "type": "string"
+          },
           "clan_id": {
             "title": "Clan Id",
             "type": "integer"
@@ -11746,6 +11908,16 @@
       },
       "ClanMissionOut": {
         "properties": {
+          "title": {
+            "default": "",
+            "title": "Title",
+            "type": "string"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
           "key": {
             "title": "Key",
             "type": "string"
@@ -11991,6 +12163,17 @@
             ],
             "title": "Rank"
           },
+          "rank_status": {
+            "default": "UNAVAILABLE",
+            "enum": [
+              "RANKED",
+              "UNRANKED",
+              "UNAVAILABLE",
+              "RECONCILING"
+            ],
+            "title": "Rank Status",
+            "type": "string"
+          },
           "level": {
             "default": 1,
             "title": "Level",
@@ -12224,6 +12407,33 @@
       },
       "ApplicantOut": {
         "properties": {
+          "rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank"
+          },
+          "rank_status": {
+            "default": "UNAVAILABLE",
+            "enum": [
+              "RANKED",
+              "UNRANKED",
+              "UNAVAILABLE",
+              "RECONCILING"
+            ],
+            "title": "Rank Status",
+            "type": "string"
+          },
+          "current_streak": {
+            "default": 0,
+            "title": "Current Streak",
+            "type": "integer"
+          },
           "request_id": {
             "title": "Request Id",
             "type": "integer"
@@ -12986,6 +13196,177 @@
           "available"
         ],
         "title": "TrophyOut",
+        "type": "object"
+      },
+      "ClanActivityOut": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "event_type": {
+            "enum": [
+              "CLAN_REWARD_SETTLED",
+              "MISSION_COMPLETED",
+              "TREASURY_CREDIT",
+              "TREASURY_DEBIT",
+              "ITEM_PURCHASED",
+              "ITEM_ACTIVATED",
+              "MEMBER_JOINED"
+            ],
+            "title": "Event Type",
+            "type": "string"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "recorded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded At"
+          },
+          "actor_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Name"
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "enum": [
+                  "PLAYER_POINTS",
+                  "TREASURY_CREDITS"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "treasury_amount": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Treasury Amount"
+          },
+          "contribution_amount": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contribution Amount"
+          },
+          "item_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Id"
+          },
+          "mission_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mission Key"
+          },
+          "mission_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mission Version"
+          }
+        },
+        "required": [
+          "id",
+          "event_type",
+          "occurred_at"
+        ],
+        "title": "ClanActivityOut",
+        "type": "object"
+      },
+      "ClanActivityPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ClanActivityOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor",
+          "as_of"
+        ],
+        "title": "ClanActivityPage",
         "type": "object"
       },
       "ClanIdentity": {

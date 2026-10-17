@@ -1,0 +1,8 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<p>{{ original }} — {% if original.enabled %}Active{% else %}Disabled draft{% endif %}</p>
+{% if error %}<p class="errornote">{{ error }}</p>{% endif %}
+<dl>{% for key, value in preview.items %}<dt>{{ key }}</dt><dd>{{ value }}</dd>{% endfor %}</dl>
+<p>Preview does not create progress, rewards or Telegram messages. Published history is preserved; create a new version to change committed rules.</p>
+<form method="post">{% csrf_token %}{{ form.as_p }}<input type="submit" value="Confirm {{ operation }}"></form>
+{% endblock %}

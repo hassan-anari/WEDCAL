@@ -1,0 +1,24 @@
+# B6 backend handoff
+
+Scope: original A–H Clan operations/integration request, the independent source-time mission lifecycle correction, plus the owner's prospective fractional Treasury and canonical Clan-standing correction. Repository WEDCAL, branch `ai/b6-backend-operations`, authoritative base `b4c72f292ab0ea967d62af7b8e5fdcab1f27e03f`. Draft PR: https://github.com/hassan-anari/WEDCAL/pull/31. Final publication pin and hosted checks will be recorded together in `B6_RUNTIME_PIN.md` and FROCAL coordination issue [#8](https://github.com/hassan-anari/FROCAL/issues/8).
+
+- [Mission lifecycle defect, approved historical cutover and migration](B6_MISSION_LIFECYCLE_REVIEW.md)
+- [Initial audit and boundaries](B6_AUDIT.md)
+- [Exact additive fields/endpoints, timestamps and Treasury cutover](B6_BACKEND_CONTRACT.md)
+- [Admin instructions for Group and Individual missions, QA plan](B6_OPERATOR_GUIDE.md)
+- [Detailed security/economic proof, migrations and rollback](B6_SECURITY_ECONOMIC_REVIEW.md)
+- [Generated OpenAPI and representative HTTP responses](fixtures/b6/README.md)
+
+The server uses existing mission signals/settlement, Arena projections, Daily claims, invite state machines, avatar proxy and economic ledgers. No alternative reward engine, frontend claim action, new event source, numerical rebalance or Season 2 behavior is introduced. The new internal zero-net Clan split option retains all canonical reward eligibility/accounting checks while leaving Player points/rank ties untouched. Historical economic records and balances remain unchanged; carry starts at zero prospectively per published config.
+
+Migrations: `missions.0003_b6_mission_administration`, `clans.0017_b6_mission_administration`, `clans.0018_b6_treasury_fractional_carry`, `clans.0019_b6_mission_active_intervals`. Rendered SQL is in `docs/evidence/B6_*.sql`. New activation metadata/permissions, immutable version/history guards, Clan display text and integer remainder/range constraint are additive. Only activation observation metadata is initialized; there is no historical Treasury reconstruction. Stop/drain old economic/invite workers for any approved rollout. Rollback must retain carry-aware accounting and credential-send blocking for pending obligations.
+
+Frontend integration: consume applicant rank/status/streak; populate HQ Standing from home.rank/rank_status or ClanOut.rank/rank_status; render safe group image_url or existing fallback; use mission title/description and actual automatic reward state; retrieve invites through authenticated Mini App only; bind the existing Recent activity card to `/clans/activity` without deriving achievements from Treasury alone. Preserve Treasury history. Source times and nullable recorded_at are explicit in the contract; refresh page one for late finalized records. WEDCAL's final exact revision must be acknowledged and pinned by FROCAL before frontend implementation or paired tests. No consumer acknowledgement/device acceptance is assumed.
+
+[Validation evidence](evidence/B6_VALIDATION.md) separates the independent lifecycle follow-up results from prior B6 evidence. The current runtime/source/database-schema pin is `e99aa45474f7a9f372738a95eb96c2716b06b1d4`; HTTP OpenAPI is unchanged. Final exact artifact-head hosted links/counts are published together in Draft #31 and the FROCAL handoff. Earlier checks do not substitute for required current-head results. `B6_RUNTIME_PIN.md` distinguishes the runtime revision from documentation-only follow-ups. No test/security/CI assertion was weakened; controlled mission fixture source times now follow actual observed activation.
+
+PH-037 branch rules and PH-043 Season-brief product evidence remain owner release gates. Frontend acknowledgement/pinned CI, paired staging/device acceptance, production storage setup and realistic load evidence remain separate follow-up. Backend green CI does not authorize release. No production rewards, migrations/backfills, live messages/broadcasts, frontend changes, merge, deployment or next phase are authorized or performed.
+
+The independent-review follow-up preserves source eligibility across deactivation and excludes pre-activation/inactive gaps. Migration 0019 records only prospective observations for pre-existing definitions; uncertain earlier signals remain held and block Season drain pending separate approval. No HTTP schema change; FROCAL must acknowledge the semantics and re-pin the new exact runtime. The full review/SQL and latest validation supersede the first B6 activation implementation.
+
+FROCAL Draft PR [#9](https://github.com/hassan-anari/FROCAL/pull/9) acknowledged and reported paired acceptance for the previous `28a6b880...` checkout in coordination issue #8. That evidence is retained for the previous revision. This mission lifecycle correction requires a new acknowledgement/exact pin and refreshed paired evidence; it does not imply a new HTTP field or UI redesign.

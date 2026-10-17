@@ -46,6 +46,7 @@ def test_individual_mission_source_is_idempotent_and_direct_hq_once(clan_world) 
         enabled=True,
         config_version=config,
     )
+    now = definition.active_intervals.get().starts_at
     progress = record_mission_progress(
         definition=definition,
         membership=member,
@@ -99,6 +100,7 @@ def test_group_mission_rewards_every_unique_participant(clan_world) -> None:  # 
         enabled=True,
         config_version=config,
     )
+    now = definition.active_intervals.get().starts_at
     record_mission_progress(
         definition=definition,
         membership=captain,

@@ -72,8 +72,10 @@ def test_definition_versions_visibility_and_history_protection(
         "join-telegram",
         MissionDefinition.Verification.TELEGRAM,
         parameters={"telegram_chat_id": -100},
+        enabled=False,
     )
     future.available_from = BASE + timedelta(days=1)
+    future.enabled = True
     future.save()
     listed = list_missions(player, BASE)
     assert [(row["key"], row["version"]) for row in listed] == [("visit-dalexio", 2)]

@@ -283,13 +283,26 @@ def settle_clan_reward(
         or not context_owned_at(cs, occurred_at)
     ):
         raise ValidationError("Clan Home economy is paused")
-    treasury = gross_amount * policy.treasury_split_bps // 10000
-    net = gross_amount - treasury
     contribution_bps, effect_ids = active_effect_bps(cs, "CONTRIBUTION_RATE_BONUS_BPS", occurred_at)
     config = GameConfigVersion.objects.get(pk=resolved_config.id)
     accumulator, _ = ClanEconomicAccumulator.objects.select_for_update().get_or_create(
         clan_season=cs, config_version=config
     )
+    # Prospective carry: historical completed sources return above without consuming it.
+    # The existing ClanSeason lock serializes members; config-specific accumulators
+    # never blend entitlements under different immutable published policies.
+    previous_treasury_remainder = accumulator.treasury_remainder
+    treasury, accumulator.treasury_remainder = divmod(
+        previous_treasury_remainder + gross_amount * policy.treasury_split_bps, 10000
+    )
+    net = gross_amount - treasury
+    treasury_audit = {
+        "treasury_policy": "B6_FRACTIONAL_V1",
+        "treasury_split_bps": policy.treasury_split_bps,
+        "treasury_remainder_before": previous_treasury_remainder,
+        "treasury_remainder_after": accumulator.treasury_remainder,
+        "treasury_denominator": 10000,
+    }
     contribution_numerator = (
         accumulator.contribution_remainder
         + gross_amount * policy.contribution.gross_numerator * (10000 + contribution_bps)
@@ -325,6 +338,7 @@ def settle_clan_reward(
         occurred_at=occurred_at,
         metadata={
             **(metadata or {}),
+            **treasury_audit,
             "contribution_effect_ids": effect_ids,
             "hq_effect_ids": hq_effect_ids,
         },
@@ -339,7 +353,7 @@ def settle_clan_reward(
             config_version=config,
             idempotency_key=f"{idempotency_key}:treasury",
             occurred_at=occurred_at,
-            metadata=metadata or {},
+            metadata={**(metadata or {}), **treasury_audit},
         )
     reward, _ = settle_reward(
         player=player,
@@ -349,10 +363,16 @@ def settle_clan_reward(
         gross_amount=gross_amount,
         player_amount=net,
         clan_treasury_amount=treasury,
+        allow_treasury_only_split=True,
         idempotency_key=f"{idempotency_key}:reward",
         occurred_at=occurred_at,
         resolved_config=resolved_config,
-        metadata={**(metadata or {}), "clan_season_id": cs.pk, "membership_id": member.pk},
+        metadata={
+            **(metadata or {}),
+            **treasury_audit,
+            "clan_season_id": cs.pk,
+            "membership_id": member.pk,
+        },
         source_season=cs.season,
         preserve_config_version=True,
         allow_closed_source_season=cs.season.status == "CLOSED",

@@ -113,5 +113,117 @@ from apps.clans.models import ClanMissionSignal  # noqa: E402
 
 @admin.register(ClanMissionSignal)
 class ClanMissionSignalAdmin(ReadOnlyAdmin):
-    list_display = ("id", "requirement", "units", "processed_at", "attempts", "error_category")
+    list_display = (
+        "id",
+        "requirement",
+        "units",
+        "processed_at",
+        "requires_review",
+        "attempts",
+        "error_category",
+    )
+    list_filter = ("requires_review", "error_category")
     exclude = ("source_key",)
+
+
+from apps.clans.missions import SUPPORTED_REQUIREMENTS  # noqa: E402
+from apps.clans.models import (  # noqa: E402
+    ClanMissionActivation,
+    ClanMissionDefinition,
+    ClanMissionParticipant,
+    ClanMissionProgress,
+    ClanMissionSourceEvent,
+)
+from apps.game_config.models import GameConfigVersion  # noqa: E402
+from apps.missions.admin_workflow import ControlledMissionAdmin, validate_definition  # noqa: E402
+
+
+class ClanMissionDefinitionForm(forms.ModelForm):  # type: ignore[type-arg]
+    requirement = forms.ChoiceField(
+        choices=[(r, r.replace("_", " ").title()) for r in sorted(SUPPORTED_REQUIREMENTS)]
+    )
+
+    class Meta:
+        model = ClanMissionDefinition
+        exclude = ("enabled", "activated_at")
+        help_texts = {
+            "reward_band": "Published band key; preview shows actual amounts.",
+            "target_units": "Valid event counts or settled contribution units.",
+            "config_version": "Match the ClanSeason pinned published config.",
+            "version": "Immutable identity. Use a new version for rule changes.",
+        }
+
+    def __init__(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        super().__init__(*args, **kwargs)
+        if "config_version" in self.fields:
+            field = self.fields["config_version"]
+            assert isinstance(field, forms.ModelChoiceField)
+            field.queryset = GameConfigVersion.objects.filter(status="PUBLISHED")
+
+    def clean(self):  # type: ignore[no-untyped-def]
+        cleaned = super().clean() or {}
+        for field in self._meta.model._meta.concrete_fields:
+            if field.name in cleaned:
+                setattr(self.instance, field.name, cleaned[field.name])
+        if not self.errors:
+            validate_definition(self.instance)
+        return cleaned
+
+
+@admin.register(ClanMissionDefinition)
+class ClanMissionDefinitionAdmin(ControlledMissionAdmin):
+    form = ClanMissionDefinitionForm
+    list_display = (
+        "key",
+        "version",
+        "kind",
+        "requirement",
+        "target_units",
+        "reward_band",
+        "config_version",
+        "enabled",
+    )
+    list_filter = ("enabled", "kind", "requirement", "config_version")
+    search_fields = ("key", "title")
+    semantic_fields = (
+        "kind",
+        "requirement",
+        "target_units",
+        "reward_band",
+        "starts_at",
+        "ends_at",
+        "config_version",
+    )
+
+    def has_progress(self, obj):  # type: ignore[no-untyped-def]
+        return ClanMissionProgress.objects.filter(definition=obj).exists()
+
+    def get_readonly_fields(self, request, obj=None):  # type: ignore[no-untyped-def]
+        return super().get_readonly_fields(request, obj) + (
+            "activation_revision",
+            "history_unknown_before",
+        )
+
+    def activation_audit_state(self, row):  # type: ignore[no-untyped-def]
+        interval = row.active_intervals.order_by("-pk").first()
+        return {
+            "activation_revision": row.activation_revision,
+            "activation_interval_id": interval.pk if interval else None,
+            "effective_at": (
+                (interval.starts_at if row.enabled else interval.ends_at).isoformat()
+                if interval
+                else None
+            ),
+        }
+
+
+@admin.register(ClanMissionActivation)
+class ClanMissionActivationAdmin(ReadOnlyAdmin):
+    list_display = ("id", "definition", "starts_at", "ends_at", "origin")
+    list_select_related = ("definition",)
+    list_filter = ("origin",)
+    search_fields = ("definition__key",)
+
+
+for mission_model in (ClanMissionProgress, ClanMissionParticipant, ClanMissionSourceEvent):
+    admin.site.register(mission_model, ReadOnlyAdmin)

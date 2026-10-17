@@ -178,6 +178,10 @@ def start_mission(player: Player, key: str, at: datetime) -> MissionStart:
     eligibility = _mission_period(definition, at, resolved)
     with transaction.atomic():
         player = Player.objects.select_for_update().get(pk=player.pk)
+        definition = MissionDefinition.objects.select_for_update().get(pk=definition.pk)
+        if not definition.enabled:
+            raise MissionUnavailable("Mission was deactivated")
+        _require_policy_binding(definition, resolved)
         progress, created = PlayerMission.objects.get_or_create(
             player=player, definition=definition, eligibility_period=eligibility
         )

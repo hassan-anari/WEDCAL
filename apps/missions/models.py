@@ -51,10 +51,14 @@ class MissionDefinition(models.Model):
     verification_parameters = models.JSONField(default=dict, blank=True)
     title = models.CharField(max_length=200, blank=True)
     description = models.CharField(max_length=500, blank=True)
+    activated_at = models.DateTimeField(null=True, blank=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        permissions = [
+            ("activate_missiondefinition", "Can activate and deactivate personal missions")
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=("key", "version"), name="mission_definition_key_version"
@@ -63,6 +67,24 @@ class MissionDefinition(models.Model):
 
     def clean(self) -> None:
         validate_mission_parameters(self.verification_family, self.verification_parameters)
+        if (
+            self.available_from
+            and self.available_until
+            and self.available_until <= self.available_from
+        ):
+            raise ValidationError({"available_until": "End must be after start."})
+        if self.verification_family == self.Verification.TELEGRAM:
+            chat_id = self.verification_parameters.get("telegram_chat_id")
+            if type(chat_id) is not int or chat_id == 0:
+                raise ValidationError(
+                    {"verification_parameters": "telegram_chat_id must be a nonzero integer."}
+                )
+        if self.pk:
+            original = MissionDefinition.objects.get(pk=self.pk)
+            if (original.key, original.version) != (self.key, self.version):
+                raise ValidationError(
+                    "Mission key and version are immutable. Create a new version."
+                )
         if self.enabled:
             from apps.game_config.services import resolve_effective_game_config
             from apps.missions.services import MissionUnavailable, _require_policy_binding
@@ -78,7 +100,11 @@ class MissionDefinition(models.Model):
                         )
                     }
                 ) from exc
-        if self.pk and PlayerMission.objects.filter(definition=self).exists():
+        if self.pk and (
+            original.activated_at
+            or original.enabled
+            or PlayerMission.objects.filter(definition=self).exists()
+        ):
             old = MissionDefinition.objects.get(pk=self.pk)
             protected = (
                 "key",
@@ -86,6 +112,8 @@ class MissionDefinition(models.Model):
                 "verification_family",
                 "repeat_policy",
                 "verification_parameters",
+                "available_from",
+                "available_until",
             )
             if any(getattr(old, field) != getattr(self, field) for field in protected):
                 raise ValidationError(
@@ -93,6 +121,8 @@ class MissionDefinition(models.Model):
                 )
 
     def save(self, *args: object, **kwargs: object) -> None:
+        if self.enabled and self.activated_at is None:
+            self.activated_at = timezone.now()
         self.full_clean()
         super().save(*args, **kwargs)  # type: ignore[arg-type]
 
