@@ -128,9 +128,26 @@ class ControlledMissionAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
             '<a href="{}">Preview / activate / deactivate</a>', reverse(name, args=(obj.pk,))
         )
 
+    def get_queryset(self, request: HttpRequest):  # type: ignore[no-untyped-def]
+        query = super().get_queryset(request)
+        change_name = f"{self.model._meta.app_label}_{self.model._meta.model_name}_change"
+        if (
+            request.method == "POST"
+            and request.resolver_match
+            and request.resolver_match.url_name == change_name
+        ):
+            # Django wraps change-form POST in a transaction. Serialize validation
+            # and saving with activation, not just the final write.
+            query = query.select_for_update()
+        return query
+
+    @transaction.atomic
     def save_model(self, request: HttpRequest, obj: Any, form: Any, change: bool) -> None:
-        # Admin excludes enabled from forms; only the signed operation can change it.
-        if not change:
+        # A stale edit must never undo a separately authorized activation operation.
+        if change:
+            current = self.model.objects.select_for_update().get(pk=obj.pk)
+            obj.enabled, obj.activated_at = current.enabled, current.activated_at
+        else:
             obj.enabled = False
         assert request.user.pk is not None
         super().save_model(request, obj, form, change)

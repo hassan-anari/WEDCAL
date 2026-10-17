@@ -1,6 +1,6 @@
 # B6 backend handoff
 
-Scope: original A–H Clan operations/integration request plus the owner's prospective fractional Treasury and canonical Clan-standing correction. Repository WEDCAL, branch `ai/b6-backend-operations`, authoritative base `b4c72f292ab0ea967d62af7b8e5fdcab1f27e03f`. Final publication pin, Draft PR and hosted checks will be recorded together in `B6_RUNTIME_PIN.md` and FROCAL coordination issue [#8](https://github.com/hassan-anari/FROCAL/issues/8).
+Scope: original A–H Clan operations/integration request plus the owner's prospective fractional Treasury and canonical Clan-standing correction. Repository WEDCAL, branch `ai/b6-backend-operations`, authoritative base `b4c72f292ab0ea967d62af7b8e5fdcab1f27e03f`. Draft PR: https://github.com/hassan-anari/WEDCAL/pull/31. Final publication pin and hosted checks will be recorded together in `B6_RUNTIME_PIN.md` and FROCAL coordination issue [#8](https://github.com/hassan-anari/FROCAL/issues/8).
 
 - [Initial audit and boundaries](B6_AUDIT.md)
 - [Exact additive fields/endpoints, timestamps and Treasury cutover](B6_BACKEND_CONTRACT.md)

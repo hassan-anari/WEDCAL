@@ -22,7 +22,9 @@ from apps.daily.services import claim_daily, current_streaks, get_daily_state
 pytestmark = pytest.mark.django_db(transaction=True)
 
 
-def test_applicant_real_arena_ranks_daily_streaks_constant_queries(clan_world, monkeypatch):
+def test_applicant_real_arena_ranks_daily_streaks_constant_queries(
+    clan_world, monkeypatch, b5_http
+):
     now, _, season, resolved, player, clan = clan_world
     cache.clear()
     cs = clan()
@@ -56,10 +58,13 @@ def test_applicant_real_arena_ranks_daily_streaks_constant_queries(clan_world, m
     assert [r.current_streak for r in many] == [1, 1, 0, 0, 0]
     for p in people:
         assert current_streaks([p], now, resolved)[p.pk] == get_daily_state(p, now, resolved).streak
+    http = b5_http(cs.captain)
+    published = {"ready": http.get("/api/v1/clans/applicants").json()}
     # Redis downtime is explicitly different from a genuine unranked Player.
     monkeypatch.setattr(arena, "_redis", lambda: (_ for _ in ()).throw(ConnectionError()))
     monkeypatch.setattr(arena, "dispatch_rebuild_safely", lambda *_: None)
     assert {r.rank_status for r in applicants(request)} == {"UNAVAILABLE"}
+    published["unavailable"] = http.get("/api/v1/clans/applicants").json()
     RankingProjectionEvent.objects.create(
         season=season,
         entity_type="PLAYER",
@@ -71,6 +76,11 @@ def test_applicant_real_arena_ranks_daily_streaks_constant_queries(clan_world, m
         source_id="b6-pending",
     )
     assert {r.rank_status for r in applicants(request)} == {"RECONCILING"}
+    published["reconciling"] = http.get("/api/v1/clans/applicants").json()
+    if os.getenv("B6_EXPORT_FIXTURES"):
+        Path("docs/fixtures/b6/applicants-http.json").write_text(
+            json.dumps(published, indent=2) + "\n"
+        )
 
 
 def test_daily_streak_batch_handles_missed_periods(clan_world):

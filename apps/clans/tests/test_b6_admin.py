@@ -188,3 +188,32 @@ def test_clan_definition_history_rejects_direct_destructive_update(client, clan_
         with pytest.raises(DatabaseError), transaction.atomic():
             ClanMissionDefinition.objects.filter(pk=row.pk).update(**changes)
     assert client.get(f"/admin/clans/clanmissiondefinition/{row.pk}/delete/").status_code == 403
+
+
+def test_stale_admin_edit_cannot_reactivate_a_deactivated_definition(client, clan_world):
+    from types import SimpleNamespace
+
+    from django.contrib import admin
+    from django.test import RequestFactory
+
+    now, config, *_ = clan_world
+    actor = User.objects.create_superuser("stale-admin-editor")
+    client.force_login(actor)
+    assert (
+        client.post("/admin/clans/clanmissiondefinition/add/", clan_data(config, now)).status_code
+        == 302
+    )
+    row = ClanMissionDefinition.objects.get()
+    assert control(client, "clans/clanmissiondefinition", row).status_code == 302
+    stale = ClanMissionDefinition.objects.get(pk=row.pk)
+    assert stale.enabled
+    assert control(client, "clans/clanmissiondefinition", row).status_code == 302
+    stale.title = "Safe display correction"
+    request = RequestFactory().post("/admin/clans/clanmissiondefinition/")
+    request.user = actor
+    admin.site._registry[ClanMissionDefinition].save_model(
+        request, stale, SimpleNamespace(changed_data=["title"]), True
+    )
+    current = ClanMissionDefinition.objects.get(pk=row.pk)
+    assert not current.enabled and current.title == "Safe display correction"
+    assert current.activated_at == stale.activated_at
