@@ -409,7 +409,7 @@ TELEGRAM_WELCOME_ALLOWED_HOSTS = frozenset(
     filter(
         None,
         os.getenv(
-            "TELEGRAM_WELCOME_ALLOWED_HOSTS", "dalexio-game.vercel.app,t.me,dalexio.com"
+            "TELEGRAM_WELCOME_ALLOWED_HOSTS", "dalexio-game.vercel.app,airdrop.dalexio.com,t.me,dalexio.com"
         ).split(","),
     )
 )
