@@ -1,0 +1,19 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<h1>In-App announcement</h1>
+<p>Channel: IN_APP. Audience: {{ row.get_audience_display }}{% if row.player_id %} (Player {{ row.player_id }}){% endif %}.</p>
+<p>State: {{ row.get_state_display }}. Processed: {{ row.processed_count }}.</p>
+{% if row.state == "DRAFT" %}<p>Estimated recipients: {{ preview.count }} (existing Players through ID {{ preview.upper }}).</p>{% endif %}
+<h2>Exact title</h2><pre>{{ title_text }}</pre>
+<h2>Exact body</h2><pre>{{ body_text }}</pre>
+<p>This publishes to the existing Notification Center. It sends no Telegram messages.</p>
+{% if error %}<p class="errornote">{{ error }}</p>{% endif %}
+<form method="post">{% csrf_token %}
+<input type="hidden" name="confirmation" value="{{ confirmation }}">
+<p><label>Reason <input name="reason" maxlength="1000" required></label></p>
+<p><label><input type="checkbox" name="confirm" value="yes" required> I confirm this exact content, channel and audience.</label></p>
+{% if row.state == "DRAFT" and can_publish %}<button name="operation" value="publish">Confirm and publish</button>{% endif %}
+{% if row.state == "FAILED" and can_publish %}<button name="operation" value="retry">Retry failed work from durable cursor</button>{% endif %}
+{% if can_cancel %}<button name="operation" value="cancel">Cancel unprocessed work</button>{% endif %}
+</form>
+{% endblock %}

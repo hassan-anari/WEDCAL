@@ -291,7 +291,7 @@ All migrations are forward-safe and rollback-tested on backups/synthetic copies.
 | B2 | BACKEND_DRAFT | Backend [Draft #27](https://github.com/hassan-anari/WEDCAL/pull/27), branch `ai/b2-backend`; paired frontend [Draft #3](https://github.com/hassan-anari/FROCAL/pull/3)/E2E pending | [wire contract](docs/B2_TAP_V2_CONTRACT.md), [handoff](docs/B2_BACKEND_HANDOFF.md), immediate atomic leases, exactly-once legacy drain; no deployment/activation acceptance |
 | B3 | BACKEND_DRAFT | Backend [Draft #28](https://github.com/hassan-anari/WEDCAL/pull/28), `ai/b3-backend-integration`; paired FROCAL [Draft #4](https://github.com/hassan-anari/FROCAL/pull/4) | [implemented contract](docs/B3_BACKEND_CONTRACT.md), [handoff](docs/B3_BACKEND_HANDOFF.md); P-05/P-06/P-07 plus owner-authorized session/banner/bot/broadcast extensions; independent review and paired frontend/device acceptance pending |
 | B4 | OWNER_POLICY_CORRECTION_VERIFYING | Backend [Draft #29](https://github.com/hassan-anari/WEDCAL/pull/29); frontend [Draft #5](https://github.com/hassan-anari/FROCAL/pull/5) | Runtime implementation `ec6af7053dfc7e8755998418b826c59ca91191ea`; [contract](docs/B4_BACKEND_CONTRACT.md), [handoff](docs/B4_BACKEND_HANDOFF.md), generated fixtures. P-08/P-09 plus owner B3 corrections; 845 hosted tests plus separate benchmark and all checks green; final consumer pin/paired acceptance pending. No activation or next batch approval. |
-| B5 | PLANNED | — | Clan lifecycle/governance/Recovery/Treasury/Shop |
+| B5 | BACKEND_DRAFT / VERIFYING | WEDCAL [Draft #30](https://github.com/hassan-anari/WEDCAL/pull/30); FROCAL [Draft #6](https://github.com/hassan-anari/FROCAL/pull/6) | P-10/P-11/P-12 together plus owner B4 corrections and native multimedia Broadcast; [actual contract](docs/B5_BACKEND_CONTRACT.md), [handoff](docs/B5_BACKEND_HANDOFF.md). Final runtime pin/checks and paired consumer handoff are published in Draft #30. PH-045 decisions implemented: recreation blocked and independent Captain authority-loss recovery; one global active application enforced with complete cross-Season owner reads independent of terminal-history pagination; PH-048 product decision recorded, implementation deferred to Season 2. |
 | B6 | PLANNED | — | Staging E2E, measured load, release gates/rollback |
 
 | ID | Status | Owner approval/merged PRs | Evidence, blockers, next handoff |
@@ -307,9 +307,9 @@ All migrations are forward-safe and rollback-tested on backups/synthetic copies.
 | P-07 | BACKEND_IMPLEMENTED | Backend Draft #28, unmerged | Actual referral/creator/network read contracts; frontend integration pending |
 | P-08 | BACKEND_IMPLEMENTED | WEDCAL Draft #29 / FROCAL Draft #5 | Authenticated entitlement/customization/progression; real read state, safe links; CI/paired frontend gate pending. |
 | P-09 | BACKEND_IMPLEMENTED | WEDCAL Draft #29 / FROCAL Draft #5 | Typed live/frozen archive pages and projection consistency, actual off-chain DLX. Archive/DLX visible UI choices remain owner-owned. |
-| P-10 | PLANNED | — | Clan core |
-| P-11 | PLANNED | — | Clan governance/recovery/emergency exits |
-| P-12 | PLANNED | — | Clan economics |
+| P-10 | BACKEND_DRAFT | WEDCAL Draft #30 / FROCAL Draft #6 | Existing membership services plus typed roster/request/verification reads; full validation pending |
+| P-11 | BACKEND_DRAFT | WEDCAL Draft #30 / FROCAL Draft #6 | Reuse governance/recovery; closed credential cleanup and lock ordering; owner-approved authority-loss recovery and blocked recreation; independent recovery reasons |
+| P-12 | BACKEND_DRAFT | WEDCAL Draft #30 / FROCAL Draft #6 | Canonical economy/equipment/trophies and durable mission adapters; PH-048 owner-decided / Season 2 deferred |
 | P-13 | PLANNED | — | Security/E2E/observability/release |
 
 **Update protocol:** A batch handoff must update its batch row and the relevant C/P sub-workstream rows, include URLs of BOTH related frontend/backend PRs where applicable, record commit SHAs and checks passing, note migration/rollout status, mark blockers, link owner acceptance, and set the next authorized batch. This ledger is not itself evidence of successful testing: link raw CI and benchmark artifacts.

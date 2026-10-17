@@ -1,0 +1,505 @@
+{
+  "state": {
+    "enabled": true,
+    "eligible": true,
+    "role": "CAPTAIN",
+    "cooldown_until": null,
+    "voluntary_leave_count": 0,
+    "unlock_level": 5,
+    "max_voluntary_leaves": 3,
+    "leave_cooldown_hours": 48,
+    "owner_decisions_pending": []
+  },
+  "home": {
+    "clan_id": 114,
+    "state": "ACTIVE",
+    "hq_level": 5,
+    "hq_xp": 20000,
+    "current_threshold": 15000,
+    "next_threshold": null,
+    "progress_to_next": 5000,
+    "max_level": true,
+    "used_capacity": 2,
+    "accepted_reservations": 0,
+    "effective_capacity": 50,
+    "treasury_balance": 10000,
+    "treasury_earned_total": 10000,
+    "own_contribution": 0,
+    "total_contribution": 100000,
+    "competitive_score": 100000
+  },
+  "roster": {
+    "items": [
+      {
+        "membership_id": 115,
+        "player_id": 129,
+        "first_name": "Dexo",
+        "username": "",
+        "level": 23,
+        "avatar_url": "",
+        "role": "SOLDIER",
+        "access_state": "ACTIVE",
+        "contribution": 100000,
+        "started_at": "2026-10-17T07:15:07.260Z",
+        "own": false
+      },
+      {
+        "membership_id": 114,
+        "player_id": 128,
+        "first_name": "Dexo",
+        "username": "",
+        "level": 5,
+        "avatar_url": "",
+        "role": "CAPTAIN",
+        "access_state": "ACTIVE",
+        "contribution": 0,
+        "started_at": "2026-10-17T07:15:07.260Z",
+        "own": true
+      }
+    ],
+    "total_count": 2,
+    "next_offset": null
+  },
+  "contributions": [
+    {
+      "first_name": "Dexo",
+      "username": "",
+      "role": "SOLDIER",
+      "contribution": 100000
+    },
+    {
+      "first_name": "Dexo",
+      "username": "",
+      "role": "CAPTAIN",
+      "contribution": 0
+    }
+  ],
+  "treasury": {
+    "balance": 10000,
+    "earned_total": 10000,
+    "history": [
+      {
+        "direction": "CREDIT",
+        "amount": 10000,
+        "source_type": "CLAN_ACTIVITY",
+        "occurred_at": "2026-10-17T07:15:07.315Z"
+      }
+    ]
+  },
+  "equipment": {
+    "config_version": "phase7-domain",
+    "server_time": "2026-10-17T07:15:07.513Z",
+    "items": [
+      {
+        "item_id": "rally-beacon",
+        "name": "Clan XP Booster",
+        "price": 2400,
+        "activation": "TIMED",
+        "duration_minutes": 120,
+        "effects": [
+          {
+            "category": "HQ_XP_RATE_BONUS_BPS",
+            "value": 2000
+          }
+        ],
+        "quantity": 0,
+        "max_uses_per_season": null,
+        "uses_this_season": 0,
+        "can_purchase": true,
+        "can_activate": false,
+        "blocked_reason": "NOT_OWNED"
+      },
+      {
+        "item_id": "contribution-booster",
+        "name": "Contribution Booster",
+        "price": 2800,
+        "activation": "TIMED",
+        "duration_minutes": 120,
+        "effects": [
+          {
+            "category": "CONTRIBUTION_RATE_BONUS_BPS",
+            "value": 1500
+          }
+        ],
+        "quantity": 0,
+        "max_uses_per_season": null,
+        "uses_this_season": 0,
+        "can_purchase": true,
+        "can_activate": false,
+        "blocked_reason": "NOT_OWNED"
+      },
+      {
+        "item_id": "mission-progress-booster",
+        "name": "Mission Progress Booster",
+        "price": 3100,
+        "activation": "TIMED",
+        "duration_minutes": 90,
+        "effects": [
+          {
+            "category": "CLAN_MISSION_PROGRESS_BONUS_BPS",
+            "value": 2000
+          }
+        ],
+        "quantity": 0,
+        "max_uses_per_season": null,
+        "uses_this_season": 0,
+        "can_purchase": true,
+        "can_activate": false,
+        "blocked_reason": "NOT_OWNED"
+      },
+      {
+        "item_id": "coordination-booster",
+        "name": "Coordination Booster",
+        "price": 3300,
+        "activation": "TIMED",
+        "duration_minutes": 90,
+        "effects": [
+          {
+            "category": "HQ_XP_RATE_BONUS_BPS",
+            "value": 1000
+          },
+          {
+            "category": "CLAN_MISSION_PROGRESS_BONUS_BPS",
+            "value": 1000
+          }
+        ],
+        "quantity": 0,
+        "max_uses_per_season": null,
+        "uses_this_season": 0,
+        "can_purchase": true,
+        "can_activate": false,
+        "blocked_reason": "NOT_OWNED"
+      },
+      {
+        "item_id": "capacity-expansion-module",
+        "name": "Capacity Expansion Module",
+        "price": 4100,
+        "activation": "CONTEXT",
+        "duration_minutes": null,
+        "effects": [
+          {
+            "category": "SEASON_CAPACITY_ADD",
+            "value": 5
+          }
+        ],
+        "quantity": 0,
+        "max_uses_per_season": 2,
+        "uses_this_season": 0,
+        "can_purchase": true,
+        "can_activate": false,
+        "blocked_reason": "NOT_OWNED"
+      },
+      {
+        "item_id": "roster-slot-module",
+        "name": "Roster Slot Module",
+        "price": 3800,
+        "activation": "CONTEXT",
+        "duration_minutes": null,
+        "effects": [
+          {
+            "category": "SEASON_CAPACITY_ADD",
+            "value": 1
+          }
+        ],
+        "quantity": 0,
+        "max_uses_per_season": 5,
+        "uses_this_season": 0,
+        "can_purchase": true,
+        "can_activate": false,
+        "blocked_reason": "NOT_OWNED"
+      },
+      {
+        "item_id": "command-relay",
+        "name": "HQ Upgrade Kit",
+        "price": 5200,
+        "activation": "CONTEXT",
+        "duration_minutes": null,
+        "effects": [
+          {
+            "category": "HQ_XP_GRANT",
+            "value": 2000
+          }
+        ],
+        "quantity": 0,
+        "max_uses_per_season": 2,
+        "uses_this_season": 0,
+        "can_purchase": true,
+        "can_activate": false,
+        "blocked_reason": "NOT_OWNED"
+      }
+    ],
+    "active_effects": []
+  },
+  "shop": [
+    {
+      "item_id": "rally-beacon",
+      "name": "Clan XP Booster",
+      "price": 2400,
+      "activation": "TIMED",
+      "available": true
+    },
+    {
+      "item_id": "contribution-booster",
+      "name": "Contribution Booster",
+      "price": 2800,
+      "activation": "TIMED",
+      "available": true
+    },
+    {
+      "item_id": "mission-progress-booster",
+      "name": "Mission Progress Booster",
+      "price": 3100,
+      "activation": "TIMED",
+      "available": true
+    },
+    {
+      "item_id": "coordination-booster",
+      "name": "Coordination Booster",
+      "price": 3300,
+      "activation": "TIMED",
+      "available": true
+    },
+    {
+      "item_id": "capacity-expansion-module",
+      "name": "Capacity Expansion Module",
+      "price": 4100,
+      "activation": "CONTEXT",
+      "available": true
+    },
+    {
+      "item_id": "roster-slot-module",
+      "name": "Roster Slot Module",
+      "price": 3800,
+      "activation": "CONTEXT",
+      "available": true
+    },
+    {
+      "item_id": "command-relay",
+      "name": "HQ Upgrade Kit",
+      "price": 5200,
+      "activation": "CONTEXT",
+      "available": true
+    }
+  ],
+  "inventory": [],
+  "missions": [],
+  "trophies": [
+    {
+      "key": "banner-raised",
+      "current": null,
+      "target": null,
+      "unlocked": false,
+      "unlocked_at": null,
+      "available": false,
+      "blocked_reason": "SEASON_2_DEFERRED"
+    },
+    {
+      "key": "united-front",
+      "current": 100000,
+      "target": 25000,
+      "unlocked": true,
+      "unlocked_at": "2026-10-17T07:15:07.315Z",
+      "available": true,
+      "blocked_reason": null
+    },
+    {
+      "key": "treasury-keeper",
+      "current": 10000,
+      "target": 20000,
+      "unlocked": false,
+      "unlocked_at": null,
+      "available": true,
+      "blocked_reason": null
+    }
+  ],
+  "governance": [],
+  "recovery": {
+    "reasons": [],
+    "captain_authority_lost_at": null,
+    "can_verify_authority": true,
+    "state": "ACTIVE",
+    "reason": "",
+    "started_at": null,
+    "bot_admin_restore_deadline": null,
+    "home_integrity_available": true
+  },
+  "membership/current": {
+    "membership_id": 114,
+    "clan_season_id": 119,
+    "access_rejoin_deadline": null,
+    "clan_id": 114,
+    "clan_name": "Clan 2",
+    "role": "CAPTAIN",
+    "access_state": "ACTIVE",
+    "started_at": "2026-10-17T07:15:07.260Z"
+  },
+  "join-requests/current": [],
+  "equipment_after_activation": {
+    "config_version": "phase7-domain",
+    "server_time": "2026-10-17T07:15:07.794Z",
+    "items": [
+      {
+        "item_id": "rally-beacon",
+        "name": "Clan XP Booster",
+        "price": 2400,
+        "activation": "TIMED",
+        "duration_minutes": 120,
+        "effects": [
+          {
+            "category": "HQ_XP_RATE_BONUS_BPS",
+            "value": 2000
+          }
+        ],
+        "quantity": 0,
+        "max_uses_per_season": null,
+        "uses_this_season": 1,
+        "can_purchase": true,
+        "can_activate": false,
+        "blocked_reason": "NOT_OWNED"
+      },
+      {
+        "item_id": "contribution-booster",
+        "name": "Contribution Booster",
+        "price": 2800,
+        "activation": "TIMED",
+        "duration_minutes": 120,
+        "effects": [
+          {
+            "category": "CONTRIBUTION_RATE_BONUS_BPS",
+            "value": 1500
+          }
+        ],
+        "quantity": 0,
+        "max_uses_per_season": null,
+        "uses_this_season": 0,
+        "can_purchase": true,
+        "can_activate": false,
+        "blocked_reason": "NOT_OWNED"
+      },
+      {
+        "item_id": "mission-progress-booster",
+        "name": "Mission Progress Booster",
+        "price": 3100,
+        "activation": "TIMED",
+        "duration_minutes": 90,
+        "effects": [
+          {
+            "category": "CLAN_MISSION_PROGRESS_BONUS_BPS",
+            "value": 2000
+          }
+        ],
+        "quantity": 0,
+        "max_uses_per_season": null,
+        "uses_this_season": 0,
+        "can_purchase": true,
+        "can_activate": false,
+        "blocked_reason": "NOT_OWNED"
+      },
+      {
+        "item_id": "coordination-booster",
+        "name": "Coordination Booster",
+        "price": 3300,
+        "activation": "TIMED",
+        "duration_minutes": 90,
+        "effects": [
+          {
+            "category": "HQ_XP_RATE_BONUS_BPS",
+            "value": 1000
+          },
+          {
+            "category": "CLAN_MISSION_PROGRESS_BONUS_BPS",
+            "value": 1000
+          }
+        ],
+        "quantity": 0,
+        "max_uses_per_season": null,
+        "uses_this_season": 0,
+        "can_purchase": true,
+        "can_activate": false,
+        "blocked_reason": "NOT_OWNED"
+      },
+      {
+        "item_id": "capacity-expansion-module",
+        "name": "Capacity Expansion Module",
+        "price": 4100,
+        "activation": "CONTEXT",
+        "duration_minutes": null,
+        "effects": [
+          {
+            "category": "SEASON_CAPACITY_ADD",
+            "value": 5
+          }
+        ],
+        "quantity": 0,
+        "max_uses_per_season": 2,
+        "uses_this_season": 0,
+        "can_purchase": true,
+        "can_activate": false,
+        "blocked_reason": "NOT_OWNED"
+      },
+      {
+        "item_id": "roster-slot-module",
+        "name": "Roster Slot Module",
+        "price": 3800,
+        "activation": "CONTEXT",
+        "duration_minutes": null,
+        "effects": [
+          {
+            "category": "SEASON_CAPACITY_ADD",
+            "value": 1
+          }
+        ],
+        "quantity": 0,
+        "max_uses_per_season": 5,
+        "uses_this_season": 0,
+        "can_purchase": true,
+        "can_activate": false,
+        "blocked_reason": "NOT_OWNED"
+      },
+      {
+        "item_id": "command-relay",
+        "name": "HQ Upgrade Kit",
+        "price": 5200,
+        "activation": "CONTEXT",
+        "duration_minutes": null,
+        "effects": [
+          {
+            "category": "HQ_XP_GRANT",
+            "value": 2000
+          }
+        ],
+        "quantity": 0,
+        "max_uses_per_season": 2,
+        "uses_this_season": 0,
+        "can_purchase": true,
+        "can_activate": false,
+        "blocked_reason": "NOT_OWNED"
+      }
+    ],
+    "active_effects": [
+      {
+        "id": 1,
+        "item_id": "rally-beacon",
+        "category": "HQ_XP_RATE_BONUS_BPS",
+        "value": 2000,
+        "starts_at": "2026-10-17T07:15:07.767Z",
+        "expires_at": "2026-10-17T09:15:07.767Z",
+        "effective": true
+      }
+    ]
+  },
+  "purchase": {
+    "id": 1,
+    "replayed": false
+  },
+  "purchase_replay": {
+    "id": 1,
+    "replayed": true
+  },
+  "forbidden": {
+    "code": "CLAN_FORBIDDEN",
+    "detail": "clan forbidden",
+    "retryable": false,
+    "retry_after_seconds": null
+  }
+}

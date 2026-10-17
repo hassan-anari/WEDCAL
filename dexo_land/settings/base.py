@@ -423,3 +423,23 @@ B4_PUBLIC_WELCOME_ENABLED = env_bool("B4_PUBLIC_WELCOME_ENABLED", False)
 
 # Empty uses the normal worker queue; a dedicated queue needs a subscribed worker.
 NOTIFICATION_INTERACTIVE_QUEUE = os.getenv("NOTIFICATION_INTERACTIVE_QUEUE", "")
+
+
+ANNOUNCEMENT_BATCH_SIZE = int(os.getenv("ANNOUNCEMENT_BATCH_SIZE", "100"))
+ANNOUNCEMENT_MAX_ATTEMPTS = int(os.getenv("ANNOUNCEMENT_MAX_ATTEMPTS", "5"))
+CELERY_BEAT_SCHEDULE["process-inapp-announcements"] = {
+    "task": "apps.notifications.tasks.process_announcements",
+    "schedule": 5.0,
+}
+
+BROADCAST_ALBUM_QUIET_SECONDS = float(os.getenv("BROADCAST_ALBUM_QUIET_SECONDS", "2"))
+BROADCAST_ALBUM_CAPTURE_SECONDS = int(os.getenv("BROADCAST_ALBUM_CAPTURE_SECONDS", "120"))
+
+CELERY_BEAT_SCHEDULE["process-clan-mission-signals"] = {
+    "task": "apps.clans.tasks.process_clan_mission_signals",
+    "schedule": 5.0,
+}
+
+CLAN_MISSION_SIGNAL_MAX_ATTEMPTS = int(os.getenv("CLAN_MISSION_SIGNAL_MAX_ATTEMPTS", "5"))
+
+CLAN_AUTHORITY_RECHECK_SECONDS = int(os.getenv("CLAN_AUTHORITY_RECHECK_SECONDS", "60"))

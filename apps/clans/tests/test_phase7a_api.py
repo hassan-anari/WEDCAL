@@ -153,4 +153,5 @@ def test_clan_api_normal_missing_state_errors_are_safe(
     close_season_for_test(season)
     unavailable = client.get("/api/v1/clans/", headers=headers)
     assert unavailable.status_code == 409
-    assert unavailable.json() == {"detail": "No current Clan Season is available"}
+    assert unavailable.json()["code"] == "SEASON_UNAVAILABLE"
+    assert unavailable.json()["retryable"] is False

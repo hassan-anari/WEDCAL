@@ -42,3 +42,22 @@ def deliver_broadcasts() -> int:
 )
 def deliver_one_notification(delivery_id: int) -> int:
     return services.deliver_one_notification(delivery_id)
+
+
+@shared_task(
+    name="apps.notifications.tasks.process_announcements",
+    acks_late=True,
+    reject_on_worker_lost=True,
+    autoretry_for=(),
+    max_retries=0,
+)
+def process_announcements() -> int:
+    from apps.notifications.announcements import process_batch
+    from apps.notifications.models import InAppAnnouncement
+
+    ids = list(
+        InAppAnnouncement.objects.filter(state__in=["PENDING", "PROCESSING"])
+        .order_by("pk")
+        .values_list("pk", flat=True)[:20]
+    )
+    return sum(process_batch(pk) for pk in ids)

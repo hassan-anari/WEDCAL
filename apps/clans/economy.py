@@ -213,7 +213,7 @@ def _evaluate_achievements(
                     "metadata": {"threshold": target},
                 },
             )
-    # banner-raised deliberately remains fail-closed: no canonical shared milestone exists.
+    # banner-raised is owner-deferred to Season 2; no S1 unlock or War evaluation.
 
 
 @transaction.atomic
@@ -478,6 +478,18 @@ def settle_clan_reward(
 
 
 def _captain(cs: ClanSeason, actor: Player) -> None:
+    from apps.players.services import reward_gameplay_allowed
+
+    if not reward_gameplay_allowed(actor):
+        raise PermissionDenied("Player cannot perform Clan economic actions")
+    if not ClanMembership.objects.filter(
+        clan_season=cs,
+        player=actor,
+        role="CAPTAIN",
+        ended_at__isnull=True,
+        access_state=ClanMembership.Access.ACTIVE,
+    ).exists():
+        raise PermissionDenied("Current active Captain membership required")
     if cs.captain_id != actor.pk:
         raise PermissionDenied("Captain role required")
     if cs.state != ClanSeason.State.ACTIVE or cs.season.status != "ACTIVE":
@@ -509,7 +521,7 @@ def purchase_item(
     actor = Player.objects.select_for_update().get(pk=actor.pk)
     _captain(cs, actor)
     policy = resolved_config.clan
-    if policy is None:
+    if policy is None or not policy.enabled:
         raise ValidationError("Clan economy unavailable")
     item = policy.item(item_id)
     if not item.available_s1:
@@ -574,7 +586,7 @@ def activate_item(
     actor = Player.objects.select_for_update().get(pk=actor.pk)
     _captain(cs, actor)
     policy = resolved_config.clan
-    if policy is None:
+    if policy is None or not policy.enabled:
         raise ValidationError("Clan economy unavailable")
     item = policy.item(item_id)
     if not item.available_s1:

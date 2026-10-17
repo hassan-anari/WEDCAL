@@ -624,6 +624,7 @@ def _observe_bot_membership(event: BotMembershipChanged, telegram_update_id: int
             clan_season_id,
             is_admin=group.bot_is_admin and group.bot_can_invite_users,
             authoritative=True,
+            whole_second_update=True,
             observed_at=event.observed_at,
         )
     if not group.bot_is_admin:
@@ -688,6 +689,29 @@ def _observe_user_membership(event: UserMembershipChanged, telegram_update_id: i
             )
         )
     if player is not None:
+        from apps.clans.models import ClanSeason
+        from apps.clans.recovery import observe_captain_authority
+
+        captain_cs_id = (
+            ClanSeason.objects.filter(
+                clan__telegram_group=group,
+                captain=player,
+                state__in=[ClanSeason.State.ACTIVE, ClanSeason.State.RECOVERY],
+                season__status="ACTIVE",
+                season__starts_at__lte=event.observed_at,
+                season__ends_at__gt=event.observed_at,
+            )
+            .values_list("pk", flat=True)
+            .first()
+        )
+        if captain_cs_id is not None:
+            observe_captain_authority(
+                captain_cs_id,
+                has_authority=is_admin,
+                authoritative=True,
+                whole_second_update=True,
+                observed_at=event.observed_at,
+            )
         from apps.clans.services import reconcile_telegram_membership
 
         reconcile_telegram_membership(

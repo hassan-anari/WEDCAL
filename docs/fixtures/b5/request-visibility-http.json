@@ -1,0 +1,70 @@
+{
+  "all_active_despite_history_offset": [
+    {
+      "id": 111,
+      "clan_id": 6,
+      "clan_name": "Clan 5",
+      "state": "PENDING",
+      "created_at": "2026-10-17T07:15:02.962Z",
+      "decided_at": null,
+      "invite_state": null,
+      "delivery_state": null,
+      "cancellation_pending": false,
+      "clan_season_id": 6,
+      "season_id": 5,
+      "season_code": "phase4-s1",
+      "is_current_season": true,
+      "is_active": true,
+      "reserves_capacity": false,
+      "credential_unresolved": false,
+      "blocks_new_application": true,
+      "handling": "CURRENT_SEASON"
+    },
+    {
+      "id": 110,
+      "clan_id": 5,
+      "clan_name": "Clan 3",
+      "state": "PENDING",
+      "created_at": "2026-10-17T07:15:02.961Z",
+      "decided_at": null,
+      "invite_state": null,
+      "delivery_state": null,
+      "cancellation_pending": false,
+      "clan_season_id": 5,
+      "season_id": 5,
+      "season_code": "phase4-s1",
+      "is_current_season": true,
+      "is_active": true,
+      "reserves_capacity": false,
+      "credential_unresolved": false,
+      "blocks_new_application": true,
+      "handling": "CURRENT_SEASON"
+    },
+    {
+      "id": 109,
+      "clan_id": 5,
+      "clan_name": "Clan 3",
+      "state": "ACCEPTED",
+      "created_at": "2026-10-17T07:15:02.959Z",
+      "decided_at": null,
+      "invite_state": "ACTIVE",
+      "delivery_state": "PENDING",
+      "cancellation_pending": false,
+      "clan_season_id": 7,
+      "season_id": 6,
+      "season_code": "synthetic-older-reservation",
+      "is_current_season": false,
+      "is_active": true,
+      "reserves_capacity": true,
+      "credential_unresolved": true,
+      "blocks_new_application": true,
+      "handling": "OPERATOR_REQUIRED"
+    }
+  ],
+  "ambiguous_invite": {
+    "code": "CLAN_STATE_CONFLICT",
+    "detail": "clan state conflict",
+    "retryable": false,
+    "retry_after_seconds": null
+  }
+}

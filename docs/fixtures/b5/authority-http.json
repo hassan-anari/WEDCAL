@@ -1,0 +1,24 @@
+{
+  "authority_lost": {
+    "reasons": [
+      "CAPTAIN_AUTHORITY_LOSS"
+    ],
+    "captain_authority_lost_at": "2026-10-17T07:15:16.286Z",
+    "can_verify_authority": true,
+    "state": "RECOVERY",
+    "reason": "CAPTAIN_AUTHORITY_LOSS",
+    "started_at": "2026-10-17T07:15:16.286Z",
+    "bot_admin_restore_deadline": null,
+    "home_integrity_available": false
+  },
+  "authority_restored": {
+    "reasons": [],
+    "captain_authority_lost_at": null,
+    "can_verify_authority": true,
+    "state": "ACTIVE",
+    "reason": "",
+    "started_at": null,
+    "bot_admin_restore_deadline": null,
+    "home_integrity_available": true
+  }
+}

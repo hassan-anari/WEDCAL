@@ -1,0 +1,12 @@
+{
+  "first_request": {
+    "id": 268,
+    "state": "PENDING"
+  },
+  "second_clan_conflict": {
+    "code": "CLAN_STATE_CONFLICT",
+    "detail": "clan state conflict",
+    "retryable": false,
+    "retry_after_seconds": null
+  }
+}

@@ -114,7 +114,14 @@ class TelegramHTML(HTMLParser):
         raise ValidationError("HTML declarations are unsupported")
 
 
+def normalize_body(body: str) -> str:
+    # Browser textareas submit CRLF; Django CharField strips edges but preserves CRLF.
+    # Normalize before character counting, validation and immutable persistence.
+    return body.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def validate_template(body: str, keyboard: Any) -> None:
+    body = normalize_body(body)
     if (
         not body.strip()
         or len(body.encode("utf-16-le")) // 2 > 4096

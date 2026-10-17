@@ -1,0 +1,121 @@
+{
+  "governance_open": {
+    "id": 1,
+    "case_type": "SOLDIER_REMOVAL",
+    "status": "OPEN",
+    "voting_deadline": "2026-10-18T07:15:10.567Z",
+    "quorum_bps": 4000,
+    "approval_bps": 6000,
+    "minimum_eligible_voters": 3,
+    "eligible_count": 3,
+    "reason": "COMMUNITY_REASON",
+    "target_membership_id": 125,
+    "target_first_name": "Dexo",
+    "target_username": "",
+    "is_eligible_voter": true,
+    "own_vote": null,
+    "yes_count": null,
+    "no_count": null,
+    "valid_cast_count": null,
+    "result": null
+  },
+  "target_vote_forbidden": {
+    "code": "CLAN_FORBIDDEN",
+    "detail": "clan forbidden",
+    "retryable": false,
+    "retry_after_seconds": null
+  },
+  "governance_final": {
+    "id": 1,
+    "case_type": "SOLDIER_REMOVAL",
+    "status": "APPROVED",
+    "voting_deadline": "2026-10-18T07:15:10.567Z",
+    "quorum_bps": 4000,
+    "approval_bps": 6000,
+    "minimum_eligible_voters": 3,
+    "eligible_count": 3,
+    "reason": "COMMUNITY_REASON",
+    "target_membership_id": 125,
+    "target_first_name": "Dexo",
+    "target_username": "",
+    "is_eligible_voter": true,
+    "own_vote": "YES",
+    "yes_count": 2,
+    "no_count": 1,
+    "valid_cast_count": 3,
+    "result": "APPROVED"
+  },
+  "access_lost": {
+    "membership_id": 126,
+    "clan_season_id": 126,
+    "access_rejoin_deadline": "2026-10-19T07:15:11.477Z",
+    "clan_id": 121,
+    "clan_name": "Clan 2",
+    "role": "SOLDIER",
+    "access_state": "ACCESS_LOST",
+    "started_at": "2026-10-17T07:15:10.477Z"
+  },
+  "access_recovered": {
+    "membership_id": 126,
+    "clan_season_id": 126,
+    "access_rejoin_deadline": null,
+    "clan_id": 121,
+    "clan_name": "Clan 2",
+    "role": "SOLDIER",
+    "access_state": "ACTIVE",
+    "started_at": "2026-10-17T07:15:10.477Z"
+  },
+  "pending_request": [
+    {
+      "id": 227,
+      "clan_id": 121,
+      "clan_name": "Clan 2",
+      "state": "PENDING",
+      "created_at": "2026-10-17T07:15:10.869Z",
+      "decided_at": null,
+      "invite_state": null,
+      "delivery_state": null,
+      "cancellation_pending": false,
+      "clan_season_id": 126,
+      "season_id": 24,
+      "season_code": "phase4-s1",
+      "is_current_season": true,
+      "is_active": true,
+      "reserves_capacity": false,
+      "credential_unresolved": false,
+      "blocks_new_application": true,
+      "handling": "CURRENT_SEASON"
+    }
+  ],
+  "accepted_request": {
+    "id": 227,
+    "state": "ACCEPTED"
+  },
+  "uncertain_invite": {
+    "state": "UNCERTAIN",
+    "invite_link": null,
+    "delivery_state": "PENDING"
+  },
+  "unsafe_cancellation_retained": [
+    {
+      "id": 227,
+      "clan_id": 121,
+      "clan_name": "Clan 2",
+      "state": "ACCEPTED",
+      "created_at": "2026-10-17T07:15:10.869Z",
+      "decided_at": "2026-10-17T07:15:10.896Z",
+      "invite_state": "UNCERTAIN",
+      "delivery_state": "PENDING",
+      "cancellation_pending": true,
+      "clan_season_id": 126,
+      "season_id": 24,
+      "season_code": "phase4-s1",
+      "is_current_season": true,
+      "is_active": true,
+      "reserves_capacity": true,
+      "credential_unresolved": true,
+      "blocks_new_application": true,
+      "handling": "CURRENT_SEASON"
+    }
+  ]
+}

@@ -1,11 +1,13 @@
 import hashlib
 import io
+import re
 import warnings
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import unquote, urlsplit
 
 from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.validators import URLValidator
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -17,32 +19,37 @@ from apps.notifications.models import OperatorAuditEvent
 
 
 def validate_destination(url: str) -> None:
-    if not url:
+    if url == "":
         return
     try:
+        if not isinstance(url, str) or len(url) > 2048:
+            raise ValueError
+        URLValidator(schemes=["https"])(url)
         parts = urlsplit(url)
+        # Validate the literal destination; this service never redirects or fetches it.
+        # One decoding pass detects hidden controls/credentials/path confusion; nested
+        # escapes and malformed percent sequences are rejected, not reinterpreted.
+        if re.search(r"%(?![0-9a-fA-F]{2})", url):
+            raise ValueError
+        decoded = unquote(url, errors="strict")
         if (
             parts.scheme != "https"
             or not parts.hostname
-            or parts.username
-            or parts.password
+            or "@" in parts.netloc
             or parts.port not in (None, 443)
             or parts.fragment
-            or "%" in parts.path
-            or "\\" in url
-            or any(ord(c) < 33 for c in url)
+            or any(ord(c) < 33 or ord(c) == 127 for c in url)
+            or any(ord(c) < 32 or ord(c) == 127 or c in '\\<>"`' for c in decoded)
+            or "%" in decoded
             or parts.path.startswith("//")
-            or parts.hostname.lower() not in settings.BANNER_ALLOWED_LINK_HOSTS
+            or unquote(parts.path).startswith("//")
+            or any(x in unquote(parts.path).split("/") for x in (".", ".."))
         ):
-            raise ValueError("unsafe_destination")
-        # Do not accept open-redirect parameters. Only Telegram's documented launch keys.
-        if parts.query and (
-            parts.hostname.lower() != "t.me"
-            or set(parse_qs(parts.query)) - {"start", "startapp", "startgroup"}
-        ):
-            raise ValueError("redirect_query")
-    except (ValueError, TypeError) as exc:
-        raise ValidationError("Destination must use an approved HTTPS host and safe path") from exc
+            raise ValueError
+    except (ValueError, TypeError, UnicodeError, ValidationError) as exc:
+        raise ValidationError(
+            "Destination must be a valid HTTPS URL without unsafe structure"
+        ) from exc
 
 
 def encode_image(upload: Any) -> bytes:

@@ -41,7 +41,7 @@ class ThrottleOutput(Schema):
     detail: str
 
 
-def b3_responses(success: type[Schema]) -> dict[int, Any]:
+def b3_responses(success: Any) -> dict[int, Any]:
     return {
         200: success,
         401: IntegrationErrorOutput,

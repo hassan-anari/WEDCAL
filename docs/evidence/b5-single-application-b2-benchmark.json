@@ -1,0 +1,111 @@
+{
+  "scope": "local PostgreSQL benchmark; auth/HTTP/network excluded",
+  "postgres_version": "17.11",
+  "concurrent_workers": 16,
+  "synthetic_players": 64,
+  "bursts_per_player": 4,
+  "taps_per_batch": 25,
+  "accepted_batches": 512,
+  "lease_requests": 256,
+  "accepted_taps": 12800,
+  "wall_seconds": 33.162,
+  "accepted_batches_per_second": 15.439,
+  "all_requests_per_second": 23.159,
+  "batch_latency_ms": {
+    "p50": 751.25,
+    "p95": 972.244,
+    "p99": 1099.967
+  },
+  "lease_latency_ms": {
+    "p50": 471.051,
+    "p95": 884.866,
+    "p99": 1169.82
+  },
+  "player_lock_ms": {
+    "p50": 11.13,
+    "p95": 37.164,
+    "p99": 53.285
+  },
+  "lock_wait_sampling": {
+    "interval_ms": 10,
+    "samples": 1065,
+    "max_waiters": 0,
+    "samples_with_waiters": 0
+  },
+  "same_player_contention": {
+    "concurrent_duplicate_requests": 16,
+    "new_rewards": 1,
+    "duplicate_receipts": 15,
+    "latency_ms": {
+      "p50": 409.88,
+      "p95": 574.265,
+      "p99": 574.265
+    },
+    "lock_wait_samples": 42,
+    "max_waiters": 15,
+    "samples_with_waiters": 33
+  },
+  "durable_rows": {
+    "ledger": 513,
+    "facts": 513,
+    "leases": 257,
+    "burst_states": 65
+  },
+  "postgres_table_stats": [
+    {
+      "table": "arena_performancesourcefact",
+      "inserts_cumulative": 513,
+      "updates_cumulative": 0,
+      "deletes_cumulative": 0,
+      "total_bytes": 720896
+    },
+    {
+      "table": "arena_rankingprojectionevent",
+      "inserts_cumulative": 513,
+      "updates_cumulative": 0,
+      "deletes_cumulative": 0,
+      "total_bytes": 704512
+    },
+    {
+      "table": "base_tap_tapburststate",
+      "inserts_cumulative": 65,
+      "updates_cumulative": 770,
+      "deletes_cumulative": 0,
+      "total_bytes": 147456
+    },
+    {
+      "table": "base_tap_taplease",
+      "inserts_cumulative": 257,
+      "updates_cumulative": 192,
+      "deletes_cumulative": 0,
+      "total_bytes": 393216
+    },
+    {
+      "table": "progression_playerprogression",
+      "inserts_cumulative": 65,
+      "updates_cumulative": 513,
+      "deletes_cumulative": 0,
+      "total_bytes": 57344
+    },
+    {
+      "table": "rewards_rewardledger",
+      "inserts_cumulative": 513,
+      "updates_cumulative": 0,
+      "deletes_cumulative": 0,
+      "total_bytes": 958464
+    },
+    {
+      "table": "seasons_playerseason",
+      "inserts_cumulative": 65,
+      "updates_cumulative": 513,
+      "deletes_cumulative": 0,
+      "total_bytes": 180224
+    }
+  ],
+  "limitations": [
+    "virtual cooldown clock; database capacity measurement",
+    "small warm database, one container, no public endpoints",
+    "table write counters are cumulative for this test database, including fixture setup",
+    "no launch-scale SLO claim"
+  ]
+}

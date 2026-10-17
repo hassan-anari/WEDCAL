@@ -149,6 +149,7 @@ def request_validation_error(request: HttpRequest, exc: ValidationError) -> Http
             "/api/v1/network",
             "/api/v1/referrals",
             "/api/v1/content",
+            "/api/v1/clans",
         )
     ):
         return b3_error(request, B3Error("REQUEST_INVALID", 422))
@@ -163,6 +164,14 @@ def request_validation_error(request: HttpRequest, exc: ValidationError) -> Http
 
 @api.exception_handler(HttpError)
 def http_error(request: HttpRequest, exc: HttpError) -> HttpResponse:
+    if request.path.startswith("/api/v1/clans"):
+        return b3_error(
+            request,
+            B3Error(
+                "CLAN_NOT_FOUND" if exc.status_code == 404 else "CLAN_REQUEST_REJECTED",
+                exc.status_code,
+            ),
+        )
     if request.path.startswith("/api/v1/base/v2/") and exc.status_code == 400:
         return tap_error(request, TapError("REQUEST_INVALID", 422))
     if request.path.rstrip("/") == "/api/v1/auth/telegram" and exc.status_code == 400:

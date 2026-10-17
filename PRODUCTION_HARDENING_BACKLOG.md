@@ -11,7 +11,7 @@
 **Phase 10 reviewed hosted HEAD:** `d049af43a3c9d18d4221e883413834d82125ae78`
 **Phase 11 final reviewed hosted HEAD:** `eb6b293b472bacb273d69c8681406cc15af58c96`
 **Initial review date:** 2026-09-10
-**Last reviewed:** 2026-10-15 (B2 backend draft based on main `95f8458`; see committed B2 evidence and PR CI)
+**Last reviewed:** 2026-10-17 (owner PH-048 decision recorded only; prior technical validation and runtime evidence unchanged)
 **Owner:** repository/product owner
 
 ---
@@ -76,6 +76,7 @@ Every future phase prompt should include this instruction:
 - `WATCH` — architecture is currently safe, but capacity/behavior must be measured before launch.
 - `RESOLVED` — acceptance criteria have been verified and recorded in the resolution log.
 - `SUPERSEDED` — replaced by an explicit newer contract/design; retain history.
+- `DEFERRED` — owner-approved work deliberately reserved for a future Season/phase; not a current-Season blocker, but must pass its future activation gate.
 
 ### Gate
 
@@ -147,6 +148,7 @@ Until functional MVP is complete:
 | PH-045 | Unresolved Clan lifecycle product decisions | OPEN | PHASE-BLOCKER | Phase 7B dissolution/recovery design | Medium/High |
 | PH-046 | Multi-Season Clan identity/state isolation | OPEN | SEASON-2-BLOCKER | Before a persistent Clan enters Season 2 | High |
 | PH-047 | Accepted JOIN reservation and credential liveness | RESOLVED | CLOSED | Phase 8 correctness pass | High |
+| PH-048 | Clan `banner-raised` Trophy Hall achievement | DEFERRED | SEASON-2-ACTIVATION | First server-confirmed Clan War victory in Season 2; no Season 1 unlock | Future War integrity |
 | PH-037 | Main-branch protection / ruleset enforcement | OWNER_ACTION_REQUIRED | LAUNCH-BLOCKER | Before multiple operators/agents or production release flow | Medium/High process |
 | PH-038 | Contract-gate robustness beyond prose substring checks | OPEN | POLISH / GOVERNANCE | Before production governance freeze | Medium |
 | PH-039 | Dependency/container vulnerability review | RESOLVED | LAUNCH-BLOCKER | Phase 11 PR #16 hosted release scans | Medium/High |
@@ -161,16 +163,15 @@ Until functional MVP is complete:
 ## PH-045 — Unresolved Clan lifecycle product decisions
 
 **Origin:** Phase 7A Clan Core
-**State:** `OPEN`
+**State:** `VERIFYING`
 **Gate:** `PHASE-BLOCKER` before Phase 7B dissolution/recovery behavior
 
-The contract does not yet decide Creator Group/Clan Home coexistence, repeated same-Season recreation after dissolution, or detailed Telegram authority-loss recovery triggers. Phase 7A does not invent these answers; Phase 7B requires owner-approved decisions and transition tests.
+Original Phase 7A questions were Creator Group/Clan Home coexistence, repeated same-Season recreation and Captain Telegram authority-loss triggers. The approved resolutions below now govern Season 1; agents must not invent additional lifecycle rules.
 
 **Phase 8 context-ownership sub-decision (resolved):** a live `ACTIVE`/`RECOVERY`
 ClanSeason exclusively owns its Telegram group as `CLAN_HOME`; registration rejects every
 non-`INACTIVE` Creator registration and impossible dual-live data fails closed in message
-routing. Ending a Clan does not reactivate historical Creator state. Other independent
-PH-045 lifecycle questions remain open.
+routing. Ending a Clan does not reactivate historical Creator state. Owner decision during B5: keep same-Season Captain recreation after dissolution blocked. The owner additionally approved confirmed Captain authority loss → RECOVERY (`CAPTAIN_AUTHORITY_LOSS`), preservation of identity/assets/memberships, Captain notification, restoration only after fresh original-Captain and bot permission verification, no activity-only restoration, no automatic dissolution/succession/new deadline/penalty, independent overlapping recovery causes and existing authorized dissolution governance. B5 implements these decisions; local PostgreSQL regressions pass. PH-045 is `VERIFYING` until the final runtime hosted checks are green; those checks and the exact pin are recorded in Draft PR #30.
 
 Phase 10 operational tooling must also provide an audited resolution action for Phase 7A
 `MANUAL_REVIEW` invite rows carrying `unknown_credential_risk`; until resolved, the same
@@ -205,15 +206,17 @@ revocation against presence activation. These races prove that activation and ca
 continue to reserve, safe terminalization releases exactly once, and neither path applies a
 voluntary-leave count or cooldown. PH-047 is therefore resolved for the approved no-TTL policy.
 
-## PH-048 — Clan `banner-raised` shared milestone predicate
+## PH-048 — Clan `banner-raised` Trophy Hall achievement (deferred to Season 2)
 
 **Origin:** Phase 8 Trophy Hall
-**State:** `OPEN`
-**Gate:** `PRODUCT-DECISION` before enabling `banner-raised`
+**State:** `DEFERRED` — owner product decision recorded on 2026-10-17
+**Gate:** No Season 1 blocker; `SEASON-2-ACTIVATION` before enabling this achievement alongside Clan War
 
-The approved config names `CLAN_CREATED_AND_FIRST_SHARED_MILESTONE` but supplies no concrete,
-server-owned milestone predicate. Phase 8 keeps evaluation fail-closed and awards no points;
-product must define the event before this achievement can be enabled.
+**Owner-approved decision:** `banner-raised` is a **Clan-level Trophy Hall achievement**, not a Player achievement or daily mission. It must remain unavailable throughout Season 1 and must not appear as an obtainable Season 1 achievement. In Season 2, unlock it only after the Clan's **first authoritative, server-confirmed victory in an official Clan War**, with **at most one unlock per Clan per Season** (`ClanSeason`-scoped, idempotent). Creating or registering a Clan, connecting its Telegram group, or merely participating in a War does **not** satisfy the new predicate.
+
+**Current B5 behavior remains unchanged:** The existing `CLAN_CREATED_AND_FIRST_SHARED_MILESTONE` config name is historical and **does not authorize** a Season 1 creation-based/shared-milestone unlock. `banner-raised` remains `UNAVAILABLE`, with null progress/target, no unlock, and **no XP, DLX or other reward**. Keep it out of attainable Season 1 UI; do not introduce War, a replacement predicate, a reward, or an API behavior change in B5/B6.
+
+**Future Season 2 acceptance:** Implement only with an approved authoritative War result/finalization source; grant exactly once per eligible `ClanSeason`, using durable, idempotent provenance. War result finality/disputes/reversals, exact achievement metadata, UI presentation and any XP/DLX/reward amount remain **unapproved** and must be specified in the Season 2 War design before activation. This owner decision closes the missing *product-event definition* for PH-048; it does not imply Season 2 implementation, reward approval or successful tests.
 
 ## PH-049 — Phase 8 economy projection reconciliation operations
 
@@ -1000,7 +1003,7 @@ This matrix is a routing guide, **not permission to expand a phase beyond its ca
 | **Phase 9 — Arena Rankings + Weekly DLX settlement** | **PH-003, PH-005, PH-006, PH-007, PH-042 are blockers.** Also measure PH-021 where ranking/history read paths overlap. |
 | **Phase 10 — Notifications + Broadcast + Admin** | PH-002, PH-009, PH-027, PH-028, PH-034; build RBAC/audit/preview for dangerous admin actions. |
 | **Phase 11 — Season Close & Production Hardening** | PH-008 and PH-043 plus all remaining `LAUNCH-BLOCKER` and every S1 `WATCH` item through realistic measurement. PH-029–PH-039 form the core production-readiness gate. |
-| **Season 2 integration** | PH-040, PH-041, PH-044 plus new Exchange/War/Arena/Trading-specific risks added by their own approved contract. |
+| **Season 2 integration** | PH-040, PH-041, PH-044 and **PH-048** (first authoritative Clan War victory; once per ClanSeason; no reward assumed), plus new Exchange/War/Arena/Trading-specific risks added by their own approved contract. |
 
 ---
 

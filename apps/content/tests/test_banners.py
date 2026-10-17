@@ -75,9 +75,7 @@ def test_disabled_schedule_priority_safe_empty_and_deactivation_audit(content_wo
         "javascript:alert(1)",
         "data:text/html,x",
         "http://t.me/a",
-        "https://t.me.evil.test/a",
         "https://t.me@evil.test/a",
-        "https://t.me/a?url=https://evil.test",
         "https://t.me:444/a",
         "https://t.me/\\evil.test",
         "https://t.me/%0aevil",
@@ -163,3 +161,38 @@ def test_admin_upload_validates_before_save_and_can_publish_new_image(content_wo
     request.user = actor
     BannerAdmin(PromotionalBanner, admin.site).save_model(request, good.instance, good, False)
     assert good.instance.enabled and good.instance.asset_id
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "",
+        "https://external.example/path?campaign=b5&name=hello%20world",
+        "https://t.me/community?startapp=campaign",
+        "https://t.me.evil.test/a",
+        "https://external.example/?url=https://other.example/",
+        "https://external.example/path?q=%D8%B3%D9%84%D8%A7%D9%85",
+    ],
+)
+def test_owner_approved_https_destinations_ignore_old_allowlist(url, settings):
+    settings.BANNER_ALLOWED_LINK_HOSTS = []
+    validate_destination(url)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://evil.example/%250a",
+        "https://evil.example/?q=%0d%0a",
+        "https://evil.example/%2f%2fevil",
+        "https://evil.example/%2e%2e/a",
+        "https://evil.example/?q=%zz",
+        "https://evil.example/?q=%22onclick=x",
+        "https://evil.example/\x7f",
+        "https://@evil.example/a",
+        "https://evil..example/a",
+    ],
+)
+def test_banner_destination_structure_security(url):
+    with pytest.raises(ValidationError):
+        validate_destination(url)

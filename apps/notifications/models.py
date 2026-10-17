@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Collection
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -99,6 +100,7 @@ class DeliveryFields(models.Model):
     lease_token = models.UUIDField(null=True)
     lease_expires_at = models.DateTimeField(null=True, blank=True)
     telegram_message_id = models.BigIntegerField(null=True)
+    telegram_message_ids = models.JSONField(default=list, blank=True)
     error_category = models.CharField(max_length=64, blank=True)
     sent_at = models.DateTimeField(null=True)
     completed_at = models.DateTimeField(null=True)
@@ -113,6 +115,9 @@ class TelegramDelivery(DeliveryFields):
         Notification, on_delete=models.PROTECT, related_name="telegram_delivery"
     )
     source_received_at = models.DateTimeField(null=True)
+    copy_source = models.ForeignKey(
+        "BroadcastSource", null=True, blank=True, on_delete=models.PROTECT
+    )
     text_snapshot = models.TextField(max_length=4096, blank=True)
     message_options = models.JSONField(default=dict)
 
@@ -147,6 +152,9 @@ class BroadcastCampaign(models.Model):
     audience_type = models.CharField(max_length=24, choices=Audience.choices)
     title_snapshot = models.CharField(max_length=200, blank=True)
     body_snapshot = models.TextField(max_length=4096)
+    copy_source = models.ForeignKey(
+        "BroadcastSource", null=True, blank=True, on_delete=models.PROTECT
+    )
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
     purpose = models.CharField(max_length=1000)
     materialization_cursor = models.PositiveBigIntegerField(default=0)
@@ -172,7 +180,13 @@ class BroadcastCampaign(models.Model):
                 original.audience_policy_version != self.audience_policy_version
             ):
                 raise ValidationError("Active campaign audience policy is immutable")
-            defining_fields = ("audience_type", "title_snapshot", "body_snapshot", "purpose")
+            defining_fields = (
+                "audience_type",
+                "title_snapshot",
+                "body_snapshot",
+                "purpose",
+                "copy_source_id",
+            )
             if (original.state != self.State.DRAFT or self.state != self.State.DRAFT) and any(
                 getattr(original, field) != getattr(self, field) for field in defining_fields
             ):
@@ -296,9 +310,16 @@ class WelcomeTemplate(models.Model):
             ("test_welcome", "Can test Welcome in own authorized operator chat"),
         ]
 
-    def clean(self) -> None:
-        from apps.notifications.welcome_config import validate_template
+    def clean_fields(self, exclude: Collection[str] | None = None) -> None:
+        from apps.notifications.welcome_config import normalize_body
 
+        self.body = normalize_body(self.body)
+        super().clean_fields(exclude=exclude)
+
+    def clean(self) -> None:
+        from apps.notifications.welcome_config import normalize_body, validate_template
+
+        self.body = normalize_body(self.body)
         validate_template(self.body, self.keyboard)
 
     def save(self, *args: object, **kwargs: object) -> None:
@@ -316,3 +337,100 @@ class WelcomeConfiguration(models.Model):
 
     class Meta:
         constraints = [models.CheckConstraint(condition=models.Q(id=1), name="welcome_singleton")]
+
+
+class InAppAnnouncement(models.Model):
+    class State(models.TextChoices):
+        DRAFT = "DRAFT", "Draft"
+        PENDING = "PENDING", "Pending"
+        PROCESSING = "PROCESSING", "Processing"
+        COMPLETED = "COMPLETED", "Completed"
+        FAILED = "FAILED", "Failed"
+        CANCELLED = "CANCELLED", "Cancelled"
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    template = models.ForeignKey(NotificationTemplate, on_delete=models.PROTECT)
+    audience = models.CharField(
+        max_length=8, choices=[("ALL", "All existing Players"), ("ONE", "One Player")]
+    )
+    player = models.ForeignKey("players.Player", null=True, blank=True, on_delete=models.PROTECT)
+    state = models.CharField(
+        max_length=16, choices=State.choices, default=State.DRAFT, db_index=True
+    )
+    title_snapshot = models.CharField(max_length=200, blank=True)
+    body_snapshot = models.TextField(max_length=4000, blank=True)
+    channel = models.CharField(max_length=16, default="IN_APP", editable=False)
+    recipient_upper_bound = models.PositiveBigIntegerField(default=0)
+    estimated_recipients = models.PositiveBigIntegerField(default=0)
+    cursor = models.PositiveBigIntegerField(default=0)
+    processed_count = models.PositiveBigIntegerField(default=0)
+    attempt_count = models.PositiveSmallIntegerField(default=0)
+    next_attempt_at = models.DateTimeField(null=True, blank=True)
+    error_category = models.CharField(max_length=64, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="announcement_drafts"
+    )
+    confirmed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="confirmed_announcements",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        permissions = [
+            ("publish_inappannouncement", "Can confirm and publish In-App announcements"),
+            ("cancel_inappannouncement", "Can cancel unprocessed In-App announcement work"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(channel="IN_APP"), name="announcement_inapp_only"
+            ),
+            models.CheckConstraint(
+                condition=models.Q(audience="ALL", player__isnull=True)
+                | models.Q(audience="ONE", player__isnull=False),
+                name="announcement_exact_audience",
+            ),
+        ]
+
+    def clean(self) -> None:
+        if self.template_id and self.template.channel != NotificationTemplate.Channel.IN_APP:
+            raise ValidationError("Announcements require an In-App template")
+        if (self.audience == "ONE") != bool(self.player_id):
+            raise ValidationError("Select exactly one Player for the ONE audience")
+
+
+class BroadcastSource(models.Model):
+    """Native-copy source references; content becomes immutable when sealed."""
+
+    frozen_preview = models.ForeignKey(
+        TelegramDelivery, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    operator = models.ForeignKey(BotAdminOperator, on_delete=models.PROTECT)
+    chat_id = models.BigIntegerField()
+    media_group_id = models.CharField(max_length=128, blank=True)
+    messages = models.JSONField(default=list)
+    state = models.CharField(
+        max_length=16,
+        default="COLLECTING",
+        choices=[("COLLECTING", "Collecting"), ("READY", "Ready"), ("INVALID", "Invalid")],
+    )
+    sealed_at = models.DateTimeField(null=True)
+    quiet_until = models.DateTimeField()
+    deadline = models.DateTimeField()
+    error_category = models.CharField(max_length=64, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("operator", "media_group_id"),
+                condition=~models.Q(media_group_id=""),
+                name="broadcast_operator_album",
+            )
+        ]

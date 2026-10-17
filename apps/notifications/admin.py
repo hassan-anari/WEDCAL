@@ -1,5 +1,6 @@
 from typing import Any
 
+from django import forms
 from django.contrib import admin, messages
 from django.contrib.auth.models import User
 from django.core import signing
@@ -77,6 +78,7 @@ class BroadcastCampaignAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
         "delivery_metrics",
     )
     readonly_fields = (
+        "copy_source",
         "created_by",
         "state",
         "materialization_cursor",
@@ -95,6 +97,7 @@ class BroadcastCampaignAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
         self, request: HttpRequest, obj: BroadcastCampaign | None = None
     ) -> tuple[str, ...]:
         history = (
+            "copy_source",
             "created_by",
             "state",
             "materialization_cursor",
@@ -203,8 +206,24 @@ class GroupBroadcastConsentEventAdmin(ReadOnlyAdmin):
     list_display = ("subscription", "actor_telegram_user_id", "enabled", "revision", "created_at")
 
 
+class WelcomeBodyField(forms.CharField):
+    def to_python(self, value: Any) -> str:
+        from apps.notifications.welcome_config import normalize_body
+
+        return normalize_body(super().to_python(value) or "")
+
+
+class WelcomeTemplateForm(forms.ModelForm):  # type: ignore[type-arg]
+    body = WelcomeBodyField(max_length=4096, widget=forms.Textarea, strip=False)
+
+    class Meta:
+        model = WelcomeTemplate
+        fields = ("version", "body", "keyboard")
+
+
 @admin.register(WelcomeTemplate)
 class WelcomeTemplateAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
+    form = WelcomeTemplateForm
     list_display = ("version", "created_by", "created_at")
     readonly_fields = ("created_by", "created_at", "operations")
 
@@ -300,5 +319,158 @@ class WelcomeTemplateAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
                     "admin:notifications_welcome_operation", args=[template.pk, "test"]
                 ),
                 "opts": self.model._meta,
+            },
+        )
+
+
+from apps.notifications import announcements  # noqa: E402
+from apps.notifications.models import InAppAnnouncement  # noqa: E402
+
+
+@admin.register(InAppAnnouncement)
+class InAppAnnouncementAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
+    list_display = (
+        "public_id",
+        "state",
+        "audience",
+        "channel",
+        "estimated_recipients",
+        "processed_count",
+        "error_category",
+    )
+    fields = (
+        "template",
+        "audience",
+        "player",
+        "channel",
+        "state",
+        "title_snapshot",
+        "body_snapshot",
+        "estimated_recipients",
+        "processed_count",
+        "error_category",
+        "attempt_count",
+        "next_attempt_at",
+        "created_by",
+        "confirmed_by",
+        "confirmed_at",
+        "completed_at",
+        "cancelled_at",
+        "operations",
+    )
+    readonly_fields = (
+        "channel",
+        "state",
+        "title_snapshot",
+        "body_snapshot",
+        "estimated_recipients",
+        "processed_count",
+        "error_category",
+        "attempt_count",
+        "next_attempt_at",
+        "created_by",
+        "confirmed_by",
+        "confirmed_at",
+        "completed_at",
+        "cancelled_at",
+        "operations",
+    )
+    raw_id_fields = ("player",)
+
+    def get_readonly_fields(self, request, obj=None):  # type: ignore[no-untyped-def]
+        return self.readonly_fields + (
+            ("template", "audience", "player") if obj and obj.state != "DRAFT" else ()
+        )
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):  # type: ignore[no-untyped-def]
+        if db_field.name == "template":
+            kwargs["queryset"] = NotificationTemplate.objects.filter(channel="IN_APP", enabled=True)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def save_model(self, request, obj, form, change):  # type: ignore[no-untyped-def]
+        if not change:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
+
+    def has_delete_permission(self, request, obj=None):  # type: ignore[no-untyped-def]
+        return False
+
+    def has_change_permission(self, request, obj=None):  # type: ignore[no-untyped-def]
+        return (obj is None or obj.state == "DRAFT") and super().has_change_permission(request, obj)
+
+    def operations(self, obj):  # type: ignore[no-untyped-def]
+        if not obj or not obj.pk:
+            return "Save a draft, then preview and explicitly confirm publishing."
+        return format_html(
+            '<a href="{}">Preview / confirm / cancel</a>',
+            reverse("admin:notifications_announcement_operation", args=[obj.pk]),
+        )
+
+    def get_urls(self):  # type: ignore[no-untyped-def]
+        return [
+            path(
+                "<int:object_id>/publish/",
+                self.admin_site.admin_view(self.operation),
+                name="notifications_announcement_operation",
+            )
+        ] + super().get_urls()
+
+    def operation(self, request, object_id):  # type: ignore[no-untyped-def]
+        row = get_object_or_404(InAppAnnouncement.objects.select_related("template"), pk=object_id)
+        if not self.has_view_permission(request, row):
+            raise PermissionDenied
+        error = ""
+        identity = {"announcement": row.pk, "actor": request.user.pk}
+        if request.method == "POST":
+            try:
+                signed = signing.loads(
+                    request.POST.get("confirmation", ""), salt="inapp-announcement", max_age=900
+                )
+                if signed["identity"] != identity or request.POST.get("confirm") != "yes":
+                    raise ValidationError("Explicit confirmation is required")
+                if request.POST.get("operation") == "publish":
+                    announcements.confirm(
+                        row.pk,
+                        request.user,
+                        expected=signed["preview"],
+                        reason=request.POST.get("reason", ""),
+                    )
+                elif request.POST.get("operation") == "retry":
+                    announcements.retry(row.pk, request.user, reason=request.POST.get("reason", ""))
+                elif request.POST.get("operation") == "cancel":
+                    announcements.cancel(
+                        row.pk, request.user, reason=request.POST.get("reason", "")
+                    )
+                else:
+                    raise ValidationError("Invalid operation")
+                return redirect(
+                    reverse("admin:notifications_inappannouncement_change", args=[row.pk])
+                )
+            except (signing.BadSignature, ValidationError, KeyError) as exc:
+                error = "Confirmation invalid or draft changed; preview again."
+                if isinstance(exc, ValidationError):
+                    error = "; ".join(exc.messages)
+        try:
+            data = announcements.preview(row) if row.state == "DRAFT" else {}
+        except ValidationError as exc:
+            error = "; ".join(exc.messages)
+            data = {}
+        return TemplateResponse(
+            request,
+            "admin/notifications/announcement_operation.html",
+            {
+                **self.admin_site.each_context(request),
+                "opts": self.model._meta,
+                "row": row,
+                "preview": data,
+                "title_text": row.template.title if row.state == "DRAFT" else row.title_snapshot,
+                "body_text": row.template.body if row.state == "DRAFT" else row.body_snapshot,
+                "error": error,
+                "confirmation": signing.dumps(
+                    {"identity": identity, "preview": data}, salt="inapp-announcement"
+                ),
+                "can_publish": bool(data or row.state == "FAILED")
+                and request.user.has_perm("notifications.publish_inappannouncement"),
+                "can_cancel": request.user.has_perm("notifications.cancel_inappannouncement"),
             },
         )

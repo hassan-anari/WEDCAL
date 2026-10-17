@@ -194,7 +194,27 @@ def _finalize(activity: ClanActivity, now: datetime) -> bool:
                 source_facts_verified=True,
             )
             window.settlement = settlement
+            from apps.clans.missions import queue_mission_signal
+
+            queue_mission_signal(
+                membership=activity.membership,
+                source_key=f"contribution:{settlement.pk}",
+                requirement="CLAN_CONTRIBUTION",
+                units=settlement.contribution_amount,
+                occurred_at=economic_at,
+            )
         window.save()
+        from apps.clans.missions import queue_mission_signal
+
+        for item in source.filter(rewardable_chars__gt=0).select_related("membership"):
+            assert item.membership is not None
+            queue_mission_signal(
+                membership=item.membership,
+                source_key=f"clan-activity:{item.pk}",
+                requirement="VALID_CLAN_ACTIVITY",
+                units=1,
+                occurred_at=item.observed_at,
+            )
         source.update(window_processed=True)
         latest_accepted = source.filter(rewardable_chars__gt=0).order_by("-observed_at").first()
         if latest_accepted and latest_accepted.membership_id:
