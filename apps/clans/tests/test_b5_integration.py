@@ -91,7 +91,7 @@ def test_actual_clan_reads_privacy_economy_and_generated_fixtures(clan_world, b5
         assert response.status_code == 200, (path, response.content)
         assert response["Cache-Control"] == "private, no-store"
         captured[path] = response.json()
-    assert captured["state"]["owner_decisions_pending"] == ["PH-048"]
+    assert captured["state"]["owner_decisions_pending"] == []
     assert captured["roster"]["total_count"] == 2
     assert {m["membership_id"] for m in captured["roster"]["items"]} == {
         member.pk,
@@ -99,7 +99,7 @@ def test_actual_clan_reads_privacy_economy_and_generated_fixtures(clan_world, b5
     }
     assert all("telegram_user_id" not in m for m in captured["roster"]["items"])
     assert captured["home"]["total_contribution"] == settlement.contribution_amount
-    assert captured["trophies"][0]["blocked_reason"] == "PH-048_PRODUCT_DECISION_REQUIRED"
+    assert captured["trophies"][0]["blocked_reason"] == "SEASON_2_DEFERRED"
     assert captured["trophies"][0]["unlocked"] is False
     assert outsider_http.get("/api/v1/clans/roster").status_code == 404
     assert outsider_http.get("/api/v1/clans/treasury").status_code == 404

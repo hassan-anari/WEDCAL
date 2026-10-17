@@ -131,7 +131,7 @@ class StateOut(Schema):
     unlock_level: int | None
     max_voluntary_leaves: int
     leave_cooldown_hours: int
-    owner_decisions_pending: list[str] = ["PH-048"]
+    owner_decisions_pending: list[str] = []
 
 
 class RemovalCaseIn(Schema):
@@ -1128,7 +1128,7 @@ def trophies(request: HttpRequest) -> list[TrophyOut]:
             unlocked=False,
             unlocked_at=None,
             available=False,
-            blocked_reason="PH-048_PRODUCT_DECISION_REQUIRED",
+            blocked_reason="SEASON_2_DEFERRED",
         )
     ]
     for key, current, target in [

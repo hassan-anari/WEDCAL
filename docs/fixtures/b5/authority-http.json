@@ -3,11 +3,11 @@
     "reasons": [
       "CAPTAIN_AUTHORITY_LOSS"
     ],
-    "captain_authority_lost_at": "2026-10-16T18:41:26.809Z",
+    "captain_authority_lost_at": "2026-10-17T00:38:18.867Z",
     "can_verify_authority": true,
     "state": "RECOVERY",
     "reason": "CAPTAIN_AUTHORITY_LOSS",
-    "started_at": "2026-10-16T18:41:26.809Z",
+    "started_at": "2026-10-17T00:38:18.867Z",
     "bot_admin_restore_deadline": null,
     "home_integrity_available": false
   },

@@ -278,6 +278,8 @@ class ClanGovernanceVote(models.Model):
 
 
 class ClanJoinRequest(models.Model):
+    """Applicant-locked services enforce one live request globally, retaining legacy audit rows."""
+
     class State(models.TextChoices):
         PENDING = "PENDING", "Pending"
         ACCEPTED = "ACCEPTED", "Accepted"

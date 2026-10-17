@@ -8,6 +8,7 @@ from django.db import close_old_connections
 
 from apps.clans.models import ClanInvite, ClanJoinRequest, ClanMembership, ClanRole
 from apps.clans.services import (
+    ClanConflict,
     choose_role,
     create_personal_invite,
     decide_request,
@@ -47,37 +48,23 @@ def test_conflicting_role_choice_concurrency_has_one_result(clan_world) -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-def test_two_clans_accepting_one_soldier_has_one_winner(clan_world) -> None:  # type: ignore[no-untyped-def]
-    _, _, _, resolved, player, clan = clan_world
+def test_legacy_overlapping_pending_acceptances_fail_closed(clan_world) -> None:  # type: ignore[no-untyped-def]
+    _, _, _, _, player, clan = clan_world
     soldier = player(ClanRole.SOLDIER)
     first, second = clan(), clan()
-    one = request_join(soldier, first, resolved)
-    two = request_join(soldier, second, resolved)
+    # Explicit pre-correction fixture: authoritative submission no longer permits this.
+    one = ClanJoinRequest.objects.create(applicant=soldier, clan_season=first)
+    two = ClanJoinRequest.objects.create(applicant=soldier, clan_season=second)
     results = parallel(
         [
             lambda: decide_request(first.captain, one.pk, accept=True),
             lambda: decide_request(second.captain, two.pk, accept=True),
         ]
     )
-    assert (
-        ClanJoinRequest.objects.filter(
-            applicant=soldier, state=ClanJoinRequest.State.ACCEPTED
-        ).count()
-        == 1
-    )
-    assert all(isinstance(result, ClanJoinRequest) for result in results)
-    assert {result.state for result in results} == {
-        ClanJoinRequest.State.ACCEPTED,
-        ClanJoinRequest.State.CANCELLED,
-    }
+    assert all(isinstance(result, ClanConflict) for result in results)
+    assert ClanJoinRequest.objects.filter(applicant=soldier, state="PENDING").count() == 2
+    assert not ClanInvite.objects.filter(join_request__applicant=soldier).exists()
     assert not ClanMembership.objects.filter(player=soldier).exists()
-    assert (
-        ClanInvite.objects.filter(
-            join_request__applicant=soldier,
-            join_request__state=ClanJoinRequest.State.ACCEPTED,
-        ).count()
-        == 1
-    )
 
 
 @pytest.mark.django_db(transaction=True)

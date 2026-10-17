@@ -27,6 +27,10 @@ Use existing `Authorization: tma <initData>`. Every Clan read/mutation is privat
 | GET `/membership/current` | Null or current membership, now including `membership_id`, `clan_season_id`, and access-rejoin deadline |
 | GET `/roster` | Member-only paginated current roster, membership/player references, safe identity/avatar fallback, level, two-role model, access state, contribution, start time, own flag |
 
+One Soldier may have zero or one active application **across all Clans and Seasons**: both `PENDING` and `ACCEPTED` count. Re-submission to the same eligible Clan returns the existing request (existing unsafe Home Base guards can still reject a replay without creating another row); another target returns HTTP 409 `{code: "CLAN_STATE_CONFLICT", detail, retryable: false, retry_after_seconds: null}` through the existing safe envelope, with no other request/Clan identifiers. Explicit decline or safe cancellation releases the application; pending/failed revocation, CREATING, UNCERTAIN and MANUAL_REVIEW do not. Terminal request labels do not hide unsafe JOIN/REJOIN credentials, including older Seasons. No automatic cancel/replace/transfer occurs on acceptance.
+
+Applicant Player locking serializes submission, acceptance, fresh JOIN credential issuance and membership activation. Existing per-Clan live-request and global accepted-path constraints remain. No migration or history rewrite is needed: new service writes obey the global rule; legacy overlaps fail closed until explicit cancellation/decline or safe credential resolution. Existing accepted credentials/reservations are retained and their activation/revocation obligations continue; new issuance is blocked while overlapping active paths remain. Season identity is never transferred. See [review correction evidence](evidence/B5_SINGLE_APPLICATION.md).
+
 Do not display a candidate as guaranteed eligible before registration. Do not fabricate match percentages, freshness labels, Telegram member counts, rank or activity statistics from old frontend fixtures. Cosmetic art and editorial catalog copy can remain frontend mappings; authoritative economics must come from the response.
 
 ## P-11: governance and recovery
@@ -57,7 +61,7 @@ Durable `ClanMissionSignal` adapts actual server-owned events into `record_missi
 
 Only enabled, versioned definitions whose source-time window/config matches participate. No mission/threshold/reward is seeded from frontend demo cards. Unsupported requirement strings are explicitly UNAVAILABLE. Signal processing, participant rewards, direct HQ XP and completion commit together, using existing source/idempotency identities. Worker loss/retry cannot duplicate completion. Pending/poison signals remain visible in Admin and block season-close drain; retry attempt limits are operational configuration.
 
-GET `/trophies` reads actual Clan-owned unlocks and canonical contribution/Treasury-earned targets. `banner-raised` is unavailable with `PH-048_PRODUCT_DECISION_REQUIRED`, null progress/target and no unlock/reward. There is no invented shared milestone. Existing Player First Clan/First Contribution remain separate Profile achievements.
+GET `/trophies` reads actual Clan-owned unlocks and canonical contribution/Treasury-earned targets. `banner-raised` is unavailable with `SEASON_2_DEFERRED`, null progress/target and no unlock/reward. PH-048's product decision is recorded in owner commit `b171fd9b5ecaa750288281e3ec7c5c09ba1a87c2`: Season 2's first official, authoritative, server-confirmed Clan War victory, at most once per ClanSeason. Reward amounts and War finality remain future Season 2 design work. No War logic or achievement activation is implemented here. `state.owner_decisions_pending` is empty; deferred implementation is not a pending product-event decision. Existing Player First Clan/First Contribution remain separate Profile achievements.
 
 ## B4 corrections and navigation
 

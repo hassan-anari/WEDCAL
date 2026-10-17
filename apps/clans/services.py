@@ -38,6 +38,17 @@ class ClanConflict(ValidationError):
     pass
 
 
+def _lock_invite_application(invite_id: int) -> None:
+    """Within a transaction, follow applicant -> request -> invite ordering."""
+    identity = ClanInvite.objects.values(
+        "join_request_id", "join_request__applicant_id", "membership__player_id"
+    ).get(pk=invite_id)
+    applicant_id = identity["join_request__applicant_id"] or identity["membership__player_id"]
+    Player.objects.select_for_update().get(pk=applicant_id)
+    if identity["join_request_id"] is not None:
+        ClanJoinRequest.objects.select_for_update().get(pk=identity["join_request_id"])
+
+
 @transaction.atomic
 def resolve_invite_credential_risk(
     *,
@@ -54,6 +65,7 @@ def resolve_invite_credential_risk(
         raise ValidationError("Resolution reason is required")
     if not actor.has_perm("clans.resolve_invite_risk"):
         raise PermissionDenied("Invite-risk resolution permission required")
+    _lock_invite_application(invite_id)
     invite = ClanInvite.objects.select_for_update().get(pk=invite_id)
     if invite.state != ClanInvite.State.MANUAL_REVIEW or not invite.unknown_credential_risk:
         raise ClanConflict("Invite is not awaiting credential-risk review")
@@ -72,6 +84,10 @@ def resolve_invite_credential_risk(
                 "updated_at",
             )
         )
+        if invite.join_request_id:
+            ClanJoinRequest.objects.filter(
+                pk=invite.join_request_id, state=ClanJoinRequest.State.ACCEPTED
+            ).update(state=ClanJoinRequest.State.CANCELLED, decided_at=timezone.now())
     elif outcome == "RETRY_REVOCATION":
         if not invite.invite_link:
             raise ClanConflict("A known credential is required for safe revocation retry")
@@ -141,6 +157,43 @@ def unresolved_home_base_credential_exists(
                 ClanInvite.State.REVOKE_FAILED,
             ]
         )
+    )
+    if exclude_invite_id is not None:
+        rows = rows.exclude(pk=exclude_invite_id)
+    return rows.exists()
+
+
+def _other_active_join_request_exists(applicant_id: int, *, exclude_id: int | None = None) -> bool:
+    """Caller holds applicant Player lock; active paths span Clans and Seasons."""
+    rows = ClanJoinRequest.objects.filter(
+        applicant_id=applicant_id,
+        state__in=[ClanJoinRequest.State.PENDING, ClanJoinRequest.State.ACCEPTED],
+    )
+    if exclude_id is not None:
+        rows = rows.exclude(pk=exclude_id)
+    return rows.exists()
+
+
+def _unsafe_player_clan_credential_exists(
+    applicant_id: int, *, exclude_invite_id: int | None = None
+) -> bool:
+    """Terminal request labels cannot hide unresolved JOIN or REJOIN credentials."""
+    rows = ClanInvite.objects.filter(
+        models.Q(join_request__applicant_id=applicant_id)
+        | models.Q(membership__player_id=applicant_id)
+    ).filter(
+        models.Q(unknown_credential_risk=True)
+        | models.Q(
+            state__in=[
+                ClanInvite.State.CREATING,
+                ClanInvite.State.ACTIVE,
+                ClanInvite.State.UNCERTAIN,
+                ClanInvite.State.REVOKE_PENDING,
+                ClanInvite.State.REVOKE_FAILED,
+                ClanInvite.State.MANUAL_REVIEW,
+            ]
+        )
+        | ~models.Q(invite_link="")
     )
     if exclude_invite_id is not None:
         rows = rows.exclude(pk=exclude_invite_id)
@@ -347,6 +400,10 @@ def request_join(
     ).first()
     if request is not None:
         return request
+    if _other_active_join_request_exists(player.pk) or _unsafe_player_clan_credential_exists(
+        player.pk
+    ):
+        raise ClanConflict("An existing Clan application must be safely resolved first")
     try:
         request = ClanJoinRequest.objects.create(
             clan_season=clan_season, applicant=player, state=ClanJoinRequest.State.PENDING
@@ -399,14 +456,10 @@ def decide_request(captain: Player, request_id: int, *, accept: bool) -> ClanJoi
                 player_id=identity["applicant_id"], season=clan_season.season, ended_at__isnull=True
             ).exists():
                 raise ClanConflict("Applicant already has a current Clan")
-            if (
-                ClanJoinRequest.objects.filter(
-                    applicant_id=identity["applicant_id"], state=ClanJoinRequest.State.ACCEPTED
-                )
-                .exclude(pk=req.pk)
-                .exists()
-            ):
-                raise ClanConflict("Applicant already has an accepted path")
+            if _other_active_join_request_exists(
+                identity["applicant_id"], exclude_id=req.pk
+            ) or _unsafe_player_clan_credential_exists(identity["applicant_id"]):
+                raise ClanConflict("An existing Clan application must be safely resolved first")
             occupied = clan_season.memberships.filter(ended_at__isnull=True).count()
             reserved = clan_season.join_requests.filter(
                 state=ClanJoinRequest.State.ACCEPTED
@@ -416,9 +469,6 @@ def decide_request(captain: Player, request_id: int, *, accept: bool) -> ClanJoi
             if occupied + reserved >= effective_capacity(clan_season, policy):
                 raise ClanConflict("Clan capacity is full")
             req.state = ClanJoinRequest.State.ACCEPTED
-            ClanJoinRequest.objects.filter(
-                applicant_id=identity["applicant_id"], state=ClanJoinRequest.State.PENDING
-            ).exclude(pk=req.pk).update(state=ClanJoinRequest.State.CANCELLED)
             ClanInvite.objects.create(join_request=req, purpose=ClanInvite.Purpose.JOIN)
         req.decided_at = timezone.now()
         req.save(update_fields=("state", "decided_at"))
@@ -439,8 +489,9 @@ def cancel_request(player: Player, request_id: int) -> ClanJoinRequest:
 
 
 def captain_cancel_accepted_request(player: Player, request_id: int) -> ClanJoinRequest:
+    applicant_id = ClanJoinRequest.objects.values_list("applicant_id", flat=True).get(pk=request_id)
     with transaction.atomic():
-        Player.objects.select_for_update().get(pk=player.pk)
+        Player.objects.select_for_update().get(pk=applicant_id)
         req = (
             ClanJoinRequest.objects.select_for_update()
             .select_related("clan_season")
@@ -478,6 +529,8 @@ def create_personal_invite(invite: ClanInvite) -> ClanInvite:
     now = timezone.now()
     dispatch_revoke = False
     with transaction.atomic():
+        target, _ = _invite_target(invite)
+        _lock_invite_application(invite.pk)
         locked = ClanInvite.objects.select_for_update().get(pk=invite.pk)
         if locked.state in {
             ClanInvite.State.ACTIVE,
@@ -514,6 +567,21 @@ def create_personal_invite(invite: ClanInvite) -> ClanInvite:
             locked.last_error_category = "attempt_limit"
             locked.save()
             return locked
+        if locked.purpose == ClanInvite.Purpose.JOIN:
+            if not ClanJoinRequest.objects.filter(
+                pk=locked.join_request_id, state=ClanJoinRequest.State.ACCEPTED
+            ).exists():
+                raise ClanConflict("Join request is no longer accepted")
+            if _other_active_join_request_exists(
+                target.pk, exclude_id=locked.join_request_id
+            ) or _unsafe_player_clan_credential_exists(target.pk, exclude_invite_id=locked.pk):
+                raise ClanConflict("An existing Clan application must be safely resolved first")
+        elif not ClanMembership.objects.filter(
+            pk=locked.membership_id,
+            ended_at__isnull=True,
+            access_state=ClanMembership.Access.ACCESS_LOST,
+        ).exists():
+            raise ClanConflict("Recovery membership is no longer eligible")
         token = uuid.uuid4()
         locked.state = ClanInvite.State.CREATING
         locked.claim_token = token
@@ -531,6 +599,7 @@ def create_personal_invite(invite: ClanInvite) -> ClanInvite:
     target, group = _invite_target(invite)
     result = bot_api.create_chat_invite_link(group.telegram_chat_id, invite.telegram_invite_name)
     with transaction.atomic():
+        _lock_invite_application(invite.pk)
         locked = ClanInvite.objects.select_for_update().get(pk=invite.pk)
         if locked.state != ClanInvite.State.CREATING or locked.claim_token != token:
             return locked
@@ -571,6 +640,15 @@ def create_personal_invite(invite: ClanInvite) -> ClanInvite:
                 )
                 locked.next_create_retry_at = now + timedelta(seconds=delay)
         locked.save()
+        if (
+            locked.join_request_id
+            and locked.state == ClanInvite.State.REVOKED
+            and not locked.unknown_credential_risk
+            and not locked.invite_link
+        ):
+            ClanJoinRequest.objects.filter(
+                pk=locked.join_request_id, state=ClanJoinRequest.State.ACCEPTED
+            ).update(state=ClanJoinRequest.State.CANCELLED, decided_at=timezone.now())
     if dispatch_revoke:
         _dispatch_revoke(locked.pk)
     elif locked.state == ClanInvite.State.ACTIVE:
@@ -620,6 +698,7 @@ def recover_invite_creations(*, limit: int | None = None) -> int:
     lease_before = now - timedelta(seconds=settings.CLAN_INVITE_CREATE_LEASE_SECONDS)
     batch = limit or settings.TELEGRAM_INGRESS_REDRIVE_BATCH_SIZE
     retry_ids: list[tuple[int, str]] = []
+    inactive_ids: list[int] = []
     with transaction.atomic():
         rows = list(
             ClanInvite.objects.select_for_update(skip_locked=True)
@@ -662,9 +741,17 @@ def recover_invite_creations(*, limit: int | None = None) -> int:
                     ).exists()
                 )
             if not target_valid:
-                invite.state = ClanInvite.State.REVOKED
-                invite.last_error_category = "invite_target_inactive"
-                invite.save()
+                if invite.state in {ClanInvite.State.CREATING, ClanInvite.State.UNCERTAIN}:
+                    # Inactive context is not proof that a remote credential vanished.
+                    invite.state = ClanInvite.State.MANUAL_REVIEW
+                    invite.unknown_credential_risk = True
+                    invite.desired_terminal_state = ClanInvite.State.REVOKED
+                    invite.claim_token = None
+                    invite.claim_expires_at = None
+                    invite.last_error_category = "inactive_target_credential_uncertain"
+                    invite.save()
+                else:
+                    inactive_ids.append(invite.pk)
                 continue
             if invite.state == ClanInvite.State.CREATING:
                 invite.state = ClanInvite.State.UNCERTAIN
@@ -701,13 +788,20 @@ def recover_invite_creations(*, limit: int | None = None) -> int:
             invite.next_create_retry_at = None
             invite.save(update_fields=("state", "next_create_retry_at", "updated_at"))
             retry_ids.append((invite.pk, invite.purpose))
+    for invite_id in inactive_ids:
+        queue_invite_revoke(invite_id, terminal=ClanInvite.State.REVOKED)
     for invite_id, purpose in retry_ids:
         invite = ClanInvite.objects.select_related("join_request").get(pk=invite_id)
-        if purpose == ClanInvite.Purpose.JOIN:
-            assert invite.join_request is not None
-            finalize_accepted_request(invite.join_request)
-        else:
-            create_personal_invite(invite)
+        try:
+            if purpose == ClanInvite.Purpose.JOIN:
+                assert invite.join_request is not None
+                finalize_accepted_request(invite.join_request)
+            else:
+                create_personal_invite(invite)
+        except ClanConflict:
+            # Legacy overlapping applications need explicit resolution. One
+            # blocked row must not prevent safe redrive of the rest of the batch.
+            continue
     return len(rows)
 
 
@@ -720,6 +814,7 @@ def _dispatch_revoke(invite_id: int) -> None:
 
 def queue_invite_revoke(invite_id: int, *, terminal: str) -> None:
     with transaction.atomic():
+        _lock_invite_application(invite_id)
         invite = ClanInvite.objects.select_for_update().get(pk=invite_id)
         if invite.state == ClanInvite.State.CREATING:
             invite.desired_terminal_state = terminal
@@ -736,11 +831,48 @@ def queue_invite_revoke(invite_id: int, *, terminal: str) -> None:
             ClanInvite.State.REVOKED,
             ClanInvite.State.USED,
         }:
+            if invite.unknown_credential_risk or invite.invite_link:
+                # Legacy terminal labels are not revocation proof when risk or
+                # a credential survives. Keep them in the existing review flow.
+                invite.state = ClanInvite.State.MANUAL_REVIEW
+                invite.unknown_credential_risk = True
+                invite.desired_terminal_state = terminal
+                invite.save(
+                    update_fields=(
+                        "state",
+                        "unknown_credential_risk",
+                        "desired_terminal_state",
+                        "updated_at",
+                    )
+                )
+            elif invite.join_request_id and terminal == ClanInvite.State.REVOKED:
+                ClanJoinRequest.objects.filter(
+                    pk=invite.join_request_id, state=ClanJoinRequest.State.ACCEPTED
+                ).update(state=ClanJoinRequest.State.CANCELLED, decided_at=timezone.now())
             return
         if invite.unknown_credential_risk and not invite.invite_link:
             invite.desired_terminal_state = terminal
             invite.state = ClanInvite.State.MANUAL_REVIEW
             invite.save(update_fields=("desired_terminal_state", "state", "updated_at"))
+            return
+        if not invite.invite_link and invite.state in {
+            ClanInvite.State.ACTIVE,
+            ClanInvite.State.REVOKE_PENDING,
+            ClanInvite.State.REVOKE_FAILED,
+            ClanInvite.State.MANUAL_REVIEW,
+        }:
+            # Missing legacy metadata cannot prove nonissuance or revocation.
+            invite.state = ClanInvite.State.MANUAL_REVIEW
+            invite.unknown_credential_risk = True
+            invite.desired_terminal_state = terminal
+            invite.save(
+                update_fields=(
+                    "state",
+                    "unknown_credential_risk",
+                    "desired_terminal_state",
+                    "updated_at",
+                )
+            )
             return
         if not invite.invite_link:
             invite.state = terminal
@@ -763,6 +895,7 @@ def queue_invite_revoke(invite_id: int, *, terminal: str) -> None:
 def revoke_invite_remote(invite_id: int) -> ClanInvite:
     now = timezone.now()
     with transaction.atomic():
+        _lock_invite_application(invite_id)
         invite = ClanInvite.objects.select_for_update().get(pk=invite_id)
         if invite.state not in {ClanInvite.State.REVOKE_PENDING, ClanInvite.State.REVOKE_FAILED}:
             return invite
@@ -791,6 +924,7 @@ def revoke_invite_remote(invite_id: int) -> ClanInvite:
     _, group = _invite_target(invite)
     result = bot_api.revoke_chat_invite_link(group.telegram_chat_id, invite.invite_link)
     with transaction.atomic():
+        _lock_invite_application(invite_id)
         invite = ClanInvite.objects.select_for_update().get(pk=invite_id)
         if invite.revoke_claim_token != token:
             return invite

@@ -1,6 +1,6 @@
-# B5 local validation
+# B5 initial implementation local validation
 
-Scope: the full B5 runtime and fixtures in Draft PR #30. Synthetic Telegram transports, PostgreSQL 17.11, Redis 8 and isolated RabbitMQ; no live Telegram, storage verification, campaign or public test send. Backend base `6aaa362daecec86107babd95224398e7e1ac7e75` was fetched and confirmed unchanged before this run.
+Scope: the initial B5 runtime `c38a7a65ba9bacce53a04bec6c10dfbeb71ed008` and fixtures in Draft PR #30. The later independent-review correction, new runtime pin and final-head verification are recorded in [B5_SINGLE_APPLICATION.md](B5_SINGLE_APPLICATION.md) and the final PR review comment. Synthetic Telegram transports, PostgreSQL 17.11, Redis 8 and isolated RabbitMQ; no live Telegram, storage verification, campaign or public test send. Backend base `6aaa362daecec86107babd95224398e7e1ac7e75` was fetched and confirmed unchanged before this run.
 
 | Check | Result |
 | --- | --- |
@@ -30,4 +30,4 @@ Rendered SQL:
 - `B5_SNAPSHOT_GUARDS.sql`: immutable announcements/templates/source references and monotonic progress.
 - `B5_FROZEN_SOURCE.sql`: first complete preview source binding and immutable native preview result.
 
-Final full runtime SHA and hosted CI links are recorded in Draft PR #30 and paired FROCAL PR #5 handoff. Required hosted checks cover contract, quality/types/schema, full PostgreSQL regression and benchmark, container/Admin/service smoke, dependency security and image scans. Earlier green runs do not substitute for final runtime checks. This document does not claim physical-device or frontend paired acceptance.
+Final full runtime SHA and hosted CI links are recorded in Draft PR #30 and paired FROCAL Draft #6 handoff. Required hosted checks cover contract, quality/types/schema, full PostgreSQL regression and benchmark, container/Admin/service smoke, dependency security and image scans. Earlier green runs do not substitute for final runtime checks. This document does not claim physical-device or frontend paired acceptance.

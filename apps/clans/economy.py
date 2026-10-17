@@ -213,7 +213,7 @@ def _evaluate_achievements(
                     "metadata": {"threshold": target},
                 },
             )
-    # banner-raised deliberately remains fail-closed: no canonical shared milestone exists.
+    # banner-raised is owner-deferred to Season 2; no S1 unlock or War evaluation.
 
 
 @transaction.atomic

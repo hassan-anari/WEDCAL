@@ -11450,9 +11450,7 @@
             "type": "integer"
           },
           "owner_decisions_pending": {
-            "default": [
-              "PH-048"
-            ],
+            "default": [],
             "items": {
               "type": "string"
             },
