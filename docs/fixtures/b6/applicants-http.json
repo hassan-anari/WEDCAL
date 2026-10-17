@@ -1,0 +1,173 @@
+{
+  "ready": [
+    {
+      "rank": 1,
+      "rank_status": "RANKED",
+      "current_streak": 1,
+      "request_id": 2,
+      "first_name": "Dexo",
+      "username": "",
+      "level": 5,
+      "season_points": 80,
+      "state": "PENDING"
+    },
+    {
+      "rank": 2,
+      "rank_status": "RANKED",
+      "current_streak": 1,
+      "request_id": 3,
+      "first_name": "Dexo",
+      "username": "",
+      "level": 5,
+      "season_points": 80,
+      "state": "PENDING"
+    },
+    {
+      "rank": null,
+      "rank_status": "UNRANKED",
+      "current_streak": 0,
+      "request_id": 4,
+      "first_name": "Dexo",
+      "username": "",
+      "level": 5,
+      "season_points": 0,
+      "state": "PENDING"
+    },
+    {
+      "rank": null,
+      "rank_status": "UNRANKED",
+      "current_streak": 0,
+      "request_id": 5,
+      "first_name": "Dexo",
+      "username": "",
+      "level": 5,
+      "season_points": 0,
+      "state": "PENDING"
+    },
+    {
+      "rank": null,
+      "rank_status": "UNRANKED",
+      "current_streak": 0,
+      "request_id": 6,
+      "first_name": "Dexo",
+      "username": "",
+      "level": 5,
+      "season_points": 0,
+      "state": "PENDING"
+    }
+  ],
+  "unavailable": [
+    {
+      "rank": null,
+      "rank_status": "UNAVAILABLE",
+      "current_streak": 1,
+      "request_id": 2,
+      "first_name": "Dexo",
+      "username": "",
+      "level": 5,
+      "season_points": 80,
+      "state": "PENDING"
+    },
+    {
+      "rank": null,
+      "rank_status": "UNAVAILABLE",
+      "current_streak": 1,
+      "request_id": 3,
+      "first_name": "Dexo",
+      "username": "",
+      "level": 5,
+      "season_points": 80,
+      "state": "PENDING"
+    },
+    {
+      "rank": null,
+      "rank_status": "UNAVAILABLE",
+      "current_streak": 0,
+      "request_id": 4,
+      "first_name": "Dexo",
+      "username": "",
+      "level": 5,
+      "season_points": 0,
+      "state": "PENDING"
+    },
+    {
+      "rank": null,
+      "rank_status": "UNAVAILABLE",
+      "current_streak": 0,
+      "request_id": 5,
+      "first_name": "Dexo",
+      "username": "",
+      "level": 5,
+      "season_points": 0,
+      "state": "PENDING"
+    },
+    {
+      "rank": null,
+      "rank_status": "UNAVAILABLE",
+      "current_streak": 0,
+      "request_id": 6,
+      "first_name": "Dexo",
+      "username": "",
+      "level": 5,
+      "season_points": 0,
+      "state": "PENDING"
+    }
+  ],
+  "reconciling": [
+    {
+      "rank": null,
+      "rank_status": "RECONCILING",
+      "current_streak": 1,
+      "request_id": 2,
+      "first_name": "Dexo",
+      "username": "",
+      "level": 5,
+      "season_points": 80,
+      "state": "PENDING"
+    },
+    {
+      "rank": null,
+      "rank_status": "RECONCILING",
+      "current_streak": 1,
+      "request_id": 3,
+      "first_name": "Dexo",
+      "username": "",
+      "level": 5,
+      "season_points": 80,
+      "state": "PENDING"
+    },
+    {
+      "rank": null,
+      "rank_status": "RECONCILING",
+      "current_streak": 0,
+      "request_id": 4,
+      "first_name": "Dexo",
+      "username": "",
+      "level": 5,
+      "season_points": 0,
+      "state": "PENDING"
+    },
+    {
+      "rank": null,
+      "rank_status": "RECONCILING",
+      "current_streak": 0,
+      "request_id": 5,
+      "first_name": "Dexo",
+      "username": "",
+      "level": 5,
+      "season_points": 0,
+      "state": "PENDING"
+    },
+    {
+      "rank": null,
+      "rank_status": "RECONCILING",
+      "current_streak": 0,
+      "request_id": 6,
+      "first_name": "Dexo",
+      "username": "",
+      "level": 5,
+      "season_points": 0,
+      "state": "PENDING"
+    }
+  ]
+}
