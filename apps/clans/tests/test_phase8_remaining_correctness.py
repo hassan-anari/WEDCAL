@@ -216,6 +216,7 @@ def test_same_mission_source_can_progress_two_definitions(clan_world) -> None:  
         )
         for i in range(2)
     ]
+    now = max(d.active_intervals.get().starts_at for d in definitions)
     rows = [
         record_mission_progress(
             definition=d,
@@ -259,6 +260,7 @@ def test_departed_group_participant_does_not_poison_completion(clan_world, trans
         enabled=True,
         config_version=config,
     )
+    now = definition.active_intervals.get().starts_at
     record_mission_progress(
         definition=definition,
         membership=old,

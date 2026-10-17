@@ -1,5 +1,7 @@
 # B6 security and economic review
 
+The [independent mission lifecycle review](B6_MISSION_LIFECYCLE_REVIEW.md) supersedes the initial activation-state eligibility and adds migration 0019. It documents the confirmed delayed-signal defect, durable source-time intervals, PostgreSQL locking, the owner-approved prospective cutover and unresolved-history holds. No previously settled economics are rewritten.
+
 ## Authority and scope
 
 This batch implements the owner's Clan operations request and its Treasury carry/Clan-standing addition on current merged B5 main. It does not redesign frontend routing, publish GameConfig, rebalance any number, implement Season 2, merge or deploy. The owner's B6 instruction explicitly supersedes earlier private invite-DM wording and the old per-settlement truncation policy. Historical documents/config snapshots are preserved, with the supersession documented in the B6 contract.
@@ -47,6 +49,7 @@ Eligible groups and fresh/final verification apply the existing exclusive Networ
 
 - `missions.0003_b6_mission_administration`: activation metadata/permission and definition-history guard.
 - `clans.0017_b6_mission_administration`: display/activation metadata, permission and definition-history guard; key field uses slug validation/index with unchanged bounded storage.
+- `clans.0019_b6_mission_active_intervals`: durable activation intervals/revision/source links and prospective observation cutoff; uncertain earlier signals remain held, with no historical replay or backfill.
 - `clans.0018_b6_treasury_fractional_carry`: zero-default integer remainder and range constraint. No balance/config/settlement backfill.
 
 Apply only in approved staging/production deployment windows. Review rendered SQL and lock behavior on staging first; retain backups. Activation metadata stamps previously enabled definitions as observed enabled at migration time; it does not claim their unknown original activation date or change rewards/progress. Test the migration graph/drift before workers start. Stop old invitation/economic workers before new behavior owns delivery/settlement. No production migrations have been run by this task.

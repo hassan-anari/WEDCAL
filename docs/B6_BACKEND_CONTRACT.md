@@ -32,6 +32,8 @@ Clan mission responses add `title` and `description`; legacy blank titles fall b
 
 Personal and Clan Admin workflows create disabled drafts, validate, preview actual published policy amounts and explicitly activate/deactivate. Activation requires model change plus dedicated activate permission, a fresh signed actor-bound preview, reason and explicit confirmation. Version identity is immutable; activated or progressed economic semantics require a new version. Supported Clan requirements remain exactly VALID_CLAN_ACTIVITY, CLAN_CONTRIBUTION and VALID_TYPING_RUN. Published rewards are selected by band, never entered as arbitrary amounts.
 
+Clan mission eligibility now uses source time within durable `[activation, deactivation)` intervals as well as `[starts_at, ends_at)`, including delayed signals after deactivation. Reactivation never fills inactive gaps. Approved prospective cutover and uncertain-history holds require `clans.0019_b6_mission_active_intervals`; see the [lifecycle review](B6_MISSION_LIFECYCLE_REVIEW.md). No HTTP/OpenAPI fields change in this follow-up. FROCAL must acknowledge the source-time behavior and re-pin the new WEDCAL runtime.
+
 ## Welcome and invites
 
 A distinct private `/start` queues a new Welcome from the currently active Admin template. Idempotency key is `bot-welcome:update:{telegram_update_id}`. Same-update redelivery cannot replace a snapshot or queue another response. Delivery notification payload records template ID/version and update ID; source_received_at preserves inbound receipt time. Existing HTML/keyboard validation, enablement gates, activation/rollback/operator tests, durable dispatch, shared Telegram budgets, bounded retries and ambiguous-outcome handling remain. Activation alone sends nothing.

@@ -113,12 +113,22 @@ from apps.clans.models import ClanMissionSignal  # noqa: E402
 
 @admin.register(ClanMissionSignal)
 class ClanMissionSignalAdmin(ReadOnlyAdmin):
-    list_display = ("id", "requirement", "units", "processed_at", "attempts", "error_category")
+    list_display = (
+        "id",
+        "requirement",
+        "units",
+        "processed_at",
+        "requires_review",
+        "attempts",
+        "error_category",
+    )
+    list_filter = ("requires_review", "error_category")
     exclude = ("source_key",)
 
 
 from apps.clans.missions import SUPPORTED_REQUIREMENTS  # noqa: E402
 from apps.clans.models import (  # noqa: E402
+    ClanMissionActivation,
     ClanMissionDefinition,
     ClanMissionParticipant,
     ClanMissionProgress,
@@ -187,6 +197,32 @@ class ClanMissionDefinitionAdmin(ControlledMissionAdmin):
 
     def has_progress(self, obj):  # type: ignore[no-untyped-def]
         return ClanMissionProgress.objects.filter(definition=obj).exists()
+
+    def get_readonly_fields(self, request, obj=None):  # type: ignore[no-untyped-def]
+        return super().get_readonly_fields(request, obj) + (
+            "activation_revision",
+            "history_unknown_before",
+        )
+
+    def activation_audit_state(self, row):  # type: ignore[no-untyped-def]
+        interval = row.active_intervals.order_by("-pk").first()
+        return {
+            "activation_revision": row.activation_revision,
+            "activation_interval_id": interval.pk if interval else None,
+            "effective_at": (
+                (interval.starts_at if row.enabled else interval.ends_at).isoformat()
+                if interval
+                else None
+            ),
+        }
+
+
+@admin.register(ClanMissionActivation)
+class ClanMissionActivationAdmin(ReadOnlyAdmin):
+    list_display = ("id", "definition", "starts_at", "ends_at", "origin")
+    list_select_related = ("definition",)
+    list_filter = ("origin",)
+    search_fields = ("definition__key",)
 
 
 for mission_model in (ClanMissionProgress, ClanMissionParticipant, ClanMissionSourceEvent):

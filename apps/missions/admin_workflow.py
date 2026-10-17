@@ -62,6 +62,11 @@ def validate_definition(row: Any, *, activating: bool = False) -> dict[str, Any]
             "direct_hq_xp": band.direct_hq_xp,
             "treasury_share_bps": policy.treasury_split_bps,
             "settlement": "Automatic server-event settlement; no claim action.",
+            "eligibility": "Source time in [activation, deactivation) and [start, end).",
+            "activation_revision": row.activation_revision,
+            "history_unknown_before": (
+                row.history_unknown_before.isoformat() if row.history_unknown_before else None
+            ),
         }
     resolved = resolve_effective_game_config(timezone.now())
     _require_policy_binding(row, resolved)
@@ -98,6 +103,9 @@ class OperationForm(forms.Form):
 class ControlledMissionAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     actions = None
     semantic_fields: tuple[str, ...] = ()
+
+    def activation_audit_state(self, row: Any) -> dict[str, Any]:
+        return {}
 
     def has_delete_permission(self, request: HttpRequest, obj: Any = None) -> bool:
         return False
@@ -207,6 +215,8 @@ class ControlledMissionAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
                         if locked.enabled and locked.activated_at is None:
                             locked.activated_at = timezone.now()
                         locked.save()
+                        # Clan lifecycle intervals/revision are database-owned.
+                        locked.refresh_from_db()
                         OperatorAuditEvent.objects.create(
                             actor_id=request.user.pk,
                             action="MISSION_ACTIVATE" if locked.enabled else "MISSION_DEACTIVATE",
@@ -218,6 +228,7 @@ class ControlledMissionAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
                                 "version": locked.version,
                                 "enabled": locked.enabled,
                                 "preview": preview,
+                                **self.activation_audit_state(locked),
                             },
                         )
                     self.message_user(request, "Mission configuration updated.", messages.SUCCESS)

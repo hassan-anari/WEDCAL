@@ -5,3 +5,5 @@
 `activity-http.json` contains real authenticated Django HTTP responses from the isolated `test_private_activity_feed_stable_pagination_no_duplicated_treasury` fixture. `clan-standing-http.json` records canonical Arena-backed Clan summaries. `applicants-http.json` records actual authenticated applicant reads with ready, unavailable and reconciling projections. Synthetic IDs, timestamps and amounts are test fixtures, not production rewards or configured mission definitions.
 
 Regenerate with `B6_EXPORT_FIXTURES=1 pytest apps/clans/tests/test_b6_reads.py` against isolated PostgreSQL/Redis, then run the exporter. Fields and timestamp semantics are defined in `../../B6_BACKEND_CONTRACT.md`. Do not consume fixtures as a fallback source of game truth.
+
+The mission lifecycle review follow-up changes server source-time eligibility and adds migration 0019; it does not change HTTP/OpenAPI fields or these response shapes. Existing fixture exports remain compatible. See `../../B6_MISSION_LIFECYCLE_REVIEW.md`; consumers must acknowledge the semantics and re-pin the new runtime.

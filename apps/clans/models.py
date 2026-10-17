@@ -641,6 +641,8 @@ class ClanMissionDefinition(models.Model):
     title = models.CharField(max_length=200, blank=True)
     description = models.CharField(max_length=500, blank=True)
     activated_at = models.DateTimeField(null=True, blank=True, editable=False)
+    activation_revision = models.PositiveBigIntegerField(default=0, editable=False)
+    history_unknown_before = models.DateTimeField(null=True, editable=False)
     key = models.SlugField(max_length=64)
     version = models.PositiveIntegerField()
     kind = models.CharField(max_length=12, choices=Kind.choices)
@@ -696,6 +698,33 @@ class ClanMissionDefinition(models.Model):
                     )
 
 
+class ClanMissionActivation(models.Model):
+    """Database-observed half-open active interval; never reconstructed history."""
+
+    definition = models.ForeignKey(
+        ClanMissionDefinition, on_delete=models.PROTECT, related_name="active_intervals"
+    )
+    starts_at = models.DateTimeField()
+    ends_at = models.DateTimeField(null=True)
+    origin = models.CharField(max_length=24)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("definition",),
+                condition=Q(ends_at__isnull=True),
+                name="clan_mission_one_open_interval",
+            ),
+            models.CheckConstraint(
+                condition=Q(ends_at__isnull=True) | Q(ends_at__gte=models.F("starts_at")),
+                name="clan_mission_interval_order",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=("definition", "starts_at"), name="clan_mission_source_interval")
+        ]
+
+
 class ClanMissionProgress(models.Model):
     definition = models.ForeignKey(ClanMissionDefinition, on_delete=models.PROTECT)
     clan_season = models.ForeignKey(ClanSeason, on_delete=models.PROTECT)
@@ -741,6 +770,7 @@ class ClanEconomicAccumulator(models.Model):
 
 class ClanMissionSourceEvent(models.Model):
     definition = models.ForeignKey(ClanMissionDefinition, on_delete=models.PROTECT)
+    activation = models.ForeignKey(ClanMissionActivation, on_delete=models.PROTECT, null=True)
     clan_season = models.ForeignKey(ClanSeason, on_delete=models.PROTECT)
     membership = models.ForeignKey(ClanMembership, on_delete=models.PROTECT)
     source_id = models.CharField(max_length=128)
@@ -792,6 +822,7 @@ class ClanMissionSignal(models.Model):
     units = models.PositiveBigIntegerField()
     occurred_at = models.DateTimeField()
     processed_at = models.DateTimeField(null=True, db_index=True)
+    requires_review = models.BooleanField(default=False)
     next_attempt_at = models.DateTimeField(default=timezone.now, db_index=True)
     attempts = models.PositiveSmallIntegerField(default=0)
     error_category = models.CharField(max_length=64, blank=True)

@@ -209,6 +209,7 @@ def test_real_durable_mission_signal_progress_settlement_and_replay(clan_world, 
         enabled=True,
         config_version=config,
     )
+    now = definition.active_intervals.get().starts_at
     queue_mission_signal(
         membership=member,
         source_key="b5-typing-source",

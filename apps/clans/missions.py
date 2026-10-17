@@ -13,6 +13,7 @@ from apps.clans.economy import (
 )
 from apps.clans.models import (
     ClanMembership,
+    ClanMissionActivation,
     ClanMissionDefinition,
     ClanMissionParticipant,
     ClanMissionProgress,
@@ -24,6 +25,27 @@ from apps.game_config.services import ResolvedGameConfig, resolve_game_config_ve
 from apps.players.services import reward_gameplay_allowed_at
 from apps.rewards.services import IdempotencyConflict
 from apps.seasons.services import is_reward_earning_time
+
+
+class MissionSourceIneligible(ValidationError):
+    """Terminal source-time rejection, rather than a retryable worker failure."""
+
+
+class MissionActivationHistoryUnknown(ValidationError):
+    """Preserve an unresolved pre-cutover obligation for owner review."""
+
+
+def active_interval_at(
+    definition: ClanMissionDefinition, occurred_at: datetime
+) -> ClanMissionActivation | None:
+    # Caller holds the definition row lock, shared with every enabled transition.
+    if definition.history_unknown_before and occurred_at < definition.history_unknown_before:
+        raise MissionActivationHistoryUnknown("Mission activation history requires review")
+    return (
+        definition.active_intervals.filter(starts_at__lte=occurred_at)
+        .filter(Q(ends_at__isnull=True) | Q(ends_at__gt=occurred_at))
+        .first()
+    )
 
 
 @transaction.atomic
@@ -39,15 +61,18 @@ def record_mission_progress(
     """Record one server-owned domain event; no client route exposes this hook."""
     if not source_id.strip() or len(source_id) > 128 or type(units) is not int or units <= 0:
         raise ValidationError("Invalid mission source event")
-    claim_idempotency_key(
-        f"mission:{definition.pk}:{source_id}",
-        "MISSION_PROGRESS",
-        f"{definition.pk}:{membership.pk}:{units}:{occurred_at.isoformat()}",
-    )
+    from apps.seasons.barrier import acquire_economic_write_barrier
+
+    acquire_economic_write_barrier(membership.season_id)
     definition = (
         ClanMissionDefinition.objects.select_for_update(of=("self",))
         .select_related("config_version")
         .get(pk=definition.pk)
+    )
+    claim_idempotency_key(
+        f"mission:{definition.pk}:{source_id}",
+        "MISSION_PROGRESS",
+        f"{definition.pk}:{membership.pk}:{units}:{occurred_at.isoformat()}",
     )
     config = resolve_game_config_version(definition.config_version_id)
     if resolved_config is not None and resolved_config.id != config.id:
@@ -62,17 +87,6 @@ def record_mission_progress(
         .select_related("player", "clan_season__season")
         .get(pk=membership.pk)
     )
-    if (
-        not definition.enabled
-        or not definition.starts_at <= occurred_at < definition.ends_at
-        or member.started_at > occurred_at
-        or (member.ended_at and occurred_at >= member.ended_at)
-        or not membership_access_at(member, occurred_at)
-        or not home_integrity_at(cs, occurred_at)
-        or not is_reward_earning_time(member.clan_season.season, occurred_at)
-        or not reward_gameplay_allowed_at(member.player, occurred_at)
-    ):
-        raise ValidationError("Mission progress is not eligible at source time")
     existing = ClanMissionSourceEvent.objects.filter(
         definition=definition, source_id=source_id
     ).first()
@@ -88,6 +102,21 @@ def record_mission_progress(
         return ClanMissionProgress.objects.get(
             definition=definition, clan_season=cs, membership=target_member
         )
+    if not definition.starts_at <= occurred_at < definition.ends_at:
+        raise MissionSourceIneligible("Mission progress is outside its schedule")
+    activation = active_interval_at(definition, occurred_at)
+    if (
+        activation is None
+        or definition.config_version_id != cs.config_version_id
+        or member.started_at > occurred_at
+        or (member.ended_at and occurred_at >= member.ended_at)
+        or not membership_access_at(member, occurred_at)
+        or not home_integrity_at(cs, occurred_at)
+        or not context_owned_at(cs, occurred_at)
+        or not is_reward_earning_time(member.clan_season.season, occurred_at)
+        or not reward_gameplay_allowed_at(member.player, occurred_at)
+    ):
+        raise MissionSourceIneligible("Mission progress is not eligible at source time")
     target_member = member if definition.kind == ClanMissionDefinition.Kind.INDIVIDUAL else None
     progress, _ = ClanMissionProgress.objects.select_for_update().get_or_create(
         definition=definition, clan_season=cs, membership=target_member
@@ -97,6 +126,7 @@ def record_mission_progress(
     config_model = GameConfigVersion.objects.get(pk=config.id)
     ClanMissionSourceEvent.objects.create(
         definition=definition,
+        activation=activation,
         clan_season=cs,
         membership=member,
         source_id=source_id,
@@ -244,6 +274,7 @@ def process_mission_signals(*, limit: int = 100) -> int:
     ids = list(
         ClanMissionSignal.objects.filter(
             processed_at__isnull=True,
+            requires_review=False,
             next_attempt_at__lte=timezone.now(),
             attempts__lt=settings.CLAN_MISSION_SIGNAL_MAX_ATTEMPTS,
         )
@@ -257,7 +288,7 @@ def process_mission_signals(*, limit: int = 100) -> int:
                 signal = (
                     ClanMissionSignal.objects.select_for_update(skip_locked=True, of=("self",))
                     .select_related("membership__clan_season")
-                    .filter(pk=pk, processed_at__isnull=True)
+                    .filter(pk=pk, processed_at__isnull=True, requires_review=False)
                     .first()
                 )
                 if signal is None:
@@ -266,13 +297,16 @@ def process_mission_signals(*, limit: int = 100) -> int:
 
                 acquire_economic_write_barrier(signal.membership.season_id)
                 member = signal.membership
-                definitions = ClanMissionDefinition.objects.filter(
-                    enabled=True,
-                    requirement=signal.requirement,
-                    starts_at__lte=signal.occurred_at,
-                    ends_at__gt=signal.occurred_at,
-                    config_version_id=member.clan_season.config_version_id,
-                ).order_by("pk")
+                definitions = (
+                    ClanMissionDefinition.objects.select_for_update()
+                    .filter(
+                        requirement=signal.requirement,
+                        starts_at__lte=signal.occurred_at,
+                        ends_at__gt=signal.occurred_at,
+                        config_version_id=member.clan_season.config_version_id,
+                    )
+                    .order_by("pk")
+                )
                 for definition in definitions:
                     progress = (
                         ClanMissionProgress.objects.filter(
@@ -283,21 +317,37 @@ def process_mission_signals(*, limit: int = 100) -> int:
                     )
                     if progress and progress.completed_at:
                         continue
-                    record_mission_progress(
-                        definition=definition,
-                        membership=member,
-                        source_id=signal.source_key,
-                        units=signal.units,
-                        occurred_at=signal.occurred_at,
-                    )
+                    try:
+                        record_mission_progress(
+                            definition=definition,
+                            membership=member,
+                            source_id=signal.source_key,
+                            units=signal.units,
+                            occurred_at=signal.occurred_at,
+                        )
+                    except MissionSourceIneligible:
+                        # A known inactive interval or invalid source is terminal.
+                        # Unknown legacy history is deliberately NOT caught here.
+                        continue
                 signal.processed_at = timezone.now()
                 signal.error_category = ""
                 signal.save(update_fields=("processed_at", "error_category"))
                 count += 1
+        except MissionActivationHistoryUnknown:
+            # Roll back every definition for this signal, avoiding partial payouts.
+            # Held work remains a Season-drain obligation, without poison retries.
+            with transaction.atomic():
+                signal = ClanMissionSignal.objects.select_for_update().get(pk=pk)
+                if signal.processed_at is None:
+                    signal.requires_review = True
+                    signal.error_category = "activation_history_unknown"
+                    signal.save(update_fields=("requires_review", "error_category"))
         except Exception:
             # Preserve the obligation, expose a category, and bound poison-source retry.
             with transaction.atomic():
                 signal = ClanMissionSignal.objects.select_for_update().get(pk=pk)
+                if signal.processed_at is not None or signal.requires_review:
+                    continue
                 signal.attempts += 1
                 signal.error_category = "mission_signal_failed"
                 signal.next_attempt_at = timezone.now() + timedelta(

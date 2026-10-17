@@ -4,6 +4,7 @@ from datetime import timedelta
 import pytest
 from django.contrib.auth.models import Permission, User
 from django.db import DatabaseError, transaction
+from django.utils import timezone
 
 from apps.clans.missions import process_mission_signals, queue_mission_signal
 from apps.clans.models import ClanMembershipEvent, ClanMissionDefinition, ClanMissionProgress
@@ -71,7 +72,7 @@ def test_admin_creates_activates_both_clan_kinds_and_automatic_settlement(client
         source_key="b6-admin-valid-run",
         requirement="VALID_TYPING_RUN",
         units=1,
-        occurred_at=now,
+        occurred_at=timezone.now(),
     )
     assert process_mission_signals() == 1
     assert process_mission_signals() == 0
