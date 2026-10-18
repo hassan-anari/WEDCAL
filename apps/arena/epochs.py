@@ -185,7 +185,11 @@ def freeze_epoch(epoch: EconomicEpoch, *, at: datetime | None = None) -> Economi
         if row.state in {"FROZEN", "SETTLING", "SETTLED"}:
             return row
         blocked, evaluation = readiness_blockers(row)
-        blocked.extend(f"DRAIN_{x.provider}:{x.count}" for x in drain_blockers(row))
+        # An unconfigured/incomplete evaluation already prevents Freeze. Avoid scanning global
+        # ingress/source tables while holding the exclusive writer barrier in that common state.
+        # The read-only preflight still reports all source blockers without excluding writers.
+        if not blocked:
+            blocked.extend(f"DRAIN_{x.provider}:{x.count}" for x in drain_blockers(row))
         if blocked:
             row.freeze_watermark = {"checked_at": now.isoformat(), "blockers": sorted(set(blocked))}
             row.save(update_fields=("freeze_watermark",))

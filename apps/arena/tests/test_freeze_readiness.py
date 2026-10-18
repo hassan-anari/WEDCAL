@@ -87,7 +87,7 @@ def test_positive_decisions_are_not_completeness(epoch, player_factory):
 
 
 @pytest.mark.django_db
-def test_production_evaluator_is_explicitly_unconfigured(epoch):
+def test_production_evaluator_is_explicitly_unconfigured(epoch, monkeypatch):
     assert policy_identity(epoch) not in APPROVED_EVALUATORS
     run = evaluate_epoch_readiness(epoch, evaluation_key="unconfigured")
     assert run.status == "BLOCKED"
@@ -95,6 +95,13 @@ def test_production_evaluator_is_explicitly_unconfigured(epoch):
         "QUALIFICATION_EVALUATOR_UNCONFIGURED",
         "SOURCE_COMPLETION_UNVERIFIED",
     }
+
+    def no_source_scan(_row) -> None:
+        raise AssertionError(
+            "Incomplete qualification should not scan sources under exclusive lock"
+        )
+
+    monkeypatch.setattr("apps.arena.epochs.drain_blockers", no_source_scan)
     with pytest.raises(EpochBlocked, match="QUALIFICATION_BLOCKED"):
         freeze_epoch(epoch, at=epoch.ends_at)
     assert_no_final_outputs(epoch)

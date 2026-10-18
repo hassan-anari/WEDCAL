@@ -78,7 +78,8 @@ input digest, coverage/source provenance, blocker codes and completion timestamp
 - Freeze re-inspects under the exclusive barrier and requires identical evidence digest and exact
   policy/config/cutoff/evaluator version. Evidence changes require reevaluation.
 - Expected blockers commit only a recoverable DRAINING marker/watermark, then raise EpochBlocked.
-  The task catches this and logs safe reason codes at INFO. No automatic retry storm or partial
+  The task catches this and logs safe reason codes at INFO. While evaluation is missing/blocked,
+  Freeze avoids source-table scans under the exclusive lock; preflight still reports all providers. No automatic retry storm or partial
   final outputs. Actual database failures roll back outputs; the next scheduled task can retry.
 - Concurrent freezes recheck state after acquiring the barrier/row lock. Successful replay returns
   immutable history without re-materializing budgets/snapshots.
