@@ -512,3 +512,42 @@ def test_preflight_counts_latest_policy_and_moderation_without_exposing_identiti
     assert report["unresolved_eligibility"] is None
     assert str(banned.telegram_user_id) not in output.getvalue()
     assert str(revoked.telegram_user_id) not in output.getvalue()
+
+
+@pytest.mark.django_db
+def test_season_close_marker_does_not_disable_audited_moderation(epoch, player_factory):
+    from uuid import uuid4
+
+    from apps.moderation.models import ModerationCase
+    from apps.moderation.services import apply_action
+    from apps.seasons.models import SeasonCloseRun
+
+    target, reporter = player_factory(18001), player_factory(18002)
+    case = ModerationCase.objects.create(
+        reporter=reporter,
+        target=target,
+        category="FRAUD",
+        reason="synthetic review",
+        config_version=epoch.config_version,
+    )
+    run = SeasonCloseRun.objects.create(
+        season=epoch.season,
+        idempotency_key="synthetic-close",
+        cutoff_at=epoch.ends_at,
+        service_actor="TEST",
+        reason="synthetic close",
+        correlation_id=uuid4(),
+    )
+    with transaction.atomic(), connection.cursor() as cursor:
+        cursor.execute("SELECT set_config('dexo.season_close_barrier', 'on', true)")
+        SeasonCloseRun.objects.filter(pk=run.pk).update(barrier_established_at=timezone.now())
+        cursor.execute("SELECT set_config('dexo.season_close_barrier', 'off', true)")
+    action = apply_action(
+        case_id=case.pk,
+        action_type="BAN",
+        reason="synthetic review",
+        idempotency_key="synthetic-ban",
+        system_actor="TEST",
+    )
+    target.refresh_from_db()
+    assert target.moderation_state == "BANNED" and action.target_id == target.pk

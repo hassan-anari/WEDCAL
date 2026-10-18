@@ -76,3 +76,8 @@ estimate. Reversing the guards would remove protection and is not a recommended 
 No merge, deployment, production migration/write, operator hold, live task dispatch, or Phase 2/3
 work occurred. See the [operator/design handoff](../SEASON1_PHASE1_FREEZE_SAFETY.md) for the unresolved
 policy/source decisions and exact Docker Compose read-only inspection procedures.
+
+Final compatibility follow-up: `uv run pytest apps/arena/tests/test_freeze_readiness.py apps/moderation -q`
+passed **55 tests**, including an audited BAN while the active Season close marker is established.
+Moderation takes the same shared Season lock as economic writers, without applying the economic
+finalization rejection to safety actions. This preserves moderation while serializing cutoff reads.

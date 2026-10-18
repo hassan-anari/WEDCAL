@@ -26,13 +26,19 @@ class ModerationIdempotencyConflict(ValidationError):
 
 
 def _join_active_season_barriers() -> None:
-    from apps.seasons.barrier import acquire_economic_write_barrier
+    from apps.seasons.barrier import LOCK_NAMESPACE
     from apps.seasons.models import Season
 
     for season_id in (
         Season.objects.filter(status="ACTIVE").order_by("pk").values_list("pk", flat=True)
     ):
-        acquire_economic_write_barrier(season_id)
+        # Synchronize cutoff observation without disabling safety actions during Season close.
+        # This is the same shared lock; the economic finalization rejection does not apply
+        # to an audited moderation transition with its own source timestamp.
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock_shared(%s, %s)", [LOCK_NAMESPACE, season_id]
+            )
 
 
 def moderation_state_at(player: Player, at: datetime) -> str:
