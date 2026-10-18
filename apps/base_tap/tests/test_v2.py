@@ -605,3 +605,41 @@ def test_existing_historical_projection_150_is_never_reset(world: Any) -> None:
     assert result["snapshot"]["progression"]["lifetime_points"] == 200
     assert result["snapshot"]["season_points"] == 200
     assert RewardLedger.objects.get().player_amount == 50
+
+
+@pytest.mark.django_db
+def test_weekly_freeze_counts_tap_fact_once_and_boundary_stays_in_next_epoch(
+    world: Any, ready_epoch: Any
+) -> None:
+    from apps.arena.epochs import freeze_epoch, initialize_epochs
+    from apps.arena.qualification import record_qualification_decision
+
+    player, session, state, _, season = world
+    first, second = initialize_epochs(season)[:2]
+    record_qualification_decision(
+        player=player,
+        policy_key="QUALIFIED_PLAYER",
+        policy_version=1,
+        decision="QUALIFIED",
+        effective_at=season.starts_at,
+        reason_code="SYNTHETIC_TEST_REVIEW",
+        source="TEST",
+        source_id="tap-freeze",
+    )
+    payload = batch(state, count=7, key="weekly")
+    submit_batch(player, payload, at=AT)
+    submit_batch(player, payload, at=AT)
+    ready_epoch(first)
+    freeze_epoch(first, at=first.ends_at)
+    raw = first.performance_snapshots.get(player=player, category="CORE_GAMEPLAY").raw_inputs
+    assert raw["durable_source_amount"] == 7 and raw["durable_source_events"] == 1
+    assert raw["player_amount"] == raw["reward_event_count"] == 0
+    boundary_state = issue_lease(player, session=session, at=first.ends_at)
+    submit_batch(player, batch(boundary_state, count=3, start=8, key="boundary"), at=first.ends_at)
+    ready_epoch(second)
+    freeze_epoch(second, at=second.ends_at)
+    next_raw = second.performance_snapshots.get(player=player, category="CORE_GAMEPLAY").raw_inputs
+    assert next_raw["durable_source_amount"] == 3 and next_raw["durable_source_events"] == 1
+    assert (
+        first.performance_snapshots.get(player=player, category="CORE_GAMEPLAY").raw_inputs == raw
+    )

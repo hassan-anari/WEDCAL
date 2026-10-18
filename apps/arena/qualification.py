@@ -2,9 +2,10 @@ from datetime import datetime
 
 from django.db import IntegrityError, transaction
 
-from apps.arena.models import QualificationDecision
+from apps.arena.models import EconomicEpoch, QualificationDecision
 from apps.moderation.services import moderation_state_at
 from apps.players.models import Player
+from apps.seasons.barrier import acquire_economic_write_barrier
 
 BLOCKED_STATES = {Player.ModerationState.SUSPENDED, Player.ModerationState.BANNED}
 
@@ -45,8 +46,34 @@ def record_qualification_decision(
     if decision not in QualificationDecision.Decision.values:
         raise ValueError("Unknown qualification decision")
     safe_evidence = evidence or {}
+    existing = QualificationDecision.objects.filter(
+        policy_key=policy_key, source=source, source_id=source_id
+    ).first()
+    if existing is not None:
+        if not _same_decision(
+            existing,
+            player=player,
+            policy_version=policy_version,
+            decision=decision,
+            effective_at=effective_at,
+            reason_code=reason_code,
+            evidence=safe_evidence,
+        ):
+            raise ValueError("Qualification decision idempotency conflict")
+        return existing, False
     try:
         with transaction.atomic():
+            affected = EconomicEpoch.objects.filter(
+                ends_at__gte=effective_at,
+                config_version__payload__dlx_distribution__pool__growth_unlock__qualified_player_predicate__policy_key=policy_key,
+                config_version__payload__dlx_distribution__pool__growth_unlock__qualified_player_predicate__policy_version=policy_version,
+            )
+            for season_id in (
+                affected.order_by("season_id").values_list("season_id", flat=True).distinct()
+            ):
+                acquire_economic_write_barrier(season_id)
+            if affected.filter(state__in=["FROZEN", "SETTLING", "SETTLED"]).exists():
+                raise ValueError("QUALIFICATION_CUTOFF_FINALIZED")
             return QualificationDecision.objects.create(
                 player=player,
                 policy_key=policy_key,

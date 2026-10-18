@@ -4,8 +4,8 @@ from datetime import datetime, timedelta
 from typing import cast
 
 from django.core.exceptions import ValidationError
-from django.db import transaction
-from django.db.models import Count, Max, Sum
+from django.db import connection, transaction
+from django.db.models import Count, Max, Q, Sum
 from django.utils import timezone
 
 from apps.arena.models import (
@@ -80,7 +80,8 @@ def epoch_for_source_time(season: Season, source_time: datetime) -> EconomicEpoc
 def drain_blockers(epoch: EconomicEpoch) -> list[DrainBlocker]:
     """Query unfinished durable work scoped to this Season and pre-cutoff source time."""
     from apps.base_tap.models import BaseTapDailyAccumulator
-    from apps.clans.models import ClanActivity, ClanActivityWindow
+    from apps.clans.models import ClanActivity, ClanActivityWindow, ClanMissionSignal
+    from apps.missions.models import PlayerMission
     from apps.network.models import CreatorWindowSettlement, NetworkActivity
     from apps.rewards.models import RewardSettlementOutbox
     from apps.telegram.models import TelegramInboundUpdate
@@ -88,56 +89,59 @@ def drain_blockers(epoch: EconomicEpoch) -> list[DrainBlocker]:
 
     span = {"gte": epoch.starts_at, "lt": epoch.ends_at}
     checks = {
-        # Telegram rows have no Season FK; the accepted-at interval is the durable ingress scope.
-        "TELEGRAM_INBOUND": TelegramInboundUpdate.objects.filter(
-            received_at__gte=epoch.starts_at, received_at__lt=epoch.ends_at
-        )
-        .exclude(state__in=["PROCESSED", "IGNORED", "DEAD_LETTER"])
+        # Ingress has no authoritative economic source-time column. Unknown impact remains
+        # a conservative global blocker, including dead letters and late received updates.
+        "TELEGRAM_INBOUND": TelegramInboundUpdate.objects.all()
+        .exclude(state__in=["PROCESSED", "IGNORED"])
         .count(),
         "NETWORK_ACTIVITY": NetworkActivity.objects.filter(
             season=epoch.season,
-            observed_at__gte=span["gte"],
             observed_at__lt=span["lt"],
             window_processed=False,
         ).count(),
         "NETWORK_WINDOWS": CreatorWindowSettlement.objects.filter(
             season=epoch.season,
-            window_start__gte=span["gte"],
             window_start__lt=span["lt"],
             finalized_at__isnull=True,
         ).count(),
         "CLAN_ACTIVITY": ClanActivity.objects.filter(
             season=epoch.season,
-            observed_at__gte=span["gte"],
             observed_at__lt=span["lt"],
             window_processed=False,
         ).count(),
         "CLAN_WINDOWS": ClanActivityWindow.objects.filter(
-            season=epoch.season,
-            window_start__gte=span["gte"],
+            clan_season__season=epoch.season,
             window_start__lt=span["lt"],
             finalized_at__isnull=True,
         ).count(),
+        "CLAN_MISSION_SIGNALS": ClanMissionSignal.objects.filter(
+            membership__season=epoch.season,
+            occurred_at__lt=span["lt"],
+            processed_at__isnull=True,
+        ).count(),
         "REWARD_REFERRAL_OUTBOX": RewardSettlementOutbox.objects.filter(
             reward__season=epoch.season,
-            reward__occurred_at__gte=span["gte"],
             reward__occurred_at__lt=span["lt"],
         )
-        .exclude(state__in=["PROCESSED", "DEFERRED"])
+        .exclude(state="PROCESSED")
         .count(),
         "BASE_TAP": BaseTapDailyAccumulator.objects.filter(
             season=epoch.season,
-            first_accepted_at__gte=span["gte"],
-            first_accepted_at__lt=span["lt"],
             pending_points__gt=0,
         )
         .exclude(settlement_state="SETTLED")
+        .filter(Q(first_accepted_at__isnull=True) | Q(first_accepted_at__lt=span["lt"]))
         .count(),
         # Unclaimed wallet credit is final user-held state. Only unfinished attempts can change
         # the frozen input.
+        "MISSION_ENTITLEMENTS": PlayerMission.objects.filter(
+            season=epoch.season,
+            status="REWARD_READY",
+        )
+        .filter(Q(verified_at__isnull=True) | Q(verified_at__lt=span["lt"]))
+        .count(),
         "TYPING_ATTEMPTS": TypingAttempt.objects.filter(
             season=epoch.season,
-            started_at__gte=span["gte"],
             started_at__lt=span["lt"],
             status=TypingAttempt.Status.STARTED,
         ).count(),
@@ -169,33 +173,47 @@ def freeze_epoch(epoch: EconomicEpoch, *, at: datetime | None = None) -> Economi
         EconomicEpoch.State.SETTLED,
     }:
         return row
-    blockers = drain_blockers(row)
-    if blockers:
-        EconomicEpoch.objects.filter(pk=row.pk, state=EconomicEpoch.State.DRAINING).update(
-            freeze_watermark={
-                "checked_at": now.isoformat(),
-                "blockers": {x.provider: x.count for x in blockers},
-            }
-        )
-        raise EpochBlocked(",".join(f"{x.provider}:{x.count}" for x in blockers))
-    with transaction.atomic():
-        from apps.seasons.barrier import acquire_economic_write_barrier
+    from apps.arena.readiness import readiness_blockers
+    from apps.seasons.barrier import acquire_close_barrier
 
-        acquire_economic_write_barrier(row.season_id)
+    blocked: list[str] = []
+    with transaction.atomic():
+        # Exclusive form of the existing Season barrier, before any model row locks.
+        # No preflight or earlier evaluation is trusted across this transaction boundary.
+        acquire_close_barrier(row.season_id)
         row = EconomicEpoch.objects.select_for_update().get(pk=row.pk)
-        blockers = drain_blockers(row)
-        if blockers:
-            raise EpochBlocked(",".join(f"{x.provider}:{x.count}" for x in blockers))
-        policy = resolve_game_config_version(row.config_version_id).dlx_distribution
-        assert policy is not None
-        _snapshot_budgets(row, policy)
-        _build_performance_snapshots(row, policy)
-        row.freeze_watermark = {"checked_at": now.isoformat(), "providers": "CLEAR"}
-        row.snapshots_completed_at = now
-        row.frozen_at = now
-        row.state = EconomicEpoch.State.FROZEN
-        row.save(update_fields=("state", "freeze_watermark", "snapshots_completed_at", "frozen_at"))
-        return row
+        if row.state in {"FROZEN", "SETTLING", "SETTLED"}:
+            return row
+        blocked, evaluation = readiness_blockers(row)
+        blocked.extend(f"DRAIN_{x.provider}:{x.count}" for x in drain_blockers(row))
+        if blocked:
+            row.freeze_watermark = {"checked_at": now.isoformat(), "blockers": sorted(set(blocked))}
+            row.save(update_fields=("freeze_watermark",))
+        else:
+            assert evaluation is not None
+            policy = resolve_game_config_version(row.config_version_id).dlx_distribution
+            assert policy is not None
+            _snapshot_budgets(row, policy)
+            _build_performance_snapshots(row, policy)
+            row.freeze_watermark = {
+                "checked_at": now.isoformat(),
+                "providers": "CLEAR",
+                "readiness_evaluation_id": evaluation.pk,
+                "input_digest": evaluation.input_digest,
+            }
+            row.snapshots_completed_at = now
+            row.frozen_at = now
+            row.state = EconomicEpoch.State.FROZEN
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT set_config('dexo.epoch_freeze', 'on', true)")
+            row.save(
+                update_fields=("state", "freeze_watermark", "snapshots_completed_at", "frozen_at")
+            )
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT set_config('dexo.epoch_freeze', 'off', true)")
+    if blocked:
+        raise EpochBlocked(",".join(sorted(set(blocked))))
+    return row
 
 
 def _snapshot_budgets(epoch: EconomicEpoch, policy: DlxDistributionConfig) -> None:

@@ -340,7 +340,7 @@ def test_typing_history_paginates_real_rejected_and_valid_runs_and_omits_unfinis
 
 
 def test_dlx_api_reports_only_confirmed_allocation_and_audited_adjustments(
-    client, settings, phase4_config_factory, season_factory, player_factory
+    client, settings, phase4_config_factory, season_factory, player_factory, mark_epoch_frozen
 ):
     from apps.arena.adjustments import record_adjustment
     from apps.arena.tests.test_dlx_corrections import settled_allocation
@@ -352,7 +352,7 @@ def test_dlx_api_reports_only_confirmed_allocation_and_audited_adjustments(
     PlayerProgression.objects.get_or_create(
         player=player, defaults={"config_version": config, "dexo_stage": "newborn"}
     )
-    allocation = settled_allocation(config, season, player)
+    allocation = settled_allocation(config, season, player, mark_epoch_frozen)
     for kind, amount in [("HOLD", 10), ("RELEASE_HOLD", 3), ("FORFEIT", 5), ("REVERSAL", 2)]:
         record_adjustment(
             allocation=allocation,

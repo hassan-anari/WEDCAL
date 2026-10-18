@@ -1,3 +1,4 @@
+import structlog
 from celery import shared_task
 from django.utils import timezone
 
@@ -10,6 +11,8 @@ from apps.arena.epochs import (
 from apps.arena.models import EconomicEpoch, RankingProjectionEvent
 from apps.arena.services import apply_projection_event, consume_pending_events, rebuild_ranking
 from apps.seasons.models import Season
+
+logger = structlog.get_logger(__name__)
 
 
 @shared_task(  # type: ignore[untyped-decorator]
@@ -50,7 +53,13 @@ def drain_and_freeze_epochs() -> int:
         try:
             freeze_epoch(epoch)
             count += 1
-        except EpochBlocked:
+        except EpochBlocked as exc:
+            logger.info(
+                "epoch_freeze_blocked",
+                epoch_id=epoch.pk,
+                season_id=epoch.season_id,
+                reason_codes=str(exc),
+            )
             continue
     return count
 

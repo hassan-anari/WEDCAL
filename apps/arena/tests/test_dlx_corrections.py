@@ -51,7 +51,7 @@ def qualify(player: Player, config_id: int, source_id: str = "qualified") -> Qua
     return row
 
 
-def settled_allocation(config, season, player) -> DlxAllocation:  # type: ignore[no-untyped-def]
+def settled_allocation(config, season, player, mark_epoch_frozen) -> DlxAllocation:  # type: ignore[no-untyped-def]
     season = set_settlement_start_epoch(season, 1, service_actor="test", reason="test setup")
     epoch = EconomicEpoch.objects.create(
         season=season,
@@ -84,7 +84,7 @@ def settled_allocation(config, season, player) -> DlxAllocation:  # type: ignore
     epoch.state = "FROZEN"
     epoch.frozen_at = AT
     epoch.snapshots_completed_at = AT
-    epoch.save(update_fields=("state", "frozen_at", "snapshots_completed_at"))
+    mark_epoch_frozen(epoch, ("state", "frozen_at", "snapshots_completed_at"))
     settle_epoch(epoch, strategies={"CORE_GAMEPLAY": lambda _budget, _rows: {player.pk: 60}}, at=AT)
     return DlxAllocation.objects.get(snapshot=snapshot)
 
@@ -163,7 +163,7 @@ def test_source_time_moderation_does_not_reinterpret_cutoff(  # type: ignore[no-
 
 @pytest.mark.django_db(transaction=True)
 def test_qualification_and_frozen_snapshot_are_database_immutable(  # type: ignore[no-untyped-def]
-    phase4_config_factory, season_factory, player_factory
+    phase4_config_factory, season_factory, player_factory, mark_epoch_frozen
 ) -> None:
     config = phase4_config_factory()
     season = season_factory(config)
@@ -191,7 +191,7 @@ def test_qualification_and_frozen_snapshot_are_database_immutable(  # type: igno
         config_version=config,
     )
     epoch.state = "FROZEN"
-    epoch.save(update_fields=("state",))
+    mark_epoch_frozen(epoch, ("state",))
     with pytest.raises(DatabaseError), transaction.atomic(), connection.cursor() as cursor:
         cursor.execute("DELETE FROM arena_epochperformancesnapshot WHERE id=%s", [snapshot.pk])
     with pytest.raises(DatabaseError), transaction.atomic():
@@ -207,12 +207,12 @@ def test_qualification_and_frozen_snapshot_are_database_immutable(  # type: igno
 
 @pytest.mark.django_db
 def test_actual_ledger_reconciliation_detects_projection_drift(  # type: ignore[no-untyped-def]
-    phase4_config_factory, season_factory, player_factory
+    phase4_config_factory, season_factory, player_factory, mark_epoch_frozen
 ) -> None:
     config = phase4_config_factory()
     season = season_factory(config)
     player = player_factory()
-    allocation = settled_allocation(config, season, player)
+    allocation = settled_allocation(config, season, player, mark_epoch_frozen)
     epoch = allocation.epoch
     assert all(reconcile_epoch(epoch).values())
     EpochCategoryBudget.objects.filter(epoch=epoch).update(allocated_amount=59)
@@ -225,7 +225,7 @@ def test_actual_ledger_reconciliation_detects_projection_drift(  # type: ignore[
 
 @pytest.mark.django_db
 def test_delayed_same_category_carry_materializes_only_after_prior_settlement(  # type: ignore[no-untyped-def]
-    phase4_config_factory, season_factory, player_factory
+    phase4_config_factory, season_factory, player_factory, mark_epoch_frozen
 ) -> None:
     config = phase4_config_factory()
     season = season_factory(config)
@@ -264,7 +264,7 @@ def test_delayed_same_category_carry_materializes_only_after_prior_settlement(  
         epoch.state = "FROZEN"
         epoch.frozen_at = epoch.ends_at
         epoch.snapshots_completed_at = epoch.ends_at
-        epoch.save(update_fields=("state", "frozen_at", "snapshots_completed_at"))
+        mark_epoch_frozen(epoch, ("state", "frozen_at", "snapshots_completed_at"))
         epochs.append(epoch)
     assert not EpochCategoryBudget.objects.get(epoch=epochs[1]).carry_materialized
     gate_at = season.starts_at + timedelta(days=14)
@@ -281,12 +281,12 @@ def test_delayed_same_category_carry_materializes_only_after_prior_settlement(  
 
 @pytest.mark.django_db(transaction=True)
 def test_adjustment_idempotency_contention_and_append_only(  # type: ignore[no-untyped-def]
-    phase4_config_factory, season_factory, player_factory
+    phase4_config_factory, season_factory, player_factory, mark_epoch_frozen
 ) -> None:
     config = phase4_config_factory()
     season = season_factory(config)
     player = player_factory()
-    allocation = settled_allocation(config, season, player)
+    allocation = settled_allocation(config, season, player, mark_epoch_frozen)
     first, created = record_adjustment(
         allocation=allocation,
         kind="HOLD",
@@ -364,12 +364,12 @@ def test_adjustment_idempotency_contention_and_append_only(  # type: ignore[no-u
 
 @pytest.mark.django_db(transaction=True)
 def test_concurrent_duplicate_forfeit_converges_once(  # type: ignore[no-untyped-def]
-    phase4_config_factory, season_factory, player_factory
+    phase4_config_factory, season_factory, player_factory, mark_epoch_frozen
 ) -> None:
     config = phase4_config_factory()
     season = season_factory(config)
     player = player_factory()
-    allocation = settled_allocation(config, season, player)
+    allocation = settled_allocation(config, season, player, mark_epoch_frozen)
 
     def apply() -> int:
         close_old_connections()
@@ -394,12 +394,12 @@ def test_concurrent_duplicate_forfeit_converges_once(  # type: ignore[no-untyped
 
 @pytest.mark.django_db(transaction=True)
 def test_hold_and_forfeit_contention_cannot_over_adjust(  # type: ignore[no-untyped-def]
-    phase4_config_factory, season_factory, player_factory
+    phase4_config_factory, season_factory, player_factory, mark_epoch_frozen
 ) -> None:
     config = phase4_config_factory()
     season = season_factory(config)
     player = player_factory()
-    allocation = settled_allocation(config, season, player)
+    allocation = settled_allocation(config, season, player, mark_epoch_frozen)
 
     def apply(kind: str) -> str:
         close_old_connections()
@@ -427,7 +427,7 @@ def test_hold_and_forfeit_contention_cannot_over_adjust(  # type: ignore[no-unty
 
 @pytest.mark.django_db
 def test_freeze_builds_snapshots_and_unclaimed_typing_is_not_a_blocker(  # type: ignore[no-untyped-def]
-    phase4_config_factory, season_factory, player_factory
+    phase4_config_factory, season_factory, player_factory, ready_epoch
 ) -> None:
     config = phase4_config_factory()
     season = season_factory(config)
@@ -436,6 +436,7 @@ def test_freeze_builds_snapshots_and_unclaimed_typing_is_not_a_blocker(  # type:
     TypingWallet.objects.create(player=player, season=season, claimable_balance=50)
     epoch = initialize_epochs(season)[0]
     assert all(blocker.provider != "TYPING_WALLET" for blocker in drain_blockers(epoch))
+    ready_epoch(epoch)
     frozen = freeze_epoch(epoch, at=epoch.ends_at)
     assert frozen.state == EconomicEpoch.State.FROZEN
     assert frozen.snapshots_completed_at == epoch.ends_at
@@ -458,12 +459,12 @@ def test_freeze_builds_snapshots_and_unclaimed_typing_is_not_a_blocker(  # type:
 
 @pytest.mark.django_db
 def test_settlement_control_is_closed_after_first_real_transition(  # type: ignore[no-untyped-def]
-    phase4_config_factory, season_factory, player_factory
+    phase4_config_factory, season_factory, player_factory, mark_epoch_frozen
 ) -> None:
     config = phase4_config_factory()
     season = season_factory(config)
     player = player_factory()
-    settled_allocation(config, season, player)
+    settled_allocation(config, season, player, mark_epoch_frozen)
     season.refresh_from_db()
     assert season.settlement_started_at is not None
     with pytest.raises(ValidationError):
@@ -472,7 +473,7 @@ def test_settlement_control_is_closed_after_first_real_transition(  # type: igno
 
 @pytest.mark.django_db(transaction=True)
 def test_first_settlement_and_control_change_have_one_serialized_winner(  # type: ignore[no-untyped-def]
-    phase4_config_factory, season_factory, player_factory
+    phase4_config_factory, season_factory, player_factory, mark_epoch_frozen
 ) -> None:
     config = phase4_config_factory()
     season = season_factory(config)
@@ -506,7 +507,7 @@ def test_first_settlement_and_control_change_have_one_serialized_winner(  # type
         config_version=config,
     )
     epoch.state = "FROZEN"
-    epoch.save(update_fields=("state",))
+    mark_epoch_frozen(epoch, ("state",))
 
     def settle() -> str:
         close_old_connections()

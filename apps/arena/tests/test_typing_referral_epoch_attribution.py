@@ -66,7 +66,7 @@ def settle_claim_referral(invitee, key: str, at: datetime) -> RewardLedger:
 
 @pytest.mark.django_db
 def test_unclaimed_typing_credit_freezes_inviter_referral_source_time(
-    phase4_config_factory, season_factory, player_factory
+    phase4_config_factory, season_factory, player_factory, ready_epoch
 ) -> None:
     config = phase4_config_factory()
     season = season_factory(config, starts_at=START)
@@ -88,6 +88,7 @@ def test_unclaimed_typing_credit_freezes_inviter_referral_source_time(
         "typing_credit_amount": attempt.reward_amount,
     }
 
+    ready_epoch(epoch)
     freeze_epoch(epoch, at=epoch.ends_at)
     assert referral_raw(epoch, inviter) == {
         "durable_source_amount": fact.amount,
@@ -98,7 +99,7 @@ def test_unclaimed_typing_credit_freezes_inviter_referral_source_time(
 
 @pytest.mark.django_db
 def test_claimed_and_unclaimed_typing_sources_freeze_identical_referral_inputs(
-    phase4_config_factory, season_factory, player_factory
+    phase4_config_factory, season_factory, player_factory, ready_epoch
 ) -> None:
     config = phase4_config_factory()
     season = season_factory(config, starts_at=START)
@@ -114,6 +115,7 @@ def test_claimed_and_unclaimed_typing_sources_freeze_identical_referral_inputs(
     complete(invitee_b, "unclaimed", source_time)
     settle_claim_referral(invitee_a, "before-freeze", source_time + timedelta(hours=1))
 
+    ready_epoch(epoch)
     freeze_epoch(epoch, at=epoch.ends_at)
     assert referral_raw(epoch, inviter_a) == referral_raw(epoch, inviter_b)
     assert referral_raw(epoch, inviter_a)["durable_source_events"] == 1
@@ -121,7 +123,7 @@ def test_claimed_and_unclaimed_typing_sources_freeze_identical_referral_inputs(
 
 @pytest.mark.django_db
 def test_combined_cross_epoch_claim_preserves_each_referral_source_epoch(
-    phase4_config_factory, season_factory, player_factory
+    phase4_config_factory, season_factory, player_factory, ready_epoch
 ) -> None:
     config = phase4_config_factory()
     season = season_factory(config, starts_at=START)
@@ -132,10 +134,12 @@ def test_combined_cross_epoch_claim_preserves_each_referral_source_epoch(
     TypingPhrase.objects.create(key="arena", version=1, text=TEXT, enabled=True)
 
     first_attempt = complete(invitee, "epoch-one", START + timedelta(days=1))
+    ready_epoch(first)
     freeze_epoch(first, at=first.ends_at)
     first_before_claim = referral_raw(first, inviter)
     second_attempt = complete(invitee, "epoch-two", START + timedelta(days=8))
     settle_claim_referral(invitee, "combined", START + timedelta(days=8, hours=1))
+    ready_epoch(second)
     freeze_epoch(second, at=second.ends_at)
 
     assert referral_raw(first, inviter) == first_before_claim
@@ -148,7 +152,7 @@ def test_combined_cross_epoch_claim_preserves_each_referral_source_epoch(
 
 @pytest.mark.django_db
 def test_later_referral_ledger_does_not_double_count_or_change_source_tier(
-    phase4_config_factory, season_factory, player_factory
+    phase4_config_factory, season_factory, player_factory, ready_epoch
 ) -> None:
     config = phase4_config_factory()
     season = season_factory(config, starts_at=START)
@@ -176,6 +180,7 @@ def test_later_referral_ledger_does_not_double_count_or_change_source_tier(
         )
     assert PerformanceSourceFact.objects.filter(source_type="TYPING_REFERRAL_CREDIT").count() == 1
 
+    ready_epoch(epoch)
     freeze_epoch(epoch, at=epoch.ends_at)
     frozen = referral_raw(epoch, inviter)
     share_reward = settle_claim_referral(invitee, "late", START + timedelta(days=8))

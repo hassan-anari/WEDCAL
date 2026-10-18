@@ -25,6 +25,16 @@ class ModerationIdempotencyConflict(ValidationError):
     pass
 
 
+def _join_active_season_barriers() -> None:
+    from apps.seasons.barrier import acquire_economic_write_barrier
+    from apps.seasons.models import Season
+
+    for season_id in (
+        Season.objects.filter(status="ACTIVE").order_by("pk").values_list("pk", flat=True)
+    ):
+        acquire_economic_write_barrier(season_id)
+
+
 def moderation_state_at(player: Player, at: datetime) -> str:
     """Resolve audited moderation state at source time without using today's projection."""
     action = (
@@ -135,6 +145,7 @@ def apply_action(
     ):
         raise ValidationError("A future suspension expiry is required")
     with transaction.atomic():
+        _join_active_season_barriers()
         # Serialize the globally unique key before any case/player row locks.
         with connection.cursor() as cursor:
             cursor.execute(
@@ -273,6 +284,7 @@ def expire_suspensions(*, now: datetime | None = None, limit: int = 100) -> int:
     for player_id, source_action_id, case_id in candidates:
         with transaction.atomic():
             # Canonical moderation transition order: case first, target Player second.
+            _join_active_season_barriers()
             case = ModerationCase.objects.select_for_update().get(pk=case_id)
             player = Player.objects.select_for_update().get(pk=player_id)
             if (

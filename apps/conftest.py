@@ -205,3 +205,93 @@ def clan_world(phase4_config_factory, season_factory, player_factory):  # type: 
         return clan_season
 
     return now, config, season, resolved, player, clan
+
+
+@pytest.fixture
+def ready_epoch(monkeypatch):  # type: ignore[no-untyped-def]
+    """Synthetic policy oracle for existing economic tests, never a production eligibility rule.
+
+    These tests supply authoritative positive decisions themselves. Their remaining fixture
+    players are explicitly outside the synthetic policy. A synthetic ingress seal stands in for
+    the future approved source-completion provider; this is not live delivery/closure evidence.
+    """
+    from uuid import uuid4
+
+    from django.db.models import Count, Max
+
+    from apps.arena.models import EconomicEpoch, PerformanceSourceFact, QualificationDecision
+    from apps.arena.readiness import (
+        APPROVED_EVALUATORS,
+        ApprovedEvaluator,
+        EvaluationEvidence,
+        evaluate_epoch_readiness,
+    )
+    from apps.moderation.models import ModerationAction
+    from apps.rewards.models import RewardLedger
+
+    def inspect(epoch):  # type: ignore[no-untyped-def]
+        decisions = list(
+            QualificationDecision.objects.filter(effective_at__lte=epoch.ends_at)
+            .order_by("pk")
+            .values_list("pk", "policy_key", "policy_version", "decision")
+        )
+        count = Player.objects.filter(first_seen_at__lt=epoch.ends_at).count()
+        return EvaluationEvidence(
+            scope_count=count,
+            evaluated_count=count,
+            unresolved_count=0,
+            source_completion={
+                "synthetic_ingress_seal": "test-only",
+                "facts": PerformanceSourceFact.objects.filter(
+                    season_id=epoch.season_id, source_time__lt=epoch.ends_at
+                ).aggregate(count=Count("pk"), latest=Max("pk")),
+                "rewards": RewardLedger.objects.filter(
+                    season_id=epoch.season_id, occurred_at__lt=epoch.ends_at
+                ).aggregate(count=Count("pk"), latest=Max("pk")),
+            },
+            provenance={
+                "test_policy": "Only explicitly qualified fixture players are eligible",
+                "decisions": decisions,
+                "moderation": list(
+                    Player.objects.order_by("pk").values_list("pk", "moderation_state")
+                ),
+                "actions": list(
+                    ModerationAction.objects.order_by("pk").values_list("pk", flat=True)
+                ),
+            },
+        )
+
+    monkeypatch.setitem(
+        APPROVED_EVALUATORS,
+        ("QUALIFIED_PLAYER", 1),
+        ApprovedEvaluator("SYNTHETIC-TEST-ONLY-v1", inspect),
+    )
+
+    def complete(epoch):  # type: ignore[no-untyped-def]
+        if EconomicEpoch.objects.get(pk=epoch.pk).state in {"FROZEN", "SETTLING", "SETTLED"}:
+            return None
+        run = evaluate_epoch_readiness(epoch, evaluation_key=f"synthetic:{uuid4()}")
+        assert run.status == "COMPLETE", run.blocking_reasons
+        return run
+
+    return complete
+
+
+@pytest.fixture
+def mark_epoch_frozen(ready_epoch):  # type: ignore[no-untyped-def]
+    """Historical setup for tests of settlement/immutability with prebuilt synthetic snapshots."""
+
+    def mark(epoch, fields=("state",)):  # type: ignore[no-untyped-def]
+        run = ready_epoch(epoch)
+        assert run is not None
+        epoch.freeze_watermark = {
+            "readiness_evaluation_id": run.pk,
+            "input_digest": run.input_digest,
+        }
+        with transaction.atomic(), connection.cursor() as cursor:
+            cursor.execute("SELECT set_config('dexo.epoch_freeze', 'on', true)")
+            epoch.save(update_fields=(*fields, "freeze_watermark"))
+            cursor.execute("SELECT set_config('dexo.epoch_freeze', 'off', true)")
+        return epoch
+
+    return mark
