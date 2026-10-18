@@ -420,3 +420,17 @@ migration 0008 safety/cancellation/reconfirmation instructions live in the B4 ha
 
 Owner-policy implementation pin: `3fd6d87a1d738b8ba78d98788c76b81cb1dc7715`; final review/source/fixture SHA and green checks
 are posted on #29. FROCAL #5 updates only its B4 pin/CI checkout; no consent UI or flag required.
+
+### Post-B6 production QA hotfix — 2026-10-18
+
+Owner-authorized focused follow-up to deployed B6, based on WEDCAL main
+`76a3bec44b68e4b8d5928ddf10999d8d82a2f6f0`. P-07/P-08/P-11 corrections:
+[exact contract](docs/POST_B6_HOTFIX_CONTRACT.md), [current generated OpenAPI](docs/fixtures/b6/openapi.json).
+Server Network history filtering; safe Clan In-App/legacy presentation; typed
+governance conflicts and authenticated dissolution outcome/preflight with explicit
+same-Season recreation consequence. Actual owner-supplied published/pinned policy
+is documented; minimum 3/quorum/approval/recreation remain unchanged. Existing
+B6 Treasury carry, mission lifecycle and item effects are outside this hotfix.
+Draft PR/SHA/checks and FROCAL acknowledgement request are published in the PR
+and [coordination #8](https://github.com/hassan-anari/FROCAL/issues/8).
+No merge, deploy, automatic recreation, policy relaxation or paired acceptance.

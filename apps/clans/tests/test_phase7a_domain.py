@@ -992,7 +992,13 @@ def test_rejoin_active_credential_restoration_uses_remote_revoke_lifecycle(
     assert invite.state == ClanInvite.State.REVOKE_PENDING
     assert invite.invite_link == "known-recovery-link"
     assert invite.desired_terminal_state == ClanInvite.State.USED
-    assert len(callbacks) == 1
+    # The restored-access In-App notification and credential revocation commit separately.
+    assert len(callbacks) == 2
+    from apps.notifications.models import Notification
+
+    assert (
+        Notification.objects.filter(recipient=member, event_key="CLAN_ACCESS_RESTORED").count() == 1
+    )
     assert dispatched == [invite.pk]
 
 

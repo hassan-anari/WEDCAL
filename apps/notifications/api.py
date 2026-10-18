@@ -7,6 +7,7 @@ from django.utils import timezone
 from ninja import Router, Schema
 
 from apps.core.b3 import B3Error, b3_responses
+from apps.notifications.clan_copy import display_copy
 from apps.notifications.models import Notification
 from apps.notifications.services import mark_read
 from apps.players.models import Player
@@ -62,20 +63,7 @@ def list_notifications(
         query = query.filter(id__lt=cursor)
     rows = list(query[: limit + 1])
     return NotificationPage(
-        items=[
-            NotificationOut(
-                deep_link=deep_link(n),
-                id=n.public_id,
-                type=n.event_key,
-                title=n.title,
-                body=n.body,
-                payload=n.payload,
-                created_at=n.created_at,
-                read_at=n.read_at,
-                unread=n.read_at is None,
-            )
-            for n in rows[:limit]
-        ],
+        items=[notification_out(n) for n in rows[:limit]],
         next_cursor=rows[limit - 1].pk if len(rows) > limit else None,
         unread_count=Notification.objects.filter(recipient=player, read_at__isnull=True)
         .exclude(event_key="BOT_PRIVATE")
@@ -113,14 +101,19 @@ def read_notification(request: HttpRequest, notification_id: uuid.UUID) -> Notif
         n = mark_read(recipient=player, public_id=notification_id)
     except Notification.DoesNotExist as exc:
         raise B3Error("NOTIFICATION_NOT_FOUND", 404) from exc
+    return notification_out(n)
+
+
+def notification_out(n: Notification) -> NotificationOut:
+    title, body = display_copy(n)
     return NotificationOut(
         deep_link=deep_link(n),
         id=n.public_id,
         type=n.event_key,
-        title=n.title,
-        body=n.body,
+        title=title,
+        body=body,
         payload=n.payload,
         created_at=n.created_at,
         read_at=n.read_at,
-        unread=False,
+        unread=n.read_at is None,
     )

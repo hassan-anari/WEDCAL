@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from django.core.exceptions import ValidationError
 from django.db import InterfaceError, OperationalError
@@ -24,6 +24,7 @@ rewards_router = Router(tags=["rewards"], auth=mini_app_auth)
 class HistoryQuery(Schema):
     cursor: int | None = None
     limit: int = 20
+    category: Literal["network"] | None = None
 
 
 class HistoryItem(Schema):
@@ -46,10 +47,12 @@ def _player(request: HttpRequest) -> Player:
     return player
 
 
-@rewards_router.get("/history", response=HistoryOutput)
+@rewards_router.get("/history", response=b3_responses(HistoryOutput))
 def reward_history(request: HttpRequest, query: Query[HistoryQuery]) -> dict[str, Any]:
     limit = min(max(query.limit, 1), 100)
     rewards = RewardLedger.objects.filter(player=_player(request)).order_by("-id")
+    if query.category == "network":
+        rewards = rewards.filter(source_type__in=("CREATOR", "NETWORK_SPEAKER"))
     if query.cursor is not None:
         rewards = rewards.filter(id__lt=query.cursor)
     rows = list(

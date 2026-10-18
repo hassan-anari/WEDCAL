@@ -2,6 +2,7 @@ import logging
 
 # mypy: disable-error-code="misc"
 from datetime import datetime, timedelta
+from typing import Any
 
 from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, transaction
@@ -19,8 +20,9 @@ from apps.clans.models import (
     ClanSeason,
     ClanSeasonEvent,
 )
+from apps.clans.notifications import notify_clan_event
 from apps.clans.recovery import preserve_recovery_causes, sync_recovery
-from apps.clans.services import ClanConflict, require_interactive_clan_season
+from apps.clans.services import ClanConflict
 from apps.game_config.services import ClanConfig, resolve_game_config_version
 from apps.players.models import Player
 from apps.seasons.models import Season
@@ -36,6 +38,34 @@ REMOVAL_REASONS = {
 }
 
 
+class GovernanceConflict(ClanConflict):
+    """Stable reasons at the domain boundary; never parse exception text in the API."""
+
+    def __init__(self, reason: str):
+        self.reason = reason
+        super().__init__(reason)
+
+
+def governance_state_block(cs: ClanSeason, case_type: str, now: datetime) -> str | None:
+    if (
+        cs.season.status != Season.Status.ACTIVE
+        or not cs.season.starts_at <= now < cs.season.ends_at
+    ):
+        return "SEASON_UNAVAILABLE"
+    expected = (
+        ClanSeason.State.RECOVERY
+        if case_type == ClanGovernanceCase.Type.RECOVERY_DISSOLUTION
+        else ClanSeason.State.ACTIVE
+    )
+    if cs.state == ClanSeason.State.ENDED:
+        return "CLAN_ENDED"
+    if cs.state == ClanSeason.State.RECOVERY and expected != cs.state:
+        return "RECOVERY_RESTRICTED"
+    if cs.state != expected:
+        return "STATE_CONFLICT"
+    return None
+
+
 def _event(
     cs: ClanSeason,
     kind: str,
@@ -45,7 +75,7 @@ def _event(
     source_id: str = "",
     metadata: dict[str, object] | None = None,
 ) -> None:
-    ClanSeasonEvent.objects.get_or_create(
+    event, created = ClanSeasonEvent.objects.get_or_create(
         clan_season=cs,
         kind=kind,
         source_type=source_type,
@@ -53,27 +83,32 @@ def _event(
         defaults={"occurred_at": at, "metadata": metadata or {}},
     )
 
+    if created and kind in {
+        "RECOVERY_ENTERED",
+        "RECOVERY_CANCELLED",
+        "BOT_ADMIN_RESTORED",
+        "CAPTAIN_AUTHORITY_RESTORED",
+    }:
+        for member in cs.memberships.filter(ended_at__isnull=True).select_related("player"):
+            notify_clan_event(
+                recipient=member.player,
+                event_key=f"CLAN_{kind}",
+                source_type="CLAN_SEASON_EVENT",
+                source_id=event.pk,
+            )
+
 
 def _policy(cs: ClanSeason) -> ClanConfig:
     policy = resolve_game_config_version(cs.config_version_id).clan
     if policy is None:
-        raise ClanConflict("Clan policy unavailable")
+        raise GovernanceConflict("POLICY_UNAVAILABLE")
     return policy
 
 
 def _season_allows(case_type: str, cs: ClanSeason, now: datetime) -> None:
-    if (
-        cs.season.status != Season.Status.ACTIVE
-        or not cs.season.starts_at <= now < cs.season.ends_at
-    ):
-        raise ClanConflict("Clan Season is unavailable for governance")
-    expected = (
-        ClanSeason.State.RECOVERY
-        if case_type == ClanGovernanceCase.Type.RECOVERY_DISSOLUTION
-        else ClanSeason.State.ACTIVE
-    )
-    if cs.state != expected:
-        raise ClanConflict("Clan governance is unavailable in its current state")
+    reason = governance_state_block(cs, case_type, now)
+    if reason:
+        raise GovernanceConflict(reason)
 
 
 def _schedule_next(membership: ClanMembership, policy: ClanConfig) -> None:
@@ -186,9 +221,9 @@ def open_case(
 ) -> ClanGovernanceCase:
     now = now or timezone.now()
     if case_type not in ClanGovernanceCase.Type.values:
-        raise ClanConflict("Invalid governance case type")
+        raise GovernanceConflict("INVALID_CASE_TYPE")
     if case_type == ClanGovernanceCase.Type.SOLDIER_REMOVAL and reason not in REMOVAL_REASONS:
-        raise ClanConflict("Invalid removal reason")
+        raise GovernanceConflict("INVALID_REMOVAL_REASON")
     target_id = target.pk if target else None
     with transaction.atomic():
         cs = ClanSeason.objects.select_for_update().select_related("season").get(pk=clan_season.pk)
@@ -198,14 +233,14 @@ def open_case(
         locked_target = None
         if case_type == ClanGovernanceCase.Type.SOLDIER_REMOVAL:
             if target_id is None:
-                raise ClanConflict("Target must be a current Soldier")
+                raise GovernanceConflict("INVALID_TARGET")
             locked_target = (
                 ClanMembership.objects.select_for_update()
                 .filter(pk=target_id, clan_season=cs, role=ClanRole.SOLDIER, ended_at__isnull=True)
                 .first()
             )
             if locked_target is None:
-                raise ClanConflict("Target must be a current Soldier")
+                raise GovernanceConflict("INVALID_TARGET")
         existing = ClanGovernanceCase.objects.filter(
             clan_season=cs, case_type=case_type, status=ClanGovernanceCase.Status.OPEN
         ).first()
@@ -216,30 +251,31 @@ def open_case(
                 and existing.reason == reason
             ):
                 return existing
-            raise ClanConflict("A conflicting governance case is open")
+            raise GovernanceConflict("OPEN_CASE_EXISTS")
         policy = _policy(cs)
         voters = list(
             _electorate(cs, locked_target.player_id if locked_target else None).select_for_update()
         )
         if len(voters) < policy.governance_minimum_voters:
-            raise ClanConflict("Insufficient eligible voters")
+            raise GovernanceConflict("INSUFFICIENT_VOTERS")
         try:
-            case = ClanGovernanceCase.objects.create(
-                clan_season=cs,
-                initiator=initiator,
-                target_membership=locked_target,
-                case_type=case_type,
-                reason=reason,
-                opened_at=now,
-                voting_deadline=now + timedelta(hours=policy.governance_vote_hours),
-                config_version_id=cs.config_version_id,
-                quorum_bps=policy.governance_quorum_bps,
-                approval_bps=policy.governance_approval_bps,
-                minimum_eligible_voters=policy.governance_minimum_voters,
-                eligible_count=len(voters),
-            )
+            with transaction.atomic():
+                case = ClanGovernanceCase.objects.create(
+                    clan_season=cs,
+                    initiator=initiator,
+                    target_membership=locked_target,
+                    case_type=case_type,
+                    reason=reason,
+                    opened_at=now,
+                    voting_deadline=now + timedelta(hours=policy.governance_vote_hours),
+                    config_version_id=cs.config_version_id,
+                    quorum_bps=policy.governance_quorum_bps,
+                    approval_bps=policy.governance_approval_bps,
+                    minimum_eligible_voters=policy.governance_minimum_voters,
+                    eligible_count=len(voters),
+                )
         except IntegrityError as exc:
-            raise ClanConflict("A conflicting governance case is open") from exc
+            raise GovernanceConflict("OPEN_CASE_EXISTS") from exc
         ClanGovernanceElector.objects.bulk_create(
             [ClanGovernanceElector(case=case, player_id=v.player_id, membership=v) for v in voters]
         )
@@ -283,7 +319,7 @@ def cast_vote(
 ) -> ClanGovernanceVote:
     now = now or timezone.now()
     if choice not in ClanGovernanceVote.Choice.values:
-        raise ClanConflict("Invalid vote")
+        raise GovernanceConflict("INVALID_VOTE")
     identity = ClanGovernanceCase.objects.values("clan_season_id").get(pk=case_id)
     with transaction.atomic():
         ClanSeason.objects.select_for_update().get(pk=identity["clan_season_id"])
@@ -293,7 +329,7 @@ def cast_vote(
             .get(pk=case_id)
         )
         if case.status != ClanGovernanceCase.Status.OPEN or now >= case.voting_deadline:
-            raise ClanConflict("Voting is closed")
+            raise GovernanceConflict("VOTING_CLOSED")
         _season_allows(case.case_type, case.clan_season, now)
         if not ClanGovernanceElector.objects.filter(case=case, player=voter).exists():
             raise PermissionDenied("Voter is not in the electorate snapshot")
@@ -302,7 +338,7 @@ def cast_vote(
                 case=case, voter=voter, choice=choice, cast_at=now
             )
         except IntegrityError as exc:
-            raise ClanConflict("Vote already cast") from exc
+            raise GovernanceConflict("VOTE_ALREADY_CAST") from exc
 
 
 def _dissolve(case: ClanGovernanceCase, now: datetime) -> None:
@@ -333,7 +369,7 @@ def finalize_case(case_id: int, *, now: datetime | None = None) -> ClanGovernanc
         if case.status != ClanGovernanceCase.Status.OPEN:
             return case
         if now < case.voting_deadline:
-            raise ClanConflict("Governance case is not due")
+            raise GovernanceConflict("CASE_NOT_DUE")
         votes = list(case.votes.values_list("choice", flat=True))
         yes, no = (
             votes.count(ClanGovernanceVote.Choice.YES),
@@ -421,7 +457,7 @@ def request_dissolution(
     now = now or timezone.now()
     with transaction.atomic():
         cs = ClanSeason.objects.select_for_update().select_related("season").get(pk=clan_season.pk)
-        require_interactive_clan_season(cs, at=now)
+        _season_allows(ClanGovernanceCase.Type.CAPTAIN_DISSOLUTION, cs, now)
         if captain.pk != cs.captain_id:
             raise PermissionDenied("Captain required")
         members = list(
@@ -689,3 +725,77 @@ def sweep_bot_admin_deadlines(*, now: datetime | None = None, limit: int = 100) 
         except Exception:
             logger.exception("clan_bot_admin_deadline_failed", extra={"clan_season_id": pk})
     return count
+
+
+def governance_capabilities(cs: ClanSeason, viewer: Player, *, now: datetime) -> dict[str, Any]:
+    """Advisory snapshot; mutations recheck under the same ClanSeason lock."""
+    with transaction.atomic():
+        cs = (
+            ClanSeason.objects.select_for_update()
+            .select_related("season", "config_version")
+            .get(pk=cs.pk)
+        )
+        policy = _policy(cs)
+        voter_ids = set(_electorate(cs).values_list("player_id", flat=True))
+        members = list(cs.memberships.filter(ended_at__isnull=True).order_by("pk"))
+        open_cases = dict(
+            cs.governance_cases.filter(status=ClanGovernanceCase.Status.OPEN).values_list(
+                "case_type", "pk"
+            )
+        )
+
+        def capability(case_type: str, count: int, *, direct: bool = False) -> dict[str, Any]:
+            reason = governance_state_block(cs, case_type, now)
+            if viewer.pk != cs.captain_id:
+                code = "CLAN_FORBIDDEN"
+            elif reason:
+                code = f"CLAN_GOVERNANCE_{reason}"
+            elif not direct and case_type in open_cases:
+                code = "CLAN_GOVERNANCE_OPEN_CASE_EXISTS"
+            elif not direct and count < policy.governance_minimum_voters:
+                code = "CLAN_GOVERNANCE_INSUFFICIENT_VOTERS"
+            else:
+                code = None
+            return {
+                "can_open": code is None,
+                "blocked_reason": code,
+                "eligible_count": count,
+                "existing_case_id": open_cases.get(case_type),
+            }
+
+        direct = len(members) == 1 and members[0].player_id == cs.captain_id
+        dissolution = capability(
+            ClanGovernanceCase.Type.CAPTAIN_DISSOLUTION, len(voter_ids), direct=direct
+        )
+        outcome = (
+            "BLOCKED" if not dissolution["can_open"] else "IMMEDIATE" if direct else "VOTE_REQUIRED"
+        )
+        return {
+            "config_version": cs.config_version.version,
+            "config_checksum": cs.config_version.payload_checksum,
+            "minimum_eligible_voters": policy.governance_minimum_voters,
+            "quorum_bps": policy.governance_quorum_bps,
+            "approval_bps": policy.governance_approval_bps,
+            "vote_duration_hours": policy.governance_vote_hours,
+            "dissolution": {
+                **dissolution,
+                "direct": direct,
+                "outcome": outcome,
+                "same_season_recreation_allowed": False,
+                "confirmation_warning": (
+                    "Dissolution permanently ends this ClanSeason. "
+                    "You cannot create another Clan in the same Season."
+                ),
+            },
+            "removal_targets": [
+                {
+                    "target_membership_id": m.pk,
+                    **capability(
+                        ClanGovernanceCase.Type.SOLDIER_REMOVAL,
+                        len(voter_ids - {m.player_id}),
+                    ),
+                }
+                for m in members
+                if m.role == ClanRole.SOLDIER
+            ],
+        }

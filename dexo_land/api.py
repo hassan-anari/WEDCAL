@@ -150,6 +150,7 @@ def request_validation_error(request: HttpRequest, exc: ValidationError) -> Http
             "/api/v1/referrals",
             "/api/v1/content",
             "/api/v1/clans",
+            "/api/v1/rewards/history",
         )
     ):
         return b3_error(request, B3Error("REQUEST_INVALID", 422))

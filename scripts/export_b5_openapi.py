@@ -30,6 +30,7 @@ def export() -> str:
         "/api/v1/base/v2/",
         "/api/v1/content/banners/",
         "/api/v1/rewards/state",
+        "/api/v1/rewards/history",
     )
     schema["paths"] = {k: v for k, v in schema["paths"].items() if k.startswith(prefixes)}
     needed: set[str] = set()

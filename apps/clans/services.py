@@ -24,6 +24,7 @@ from apps.clans.models import (
     ClanSeasonEvent,
     PlayerSeasonClanState,
 )
+from apps.clans.notifications import notify_clan_event
 from apps.game_config.models import GameConfigVersion
 from apps.game_config.services import ClanConfig, ResolvedGameConfig, resolve_game_config_version
 from apps.players.models import Player
@@ -373,8 +374,14 @@ def register_clan(
             telegram_verified_at=verified_at,
             config_version=config,
         )
-        ClanMembershipEvent.objects.create(
+        activated_event = ClanMembershipEvent.objects.create(
             membership=membership, kind="ACTIVATED", occurred_at=membership.started_at
+        )
+        notify_clan_event(
+            recipient=membership.player,
+            event_key="CLAN_MEMBERSHIP_ACTIVATED",
+            source_type="CLAN_MEMBERSHIP_EVENT",
+            source_id=activated_event.pk,
         )
         return clan_season
 
@@ -483,6 +490,12 @@ def decide_request(captain: Player, request_id: int, *, accept: bool) -> ClanJoi
             ClanInvite.objects.create(join_request=req, purpose=ClanInvite.Purpose.JOIN)
         req.decided_at = timezone.now()
         req.save(update_fields=("state", "decided_at"))
+        notify_clan_event(
+            recipient=req.applicant,
+            event_key="CLAN_JOIN_ACCEPTED" if accept else "CLAN_JOIN_DECLINED",
+            source_type="CLAN_JOIN_REQUEST",
+            source_id=req.pk,
+        )
         return req
 
 
@@ -1073,11 +1086,17 @@ def reconcile_telegram_membership(
                 membership.access_state = ClanMembership.Access.ACTIVE
                 membership.access_lost_at = membership.access_rejoin_deadline = None
                 fields += ["access_state", "access_lost_at", "access_rejoin_deadline"]
-                ClanMembershipEvent.objects.create(
+                restored_event = ClanMembershipEvent.objects.create(
                     membership=membership,
                     kind="ACCESS_RESTORED",
                     telegram_update_id=telegram_update_id,
                     occurred_at=observed_at,
+                )
+                notify_clan_event(
+                    recipient=membership.player,
+                    event_key="CLAN_ACCESS_RESTORED",
+                    source_type="CLAN_MEMBERSHIP_EVENT",
+                    source_id=restored_event.pk,
                 )
                 recovery = ClanInvite.objects.filter(membership=membership).first()
                 if recovery and recovery.state not in {
@@ -1177,11 +1196,17 @@ def reconcile_telegram_membership(
             invite = ClanInvite.objects.filter(join_request=req).first()
             if invite:
                 revoke_id = invite.pk
-            ClanMembershipEvent.objects.create(
+            activated_event = ClanMembershipEvent.objects.create(
                 membership=membership,
                 kind="ACTIVATED",
                 telegram_update_id=telegram_update_id,
                 occurred_at=observed_at,
+            )
+            notify_clan_event(
+                recipient=membership.player,
+                event_key="CLAN_MEMBERSHIP_ACTIVATED",
+                source_type="CLAN_MEMBERSHIP_EVENT",
+                source_id=activated_event.pk,
             )
     if revoke_id is not None:
         queue_invite_revoke(revoke_id, terminal=ClanInvite.State.USED)
