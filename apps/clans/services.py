@@ -19,11 +19,13 @@ from apps.clans.models import (
     ClanMembership,
     ClanMembershipEvent,
     ClanMembershipIncident,
+    ClanRecreationGrant,
     ClanRole,
     ClanSeason,
     ClanSeasonEvent,
     PlayerSeasonClanState,
 )
+from apps.clans.notifications import notify_clan_event
 from apps.game_config.models import GameConfigVersion
 from apps.game_config.services import ClanConfig, ResolvedGameConfig, resolve_game_config_version
 from apps.players.models import Player
@@ -231,6 +233,7 @@ def eligible_groups(
             bot_is_admin=True,
             bot_can_invite_users=True,
             title__gt="",
+            clan__isnull=True,
         )
         .filter(
             models.Q(memberships__player=player, memberships__is_admin=True)
@@ -289,6 +292,8 @@ def register_clan(
     tag: str,
     motto: str,
 ) -> ClanSeason:
+    from apps.clans.qa_recreation import recreation_grant_available
+
     policy = require_eligible(player, resolved)
     existing = (
         ClanSeason.objects.filter(
@@ -305,7 +310,7 @@ def register_clan(
         raise ClanConflict("Captain already has a Clan this Season")
     if ClanSeason.objects.filter(
         captain=player, season=season, state=ClanSeason.State.ENDED
-    ).exists():
+    ).exists() and not recreation_grant_available(player, season):
         raise ClanConflict("Same-Season Clan recreation is not allowed")
     group = eligible_groups(player, season, resolved).filter(pk=group_id).first()
     if group is None:
@@ -316,6 +321,13 @@ def register_clan(
         raise ClanConflict("Invalid Clan identity")
     config = GameConfigVersion.objects.get(pk=resolved.id)
     with transaction.atomic():
+        from apps.seasons.barrier import acquire_economic_write_barrier
+        from apps.seasons.services import resolve_current_season
+
+        acquire_economic_write_barrier(season.pk)
+        current_season = resolve_current_season(at=timezone.now())
+        if current_season is None or current_season.pk != season.pk:
+            raise ClanConflict("Clan Season is unavailable for new actions")
         group = TelegramGroup.objects.select_for_update().get(pk=group.pk)
         Player.objects.select_for_update().get(pk=player.pk)
         _require_no_network_context(group)
@@ -328,10 +340,17 @@ def register_clan(
             if existing.clan.telegram_group_id == group.pk:
                 return existing
             raise ClanConflict("Captain already has a Clan this Season")
+        recreation_grant = None
         if ClanSeason.objects.filter(
             captain=player, season=season, state=ClanSeason.State.ENDED
         ).exists():
-            raise ClanConflict("Same-Season Clan recreation is not allowed")
+            recreation_grant = (
+                ClanRecreationGrant.objects.select_for_update()
+                .filter(player=player, season=season, consumed_at__isnull=True)
+                .first()
+            )
+            if recreation_grant is None:
+                raise ClanConflict("Same-Season Clan recreation is not allowed")
         if ClanMembership.objects.filter(
             player=player, season=season, ended_at__isnull=True
         ).exists():
@@ -358,6 +377,10 @@ def register_clan(
             base_capacity=policy.base_capacity,
             config_version=config,
         )
+        if recreation_grant is not None:
+            from apps.clans.qa_recreation import consume_qa_recreation
+
+            consume_qa_recreation(recreation_grant, clan_season)
         if not group.is_monitored:
             group.is_monitored = True
             group.save(update_fields=("is_monitored", "updated_at"))
@@ -373,8 +396,14 @@ def register_clan(
             telegram_verified_at=verified_at,
             config_version=config,
         )
-        ClanMembershipEvent.objects.create(
+        activated_event = ClanMembershipEvent.objects.create(
             membership=membership, kind="ACTIVATED", occurred_at=membership.started_at
+        )
+        notify_clan_event(
+            recipient=membership.player,
+            event_key="CLAN_MEMBERSHIP_ACTIVATED",
+            source_type="CLAN_MEMBERSHIP_EVENT",
+            source_id=activated_event.pk,
         )
         return clan_season
 
@@ -483,6 +512,12 @@ def decide_request(captain: Player, request_id: int, *, accept: bool) -> ClanJoi
             ClanInvite.objects.create(join_request=req, purpose=ClanInvite.Purpose.JOIN)
         req.decided_at = timezone.now()
         req.save(update_fields=("state", "decided_at"))
+        notify_clan_event(
+            recipient=req.applicant,
+            event_key="CLAN_JOIN_ACCEPTED" if accept else "CLAN_JOIN_DECLINED",
+            source_type="CLAN_JOIN_REQUEST",
+            source_id=req.pk,
+        )
         return req
 
 
@@ -1073,11 +1108,17 @@ def reconcile_telegram_membership(
                 membership.access_state = ClanMembership.Access.ACTIVE
                 membership.access_lost_at = membership.access_rejoin_deadline = None
                 fields += ["access_state", "access_lost_at", "access_rejoin_deadline"]
-                ClanMembershipEvent.objects.create(
+                restored_event = ClanMembershipEvent.objects.create(
                     membership=membership,
                     kind="ACCESS_RESTORED",
                     telegram_update_id=telegram_update_id,
                     occurred_at=observed_at,
+                )
+                notify_clan_event(
+                    recipient=membership.player,
+                    event_key="CLAN_ACCESS_RESTORED",
+                    source_type="CLAN_MEMBERSHIP_EVENT",
+                    source_id=restored_event.pk,
                 )
                 recovery = ClanInvite.objects.filter(membership=membership).first()
                 if recovery and recovery.state not in {
@@ -1177,11 +1218,17 @@ def reconcile_telegram_membership(
             invite = ClanInvite.objects.filter(join_request=req).first()
             if invite:
                 revoke_id = invite.pk
-            ClanMembershipEvent.objects.create(
+            activated_event = ClanMembershipEvent.objects.create(
                 membership=membership,
                 kind="ACTIVATED",
                 telegram_update_id=telegram_update_id,
                 occurred_at=observed_at,
+            )
+            notify_clan_event(
+                recipient=membership.player,
+                event_key="CLAN_MEMBERSHIP_ACTIVATED",
+                source_type="CLAN_MEMBERSHIP_EVENT",
+                source_id=activated_event.pk,
             )
     if revoke_id is not None:
         queue_invite_revoke(revoke_id, terminal=ClanInvite.State.USED)

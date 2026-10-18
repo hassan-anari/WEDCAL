@@ -67,6 +67,7 @@ class RequestContextMiddleware:
                 "/api/v1/profile/customization",
                 "/api/v1/profile/review",
                 "/api/v1/notifications",
+                "/api/v1/rewards/history",
                 "/api/v1/clans",
                 "/api/v1/arena",
                 "/api/v1/missions",

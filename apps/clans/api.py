@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal, cast
 
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -11,7 +11,13 @@ from ninja.errors import HttpError
 from pydantic import Field
 
 from apps.arena.services import RankingStanding, RankStatus, read_clan_standings
-from apps.clans.governance import cast_vote, open_case, request_dissolution
+from apps.clans.governance import (
+    GovernanceConflict,
+    cast_vote,
+    governance_capabilities,
+    open_case,
+    request_dissolution,
+)
 from apps.clans.models import (
     ClanGovernanceCase,
     ClanInvite,
@@ -141,6 +147,7 @@ class MembershipOut(Schema):
 
 
 class StateOut(Schema):
+    qa_recreation_authorization_available: bool = False
     enabled: bool
     eligible: bool
     role: str | None
@@ -182,7 +189,37 @@ class GovernanceOut(Schema):
     result: str | None
 
 
+class GovernanceCapabilityOut(Schema):
+    can_open: bool
+    blocked_reason: str | None
+    eligible_count: int
+    existing_case_id: int | None
+
+
+class DissolutionCapabilityOut(GovernanceCapabilityOut):
+    direct: bool
+    outcome: Literal["IMMEDIATE", "VOTE_REQUIRED", "BLOCKED"]
+    same_season_recreation_allowed: Literal[False] = False
+    confirmation_warning: str
+
+
+class RemovalCapabilityOut(GovernanceCapabilityOut):
+    target_membership_id: int
+
+
+class GovernanceCapabilitiesOut(Schema):
+    config_version: str
+    config_checksum: str
+    minimum_eligible_voters: int
+    quorum_bps: int
+    approval_bps: int
+    vote_duration_hours: int
+    dissolution: DissolutionCapabilityOut
+    removal_targets: list[RemovalCapabilityOut]
+
+
 class RecoveryOut(Schema):
+    governance: GovernanceCapabilitiesOut | None = None
     reasons: list[str]
     captain_authority_lost_at: datetime | None
     can_verify_authority: bool
@@ -357,6 +394,8 @@ def context() -> tuple[Season, ResolvedGameConfig]:
 
 
 def fail(exc: Exception) -> B3Error:
+    if isinstance(exc, GovernanceConflict):
+        return B3Error(f"CLAN_GOVERNANCE_{exc.reason}")
     if isinstance(exc, PermissionDenied):
         return B3Error("CLAN_FORBIDDEN", 403)
     if isinstance(exc, IdempotencyConflict):
@@ -408,7 +447,10 @@ def state(request: HttpRequest) -> StateOut:
     season, config = context()
     p = player(request)
     row = PlayerSeasonClanState.objects.filter(player=p, season=season).first()
+    from apps.clans.qa_recreation import recreation_grant_available
+
     return StateOut(
+        qa_recreation_authorization_available=recreation_grant_available(p, season),
         enabled=bool(config.clan and config.clan.enabled),
         eligible=bool(
             config.clan
@@ -972,10 +1014,21 @@ def governance(request: HttpRequest) -> list[GovernanceOut]:
 def removal_case(request: HttpRequest, payload: RemovalCaseIn) -> GovernanceOut:
     season, _ = context()
     try:
-        cs = ClanSeason.objects.get(
-            captain=player(request), season=season, state=ClanSeason.State.ACTIVE
+        cs = (
+            ClanSeason.objects.filter(captain=player(request), season=season)
+            .order_by("-pk")
+            .first()
         )
-        target = ClanMembership.objects.get(pk=payload.target_membership_id)
+        if cs is None:
+            raise ClanSeason.DoesNotExist
+        target = ClanMembership.objects.filter(
+            pk=payload.target_membership_id,
+            clan_season=cs,
+            role="SOLDIER",
+            ended_at__isnull=True,
+        ).first()
+        if target is None:
+            raise GovernanceConflict("INVALID_TARGET")
         row = open_case(
             initiator=player(request),
             clan_season=cs,
@@ -1007,9 +1060,13 @@ def vote(request: HttpRequest, case_id: int, payload: VoteIn) -> GovernanceOut:
 def dissolution(request: HttpRequest):  # type: ignore[no-untyped-def]
     season, _ = context()
     try:
-        cs = ClanSeason.objects.get(
-            captain=player(request), season=season, state=ClanSeason.State.ACTIVE
+        cs = (
+            ClanSeason.objects.filter(captain=player(request), season=season)
+            .order_by("-pk")
+            .first()
         )
+        if cs is None:
+            raise ClanSeason.DoesNotExist
         row = request_dissolution(player(request), cs)
         if row is None:
             return 204, None
@@ -1019,6 +1076,7 @@ def dissolution(request: HttpRequest):  # type: ignore[no-untyped-def]
 
 
 @router.get("/recovery", response=b3_responses(RecoveryOut))
+@transaction.atomic
 def recovery(request: HttpRequest) -> RecoveryOut:
     from apps.clans.governance import clan_home_integrity_available
 
@@ -1026,10 +1084,19 @@ def recovery(request: HttpRequest) -> RecoveryOut:
     membership = get_object_or_404(
         ClanMembership, player=player(request), season=season, ended_at__isnull=True
     )
-    cs = membership.clan_season
+    cs = (
+        ClanSeason.objects.select_for_update(of=("self",))
+        .select_related("season")
+        .get(pk=membership.clan_season_id)
+    )
     from apps.clans.recovery import recovery_reasons
 
+    try:
+        capabilities = governance_capabilities(cs, player(request), now=timezone.now())
+    except GovernanceConflict as exc:
+        raise fail(exc) from exc
     return RecoveryOut(
+        governance=GovernanceCapabilitiesOut(**capabilities),
         reasons=recovery_reasons(cs),
         captain_authority_lost_at=cs.captain_authority_lost_at,
         can_verify_authority=membership.player_id == cs.captain_id,

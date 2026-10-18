@@ -53,6 +53,163 @@
         ]
       }
     },
+    "/api/v1/rewards/history": {
+      "get": {
+        "operationId": "apps_rewards_api_reward_history",
+        "summary": "Reward History",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            },
+            "required": false
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 20,
+              "title": "Limit",
+              "type": "integer"
+            },
+            "required": false
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "schema": {
+              "anyOf": [
+                {
+                  "const": "network",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationErrorOutput"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/B3ErrorOutput"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/B3ErrorOutput"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ThrottleOutput"
+                    }
+                  ],
+                  "title": "Response"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/B3ErrorOutput"
+                    },
+                    {
+                      "$ref": "#/components/schemas/IntegrationErrorOutput"
+                    }
+                  ],
+                  "title": "Response"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "rewards"
+        ],
+        "security": [
+          {
+            "MiniAppAuth": []
+          }
+        ]
+      }
+    },
     "/api/v1/rewards/state": {
       "get": {
         "operationId": "apps_rewards_api_progression_state",
@@ -11546,6 +11703,11 @@
       },
       "StateOut": {
         "properties": {
+          "qa_recreation_authorization_available": {
+            "default": false,
+            "title": "Qa Recreation Authorization Available",
+            "type": "boolean"
+          },
           "enabled": {
             "title": "Enabled",
             "type": "boolean"
@@ -12747,8 +12909,136 @@
         "title": "VoteIn",
         "type": "object"
       },
+      "DissolutionCapabilityOut": {
+        "properties": {
+          "can_open": {
+            "title": "Can Open",
+            "type": "boolean"
+          },
+          "blocked_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked Reason"
+          },
+          "eligible_count": {
+            "title": "Eligible Count",
+            "type": "integer"
+          },
+          "existing_case_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Existing Case Id"
+          },
+          "direct": {
+            "title": "Direct",
+            "type": "boolean"
+          },
+          "outcome": {
+            "enum": [
+              "IMMEDIATE",
+              "VOTE_REQUIRED",
+              "BLOCKED"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "same_season_recreation_allowed": {
+            "const": false,
+            "default": false,
+            "title": "Same Season Recreation Allowed",
+            "type": "boolean"
+          },
+          "confirmation_warning": {
+            "title": "Confirmation Warning",
+            "type": "string"
+          }
+        },
+        "required": [
+          "can_open",
+          "blocked_reason",
+          "eligible_count",
+          "existing_case_id",
+          "direct",
+          "outcome",
+          "confirmation_warning"
+        ],
+        "title": "DissolutionCapabilityOut",
+        "type": "object"
+      },
+      "GovernanceCapabilitiesOut": {
+        "properties": {
+          "config_version": {
+            "title": "Config Version",
+            "type": "string"
+          },
+          "config_checksum": {
+            "title": "Config Checksum",
+            "type": "string"
+          },
+          "minimum_eligible_voters": {
+            "title": "Minimum Eligible Voters",
+            "type": "integer"
+          },
+          "quorum_bps": {
+            "title": "Quorum Bps",
+            "type": "integer"
+          },
+          "approval_bps": {
+            "title": "Approval Bps",
+            "type": "integer"
+          },
+          "vote_duration_hours": {
+            "title": "Vote Duration Hours",
+            "type": "integer"
+          },
+          "dissolution": {
+            "$ref": "#/components/schemas/DissolutionCapabilityOut"
+          },
+          "removal_targets": {
+            "items": {
+              "$ref": "#/components/schemas/RemovalCapabilityOut"
+            },
+            "title": "Removal Targets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "config_version",
+          "config_checksum",
+          "minimum_eligible_voters",
+          "quorum_bps",
+          "approval_bps",
+          "vote_duration_hours",
+          "dissolution",
+          "removal_targets"
+        ],
+        "title": "GovernanceCapabilitiesOut",
+        "type": "object"
+      },
       "RecoveryOut": {
         "properties": {
+          "governance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GovernanceCapabilitiesOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "reasons": {
             "items": {
               "type": "string"
@@ -12820,6 +13110,53 @@
           "home_integrity_available"
         ],
         "title": "RecoveryOut",
+        "type": "object"
+      },
+      "RemovalCapabilityOut": {
+        "properties": {
+          "can_open": {
+            "title": "Can Open",
+            "type": "boolean"
+          },
+          "blocked_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked Reason"
+          },
+          "eligible_count": {
+            "title": "Eligible Count",
+            "type": "integer"
+          },
+          "existing_case_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Existing Case Id"
+          },
+          "target_membership_id": {
+            "title": "Target Membership Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "can_open",
+          "blocked_reason",
+          "eligible_count",
+          "existing_case_id",
+          "target_membership_id"
+        ],
+        "title": "RemovalCapabilityOut",
         "type": "object"
       },
       "RosterMemberOut": {

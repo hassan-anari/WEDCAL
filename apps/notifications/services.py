@@ -16,6 +16,7 @@ from apps.notifications.audiences import (
     estimated_targets,
     verify_broadcast_group,
 )
+from apps.notifications.clan_copy import default_clan_copy
 from apps.notifications.models import (
     BroadcastCampaign,
     BroadcastRecipient,
@@ -119,6 +120,8 @@ def emit_notification(
     if template_snapshot is not None and (telegram or template_snapshot.channel != "IN_APP"):
         raise ValidationError("Explicit announcement snapshots are In-App only")
     safe_payload = payload or {}
+    # Presentation defaults/templates must never become caller-supplied identity.
+    explicit_title, explicit_body = title, body
     existing = Notification.objects.filter(idempotency_key=idempotency_key).first()
     if existing is not None:
         _validate_existing_event(
@@ -145,6 +148,9 @@ def emit_notification(
     )
     if template and template_snapshot is None:
         title, body = template.title, template.body
+    elif template is None:
+        default_title, default_body = default_clan_copy(event_key, source_domain)
+        title, body = title or default_title, body or default_body
     try:
         with transaction.atomic():
             notification = Notification.objects.create(
@@ -172,8 +178,8 @@ def emit_notification(
             source_type=source_type,
             source_id=source_id,
             payload=safe_payload,
-            explicit_title=title,
-            explicit_body=body,
+            explicit_title=explicit_title,
+            explicit_body=explicit_body,
         )
         if telegram:
             with transaction.atomic():
