@@ -731,7 +731,7 @@ def governance_capabilities(cs: ClanSeason, viewer: Player, *, now: datetime) ->
     """Advisory snapshot; mutations recheck under the same ClanSeason lock."""
     with transaction.atomic():
         cs = (
-            ClanSeason.objects.select_for_update()
+            ClanSeason.objects.select_for_update(of=("self",))
             .select_related("season", "config_version")
             .get(pk=cs.pk)
         )

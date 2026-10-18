@@ -160,7 +160,7 @@ Dissolution additionally contains:
 **target-specific** electorate counts. It subtracts the target only if that
 player otherwise qualifies. A blocked player's exclusion is not counted twice.
 All counts use the same domain electorate predicate as mutation. The readiness
-read holds the ClanSeason lock for its snapshot; it is advisory and reserves
+read locks only its ClanSeason row (not the shared published configuration) for its snapshot; it is advisory and reserves
 nothing. Races can still yield 409 at confirm; display its reason and refresh.
 
 ## Production evidence and small-Clan policy decision
@@ -223,3 +223,10 @@ currently says “Your Clan remains active until the request is resolved” for 
 dissolutions. That is incorrect for singleton immediate dissolution. Replace this
 confirmation using the server outcome/warning above, with a fresh preflight; do
 not retain that universal vote wording. No frontend files were changed here.
+
+Version-skew gate: an older backend may ignore the unknown `category` query
+parameter and return unfiltered history. Do not activate the server-filtered
+consumer against that backend. Pair against this exact checkout in isolation and
+release the consumer only after the reviewed compatible backend is available.
+If governance preflight is absent, keep destructive confirmation unavailable;
+do not reconstruct IMMEDIATE/VOTE_REQUIRED from local membership counts.

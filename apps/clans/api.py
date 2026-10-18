@@ -1069,7 +1069,7 @@ def recovery(request: HttpRequest) -> RecoveryOut:
         ClanMembership, player=player(request), season=season, ended_at__isnull=True
     )
     cs = (
-        ClanSeason.objects.select_for_update()
+        ClanSeason.objects.select_for_update(of=("self",))
         .select_related("season")
         .get(pk=membership.clan_season_id)
     )

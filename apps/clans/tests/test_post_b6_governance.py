@@ -143,7 +143,7 @@ def test_recovery_ended_season_and_direct_captain(clan_world, governance_http):
 def test_pinned_policy_and_moderation_counts(clan_world, governance_http, phase4_config_factory):
     cs = clan_world[-1]()
     target = add_member(clan_world, cs)
-    add_member(clan_world, cs, state=Player.ModerationState.BANNED)
+    banned = add_member(clan_world, cs, state=Player.ModerationState.BANNED)
     add_member(clan_world, cs, state=Player.ModerationState.SUSPENDED)
     latest = phase4_config_factory(
         effective_at=clan_world[0] - timedelta(hours=1),
@@ -155,6 +155,26 @@ def test_pinned_policy_and_moderation_counts(clan_world, governance_http, phase4
     assert state["dissolution"]["eligible_count"] == 2
     assert state["removal_targets"][0]["eligible_count"] == 1
     assert target.pk == state["removal_targets"][0]["target_membership_id"]
+    banned_target = next(
+        x for x in state["removal_targets"] if x["target_membership_id"] == banned.pk
+    )
+    assert banned_target["eligible_count"] == 2  # Already excluded, never subtract twice.
+
+
+def test_preflight_is_rechecked_when_roster_changes(clan_world, governance_http):
+    cs = clan_world[-1]()
+    http = governance_http(cs.captain)
+    assert (
+        http.get("/api/v1/clans/recovery").json()["governance"]["dissolution"]["outcome"]
+        == "IMMEDIATE"
+    )
+    add_member(clan_world, cs)
+    response = http.post("/api/v1/clans/dissolution")
+    assert response.status_code == 409
+    assert response.json()["code"] == "CLAN_GOVERNANCE_INSUFFICIENT_VOTERS"
+    cs.refresh_from_db()
+    assert cs.state == ClanSeason.State.ACTIVE
+    assert cs.memberships.filter(ended_at__isnull=True).count() == 2
 
 
 @pytest.mark.parametrize("same_type", [True, False])
