@@ -434,3 +434,18 @@ B6 Treasury carry, mission lifecycle and item effects are outside this hotfix.
 Draft PR/SHA/checks and FROCAL acknowledgement request are published in the PR
 and [coordination #8](https://github.com/hassan-anari/FROCAL/issues/8).
 No merge, deploy, automatic recreation, policy relaxation or paired acceptance.
+
+### Draft #33 owner-approved successor — live ranking / QA Captain exception
+
+Owner explicitly authorized two additional corrections in the same
+[Draft #33](https://github.com/hassan-anari/WEDCAL/pull/33): exclude ended Clans
+from live rankings with durable removal/generation/rebuild protection, and one
+player/Season-scoped, auditable, single-use QA recreation authorization.
+[Operator activation and reconciliation](docs/POST_B6_SUCCESSOR_OPERATOR_GUIDE.md)
+and [updated integration contract](docs/POST_B6_HOTFIX_CONTRACT.md) define the
+exception and preserve general policy, historical standings, original hotfix and
+economics. The old Telegram group remains bound; use a new eligible group.
+The final successor SHA/CI evidence will be published on #33 and FROCAL #8 before
+pairing; 07876b3 is no longer the complete requested delivery. No production
+exception was granted, no merge/deploy is authorized, and no consumer acceptance
+is assumed.

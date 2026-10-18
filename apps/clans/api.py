@@ -147,6 +147,7 @@ class MembershipOut(Schema):
 
 
 class StateOut(Schema):
+    qa_recreation_authorization_available: bool = False
     enabled: bool
     eligible: bool
     role: str | None
@@ -446,7 +447,10 @@ def state(request: HttpRequest) -> StateOut:
     season, config = context()
     p = player(request)
     row = PlayerSeasonClanState.objects.filter(player=p, season=season).first()
+    from apps.clans.qa_recreation import recreation_grant_available
+
     return StateOut(
+        qa_recreation_authorization_available=recreation_grant_available(p, season),
         enabled=bool(config.clan and config.clan.enabled),
         eligible=bool(
             config.clan
@@ -1010,7 +1014,13 @@ def governance(request: HttpRequest) -> list[GovernanceOut]:
 def removal_case(request: HttpRequest, payload: RemovalCaseIn) -> GovernanceOut:
     season, _ = context()
     try:
-        cs = ClanSeason.objects.get(captain=player(request), season=season)
+        cs = (
+            ClanSeason.objects.filter(captain=player(request), season=season)
+            .order_by("-pk")
+            .first()
+        )
+        if cs is None:
+            raise ClanSeason.DoesNotExist
         target = ClanMembership.objects.filter(
             pk=payload.target_membership_id,
             clan_season=cs,
@@ -1050,7 +1060,13 @@ def vote(request: HttpRequest, case_id: int, payload: VoteIn) -> GovernanceOut:
 def dissolution(request: HttpRequest):  # type: ignore[no-untyped-def]
     season, _ = context()
     try:
-        cs = ClanSeason.objects.get(captain=player(request), season=season)
+        cs = (
+            ClanSeason.objects.filter(captain=player(request), season=season)
+            .order_by("-pk")
+            .first()
+        )
+        if cs is None:
+            raise ClanSeason.DoesNotExist
         row = request_dissolution(player(request), cs)
         if row is None:
             return 204, None

@@ -69,6 +69,7 @@ def _publish(
     reached_at: datetime | None,
     generation: int,
     source_id: str,
+    eligible: bool = True,
 ) -> RankingProjectionEvent:
     from apps.seasons.barrier import acquire_economic_write_barrier
 
@@ -78,7 +79,7 @@ def _publish(
     ).rankings
     operation = (
         RankingProjectionEvent.Operation.UPSERT
-        if score >= policy.minimum_score
+        if eligible and score >= policy.minimum_score
         else RankingProjectionEvent.Operation.REMOVE
     )
     event, created = RankingProjectionEvent.objects.get_or_create(
@@ -126,6 +127,7 @@ def publish_clan_ranking(row: ClanSeason, *, source_id: str) -> RankingProjectio
         reached_at=row.score_reached_at,
         generation=row.ranking_generation,
         source_id=source_id,
+        eligible=row.state != ClanSeason.State.ENDED,
     )
 
 
@@ -198,13 +200,19 @@ def apply_projection_event(
                 },
             )
         raise RankingProjectionUnavailable("Ranking event arrived after finalization barrier")
+    operation, generation = event.operation, event.generation
+    if event.entity_type == RankingProjectionEvent.Entity.CLAN:
+        clan = ClanSeason.objects.get(pk=event.entity_id, season_id=event.season_id)
+        if clan.state == ClanSeason.State.ENDED:
+            operation = RankingProjectionEvent.Operation.REMOVE
+            generation = max(generation, clan.ranking_generation)
     live = ranking_key(event.season_id, event.entity_type)
     destination = target or live
     applied = apply_projection_state(
         target=destination,
         entity_id=event.entity_id,
-        generation=event.generation,
-        operation=event.operation,
+        generation=generation,
+        operation=operation,
         score=event.score,
         reached_at=event.score_reached_at,
     )
@@ -267,6 +275,12 @@ def read_ranking_slice(
         if own_member:
             scores[_entity_id(own_member)] = int(float(own_score))
             generations[_entity_id(own_member)] = int(own_generation)
+        if entity_type == "CLAN":
+            season = Season.objects.get(pk=season_id)
+            if season.status not in {Season.Status.CLOSED, Season.Status.ARCHIVED} and int(
+                total
+            ) != live_clan_population(season):
+                raise RankingProjectionUnavailable("Clan lifecycle projection is reconciling")
         return RankingSlice(ranked_ids, own_rank, scores, generations, int(total))
     except Exception as exc:
         dispatch_rebuild_safely(season_id, entity_type)
@@ -386,20 +400,28 @@ def rebuild_ranking(season: Season, entity_type: str) -> bool:
                 season=season, season_points__gte=policy.minimum_score
             ).values_list("player_id", "season_points", "score_reached_at", "ranking_generation")
         else:
-            rows = ClanSeason.objects.filter(
-                season=season, competitive_score__gte=policy.minimum_score
-            ).values_list("id", "competitive_score", "score_reached_at", "ranking_generation")
+            rows = ClanSeason.objects.filter(season=season).values_list(
+                "id", "competitive_score", "score_reached_at", "ranking_generation", "state"
+            )
         client.delete(*_keys(temporary))
-        for index, (entity_id, score, reached, generation) in enumerate(
-            rows.iterator(chunk_size=500), 1
-        ):
+        for index, values in enumerate(rows.iterator(chunk_size=500), 1):
+            entity_id, score, reached, generation = values[:4]
+            operation = RankingProjectionEvent.Operation.UPSERT
+            if (
+                not closed
+                and entity_type == "CLAN"
+                and (values[4] == ClanSeason.State.ENDED or score < policy.minimum_score)
+            ):
+                operation = RankingProjectionEvent.Operation.REMOVE
             if reached is None:
-                raise RankingProjectionUnavailable("Positive score lacks tie provenance")
+                if operation == RankingProjectionEvent.Operation.UPSERT:
+                    raise RankingProjectionUnavailable("Positive score lacks tie provenance")
+                reached = timezone.now()
             apply_projection_state(
                 target=temporary,
                 entity_id=entity_id,
                 generation=generation,
-                operation=RankingProjectionEvent.Operation.UPSERT,
+                operation=operation,
                 score=score,
                 reached_at=reached,
             )
@@ -472,7 +494,7 @@ for i=1,#ARGV do
   local gen = redis.call('hget', KEYS[3], ARGV[i]) or '-1'
   table.insert(rows, {rank or -1, score or '', gen})
 end
-return rows
+return {rows, redis.call('zcard', KEYS[1])}
 """
 
 
@@ -486,8 +508,30 @@ def read_player_standings(season: Season, player_ids: list[int]) -> dict[int, Ra
     return _read_standings(season, "PLAYER", ids, rows, "season_points")
 
 
+def live_clan_population(season: Season) -> int:
+    minimum = resolve_game_config_version(season.baseline_config_id).rankings.minimum_score
+    return (
+        ClanSeason.objects.filter(season=season, competitive_score__gte=minimum)
+        .exclude(state=ClanSeason.State.ENDED)
+        .count()
+    )
+
+
 def read_clan_standings(season: Season, clan_season_ids: list[int]) -> dict[int, RankingStanding]:
     ids = list(dict.fromkeys(clan_season_ids))
+    if len(ids) > 100:
+        raise ValueError("Ranking summary is limited to 100 entities")
+    if season.status in {Season.Status.CLOSED, Season.Status.ARCHIVED}:
+        final = {
+            r.clan_season_id: r
+            for r in ClanSeasonFinalStanding.objects.filter(season=season, clan_season_id__in=ids)
+        }
+        return {
+            pk: RankingStanding(final[pk].final_rank, "RANKED", final[pk].final_competitive_score)
+            if pk in final
+            else RankingStanding(None, "UNRANKED", 0)
+            for pk in ids
+        }
     rows = {r.pk: r for r in ClanSeason.objects.filter(season=season, pk__in=ids)} if ids else {}
     return _read_standings(season, "CLAN", ids, rows, "competitive_score")
 
@@ -513,14 +557,25 @@ def _read_standings(
     minimum = resolve_game_config_version(season.baseline_config_id).rankings.minimum_score
     try:
         result = _redis().eval(_BATCH_RANK_SCRIPT, 4, *_keys(ranking_key(season.pk, entity)), *ids)
-        if not result or len(result) != len(ids):
+        if not result:
             raise RankingProjectionUnavailable
+        result, total = result
+        if len(result) != len(ids):
+            raise RankingProjectionUnavailable
+        if entity == "CLAN" and int(total) != live_clan_population(season):
+            dispatch_rebuild_safely(season.pk, entity)
+            return unavailable("RECONCILING")
         standings = {}
         for pk, (rank, score, generation) in zip(ids, result, strict=True):
             row = rows.get(pk)
             ranked = int(rank) >= 0
             if (
-                ranked != (points[pk] >= minimum)
+                ranked
+                != (
+                    row is not None
+                    and points[pk] >= minimum
+                    and (entity != "CLAN" or row.state != ClanSeason.State.ENDED)
+                )
                 or ranked
                 and (
                     row is None

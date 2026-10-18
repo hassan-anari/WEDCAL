@@ -180,6 +180,7 @@ def _validate(
         row = rows.get(pk)
         if (
             row is None
+            or (entity == "CLAN" and row.state == ClanSeason.State.ENDED)
             or getattr(row, score) != value
             or row.ranking_generation != ranking.generations.get(pk)
         ):

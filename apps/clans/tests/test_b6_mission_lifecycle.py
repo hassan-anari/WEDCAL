@@ -514,6 +514,9 @@ def test_actual_migration_cutover_preserves_history_and_holds_uncertain_sources(
         )
     finally:
         MigrationExecutor(connection).migrate(after)
+        # Restore current leaf migrations so later tests see newly added domains too.
+        latest = MigrationExecutor(connection)
+        latest.migrate(latest.loader.graph.leaf_nodes())
     definition.refresh_from_db()
     cutover = definition.history_unknown_before
     observation = definition.active_intervals.get()

@@ -341,6 +341,14 @@ def cast_vote(
             raise GovernanceConflict("VOTE_ALREADY_CAST") from exc
 
 
+def _publish_dissolution(cs: ClanSeason) -> None:
+    from apps.arena.services import publish_clan_ranking
+
+    cs.ranking_generation += 1
+    cs.save(update_fields=("state", "accepting_members", "ranking_generation", "updated_at"))
+    publish_clan_ranking(cs, source_id=f"clan-dissolved:{cs.pk}")
+
+
 def _dissolve(case: ClanGovernanceCase, now: datetime) -> None:
     cs = ClanSeason.objects.select_for_update().get(pk=case.clan_season_id)
     if cs.state == ClanSeason.State.ENDED:
@@ -356,14 +364,19 @@ def _dissolve(case: ClanGovernanceCase, now: datetime) -> None:
             source_id=str(case.pk),
         )
     cs.state, cs.accepting_members = ClanSeason.State.ENDED, False
-    cs.save(update_fields=("state", "accepting_members", "updated_at"))
+    _publish_dissolution(cs)
     _event(cs, "CLAN_SEASON_DISSOLVED", now, source_type="GOVERNANCE", source_id=str(case.pk))
 
 
 def finalize_case(case_id: int, *, now: datetime | None = None) -> ClanGovernanceCase:
     now = now or timezone.now()
-    identity = ClanGovernanceCase.objects.values("clan_season_id").get(pk=case_id)
+    identity = ClanGovernanceCase.objects.values("clan_season_id", "clan_season__season_id").get(
+        pk=case_id
+    )
     with transaction.atomic():
+        from apps.seasons.barrier import acquire_economic_write_barrier
+
+        acquire_economic_write_barrier(identity["clan_season__season_id"])
         ClanSeason.objects.select_for_update().get(pk=identity["clan_season_id"])
         case = ClanGovernanceCase.objects.select_for_update().get(pk=case_id)
         if case.status != ClanGovernanceCase.Status.OPEN:
@@ -456,6 +469,9 @@ def request_dissolution(
 ) -> ClanGovernanceCase | None:
     now = now or timezone.now()
     with transaction.atomic():
+        from apps.seasons.barrier import acquire_economic_write_barrier
+
+        acquire_economic_write_barrier(clan_season.season_id)
         cs = ClanSeason.objects.select_for_update().select_related("season").get(pk=clan_season.pk)
         _season_allows(ClanGovernanceCase.Type.CAPTAIN_DISSOLUTION, cs, now)
         if captain.pk != cs.captain_id:
@@ -481,7 +497,7 @@ def request_dissolution(
             source_id=str(cs.pk),
         )
         cs.state, cs.accepting_members = ClanSeason.State.ENDED, False
-        cs.save(update_fields=("state", "accepting_members", "updated_at"))
+        _publish_dissolution(cs)
         _event(
             cs,
             "CLAN_SEASON_DISSOLVED",

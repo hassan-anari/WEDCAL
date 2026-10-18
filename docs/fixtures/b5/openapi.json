@@ -11703,6 +11703,11 @@
       },
       "StateOut": {
         "properties": {
+          "qa_recreation_authorization_available": {
+            "default": false,
+            "title": "Qa Recreation Authorization Available",
+            "type": "boolean"
+          },
           "enabled": {
             "title": "Enabled",
             "type": "boolean"

@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
@@ -87,6 +88,34 @@ class ClanSeason(models.Model):
                 fields=("captain", "season"),
                 condition=Q(state__in=["ACTIVE", "RECOVERY"]),
                 name="clan_one_live_captain_season",
+            ),
+        ]
+
+
+class ClanRecreationGrant(models.Model):
+    """One owner-authorized QA exception per player/Season, retained after consumption."""
+
+    player = models.ForeignKey("players.Player", on_delete=models.PROTECT)
+    season = models.ForeignKey("seasons.Season", on_delete=models.PROTECT)
+    granted_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    reason = models.CharField(max_length=1000)
+    ticket_reference = models.CharField(max_length=128)
+    granted_at = models.DateTimeField(auto_now_add=True)
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    consumed_clan_season = models.OneToOneField(
+        ClanSeason, null=True, blank=True, on_delete=models.PROTECT
+    )
+
+    class Meta:
+        permissions = [("grant_qa_clan_recreation", "Can grant one-time QA Clan recreation")]
+        constraints = [
+            models.UniqueConstraint(fields=("player", "season"), name="clan_one_qa_grant_season"),
+            models.CheckConstraint(
+                condition=(
+                    Q(consumed_at__isnull=True, consumed_clan_season__isnull=True)
+                    | Q(consumed_at__isnull=False, consumed_clan_season__isnull=False)
+                ),
+                name="clan_qa_grant_consumption_pair",
             ),
         ]
 

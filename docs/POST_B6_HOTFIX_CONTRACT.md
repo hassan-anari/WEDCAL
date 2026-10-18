@@ -230,3 +230,28 @@ consumer against that backend. Pair against this exact checkout in isolation and
 release the consumer only after the reviewed compatible backend is available.
 If governance preflight is absent, keep destructive confirmation unavailable;
 do not reconstruct IMMEDIATE/VOTE_REQUIRED from local membership counts.
+
+## Owner-approved successor to 07876b3 — live ranking and QA exception
+
+Draft #33 now also excludes ENDED ClanSeasons from live Arena projection,
+publication, rebuild and canonical Clan summaries. Dissolution persists a
+new-generation REMOVE without changing earned scores; stale events cannot
+reinsert ended Clans. RECOVERY remains eligible; immutable CLOSED/ARCHIVED
+standings remain authoritative. Live response shapes are unchanged; existing
+503 reconciliation/unavailable responses cover asynchronous projection repair.
+
+Authenticated `GET /api/v1/clans/state` adds
+`qa_recreation_authorization_available: boolean = false`. This reports a single
+explicit administrative grant for the authenticated player/current Season.
+Ordinary registration consumes it atomically only when the existing same-Season
+recreation restriction applies and all other eligibility checks pass. No grant
+mutation endpoint or client-supplied grant/account selector is added.
+
+The normal recreation prohibition and dissolution outcome/warning fields remain.
+The sole exception is the owner-approved, one-use QA grant; it does not allow
+reusing the historical Clan's bound Telegram group. New grant/history migrations
+must be applied before this successor runs. Exact account activation, permissions,
+private stdin command, new-group requirement, ranking cleanup/rebuild and rollback
+are in [the successor operator guide](POST_B6_SUCCESSOR_OPERATOR_GUIDE.md).
+The new final SHA posted in Draft #33/FROCAL #8 supersedes the earlier pin for
+paired tests. No production activation, merge or deployment has been performed.
