@@ -5,6 +5,7 @@ from typing import Any, ClassVar
 
 from django.contrib import admin
 from django.db import models as db_models
+from django.db.models import Q
 from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
@@ -122,6 +123,12 @@ class SeasonFilter(admin.SimpleListFilter):
                     ).values_list("pk", flat=True)
                 )
             )
+        if queryset.model is models.EconomicPolicyVersion:
+            return queryset.filter(
+                pk__in=models.EpochPolicyBinding.objects.filter(
+                    epoch__season_id=int(str(self.value()))
+                ).values("policy_id")
+            )
         return queryset
 
 
@@ -145,6 +152,17 @@ class EpochFilter(admin.SimpleListFilter):
             return queryset.filter(**{lookup: int(str(self.value()))})
         if queryset.model is models.QualificationDecision:
             return queryset.filter(evidence__epoch_id=int(str(self.value())))
+        if queryset.model is models.EconomicPolicyVersion:
+            return queryset.filter(
+                pk__in=models.EpochPolicyBinding.objects.filter(
+                    epoch_id=int(str(self.value()))
+                ).values("policy_id")
+            )
+        if queryset.model is models.GrowthUnlockEvent:
+            return queryset.filter(
+                Q(funding__epoch_id=int(str(self.value())))
+                | Q(evidence__recognition_epoch_id=int(str(self.value())))
+            ).distinct()
         if queryset.model is models.PerformanceSourceFact:
             epoch = models.EconomicEpoch.objects.filter(pk=int(str(self.value()))).first()
             return (
@@ -181,7 +199,21 @@ class ReadOnlyEconomicAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     def lookup_allowed(self, lookup: str, value: str, request: HttpRequest | None = None) -> bool:
         if any(
             part
-            in {"payload", "evidence", "inputs", "metadata", "raw_inputs", "fingerprint", "text"}
+            in {
+                "payload",
+                "evidence",
+                "inputs",
+                "metadata",
+                "raw_inputs",
+                "fingerprint",
+                "text",
+                "source_id",
+                "evidence_reference",
+                "approval_reference",
+                "reason",
+                "note",
+                "telegram_user_id",
+            }
             for part in lookup.split("__")
         ):
             return False
@@ -389,7 +421,18 @@ for model in (
     ]
     if "policy" in names:
         display[display.index("policy")] = "policy_identity"
-    filters = [SeasonFilter, EpochFilter] + [
+    season_scope, epoch_scope = SCOPES[model._meta.model_name or ""]
+    filters: list[Any] = []
+    if season_scope or model in {models.QualificationDecision, models.EconomicPolicyVersion}:
+        filters.append(SeasonFilter)
+    if epoch_scope or model in {
+        models.QualificationDecision,
+        models.EconomicPolicyVersion,
+        models.PerformanceSourceFact,
+        models.GrowthUnlockEvent,
+    }:
+        filters.append(EpochFilter)
+    filters += [
         name for name in ("category", "state", "status", "outcome", "decision") if name in names
     ]
     related = tuple(

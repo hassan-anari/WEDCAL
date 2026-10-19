@@ -26,7 +26,11 @@ Details expose only digests and a whitelist of safe economic provenance keys. Ra
 secret tokens, Telegram message content, Creator fingerprints and unnecessary Telegram identities
 are never rendered; Player.__str__ is deliberately avoided. Sensitive JSON lookup URL parameters
 are rejected, preventing redacted-field filtering as a disclosure path. Model-level view permission
-is required even for redacted details. Related audit navigation uses internal IDs and permission-checked
+also covers inspection of policy parameters. Hidden source IDs, confidential approval/evidence
+references, free-text reasons and Telegram identities cannot be probed through list filters.
+Season/Epoch policy filters resolve immutable bindings; Growth Epoch filters include both the
+recognition Epoch and actual receiving placements. Filters are omitted where no Epoch relation exists.
+Model-level view permission is required even for redacted details. Related audit navigation uses internal IDs and permission-checked
 routes. Raw evidence investigation stays in separately permissioned reviewed domain workflows.
 
 Season pages link to canonical economics: base/max/Growth/authorized totals, placement sum,

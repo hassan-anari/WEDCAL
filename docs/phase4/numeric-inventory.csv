@@ -14,11 +14,11 @@ apps/arena/adjustments.py,96,0,ARITHMETIC_OR_BOUND,"Identity, index, denominatio
 apps/arena/adjustments.py,96,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","forfeited = values.get(""FORFEIT"", 0) - values.get(""REVERSAL"", 0)"
 apps/arena/adjustments.py,106,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","values = {row[""kind""]: int(row[""v""] or 0) for row in rows}"
 apps/arena/adjustments.py,116,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","values[row[""kind""]] = values.get(row[""kind""], 0) + int(row[""v""])"
-apps/arena/admin.py,165,50,REVIEW_CONTEXT,Contextual non-reward literal; review with domain matrix,code/runtime; see context,list_per_page = 50
-apps/arena/admin.py,166,50,REVIEW_CONTEXT,Contextual non-reward literal; review with domain matrix,code/runtime; see context,list_max_show_all = 50
-apps/arena/admin.py,108,100,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","for pk, code in Season.objects.order_by(""-pk"").values_list(""pk"", ""code"")[:100]"
-apps/arena/admin.py,137,100,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",)[:100]
-apps/arena/admin.py,320,2,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","""report"": json.dumps(report, indent=2, default=str),"
+apps/arena/admin.py,183,50,REVIEW_CONTEXT,Contextual non-reward literal; review with domain matrix,code/runtime; see context,list_per_page = 50
+apps/arena/admin.py,184,50,REVIEW_CONTEXT,Contextual non-reward literal; review with domain matrix,code/runtime; see context,list_max_show_all = 50
+apps/arena/admin.py,109,100,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","for pk, code in Season.objects.order_by(""-pk"").values_list(""pk"", ""code"")[:100]"
+apps/arena/admin.py,144,100,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",)[:100]
+apps/arena/admin.py,352,2,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","""report"": json.dumps(report, indent=2, default=str),"
 apps/arena/api.py,102,2,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",available_season: Literal[2] = 2
 apps/arena/api.py,120,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",claimable: Literal[0] = 0
 apps/arena/api.py,102,2,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",available_season: Literal[2] = 2

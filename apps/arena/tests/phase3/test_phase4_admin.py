@@ -113,6 +113,10 @@ def test_staff_view_permissions_and_sensitive_evidence_redaction(configurable_wo
     assert client.get(
         reverse("admin:arena_economicdeferral_changelist"), {"evidence__secret_token": secret}
     ).status_code in {302, 400}
+    for lookup in ("source_id__exact", "reason__exact", "player__telegram_user_id__exact"):
+        assert client.get(
+            reverse("admin:arena_economicdeferral_changelist"), {lookup: secret}
+        ).status_code in {302, 400}
     policy_page = client.get(
         reverse("admin:arena_economicpolicyversion_change", args=(w.document.pk,))
     )
@@ -144,6 +148,14 @@ def test_season_epoch_growth_reports_match_canonical_ledgers(configurable_world,
     assert epoch["growth"] == 5001 and all(epoch["reconciliation"].values())
     assert report["final_residual"] is None  # No successful close/residual record fabricated.
     client.force_login(w.actor)
+    for model_name in ("economicpolicyversion", "growthunlockevent"):
+        listing = reverse(f"admin:arena_{model_name}_changelist")
+        response = client.get(listing, {"epoch_id": w.epochs[1].pk})
+        assert response.status_code == 200
+        assert response.context["cl"].result_count == 1
+        response = client.get(listing, {"epoch_id": 99999999})
+        assert response.status_code == 200
+        assert response.context["cl"].result_count == 0
     for view, pk in [
         ("admin:season_economics", w.season.pk),
         ("admin:arena_epoch_economics", w.epochs[0].pk),
