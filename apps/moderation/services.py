@@ -25,6 +25,22 @@ class ModerationIdempotencyConflict(ValidationError):
     pass
 
 
+def _join_active_season_barriers() -> None:
+    from apps.seasons.barrier import LOCK_NAMESPACE
+    from apps.seasons.models import Season
+
+    for season_id in (
+        Season.objects.filter(status="ACTIVE").order_by("pk").values_list("pk", flat=True)
+    ):
+        # Synchronize cutoff observation without disabling safety actions during Season close.
+        # This is the same shared lock; the economic finalization rejection does not apply
+        # to an audited moderation transition with its own source timestamp.
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock_shared(%s, %s)", [LOCK_NAMESPACE, season_id]
+            )
+
+
 def moderation_state_at(player: Player, at: datetime) -> str:
     """Resolve audited moderation state at source time without using today's projection."""
     action = (
@@ -135,6 +151,7 @@ def apply_action(
     ):
         raise ValidationError("A future suspension expiry is required")
     with transaction.atomic():
+        _join_active_season_barriers()
         # Serialize the globally unique key before any case/player row locks.
         with connection.cursor() as cursor:
             cursor.execute(
@@ -273,6 +290,7 @@ def expire_suspensions(*, now: datetime | None = None, limit: int = 100) -> int:
     for player_id, source_action_id, case_id in candidates:
         with transaction.atomic():
             # Canonical moderation transition order: case first, target Player second.
+            _join_active_season_barriers()
             case = ModerationCase.objects.select_for_update().get(pk=case_id)
             player = Player.objects.select_for_update().get(pk=player_id)
             if (

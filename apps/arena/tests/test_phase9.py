@@ -121,13 +121,15 @@ def test_six_source_time_epochs(phase4_config_factory, season_factory) -> None: 
 
 
 @pytest.mark.django_db
-def test_unconfigured_scoring_fails_closed(phase4_config_factory, season_factory) -> None:  # type: ignore[no-untyped-def]
+def test_unconfigured_scoring_fails_closed(  # type: ignore[no-untyped-def]
+    phase4_config_factory, season_factory, mark_epoch_frozen
+) -> None:
     config = phase4_config_factory()
     season = season_factory(config)
     season = set_settlement_start_epoch(season, 1, service_actor="test", reason="test setup")
     epoch = initialize_epochs(season)[0]
     epoch.state = EconomicEpoch.State.FROZEN
-    epoch.save(update_fields=("state",))
+    mark_epoch_frozen(epoch, ("state",))
     with pytest.raises(ScoringPolicyUnconfigured, match="SCORING_POLICY_UNCONFIGURED"):
         settle_epoch(epoch)
     assert not hasattr(epoch, "allocation_batch")

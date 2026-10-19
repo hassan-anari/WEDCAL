@@ -364,3 +364,39 @@ class SeasonDlxResidualEvent(models.Model):
         from django.core.exceptions import ValidationError
 
         raise ValidationError("Season DLX residual events are append-only")
+
+
+class EpochReadinessEvaluation(models.Model):
+    """Durable evaluation attempts; terminal evidence is immutable, never a manual override."""
+
+    class Status(models.TextChoices):
+        RUNNING = "RUNNING", "Running"
+        BLOCKED = "BLOCKED", "Blocked"
+        FAILED = "FAILED", "Failed"
+        COMPLETE = "COMPLETE", "Complete"
+
+    epoch = models.ForeignKey(EconomicEpoch, on_delete=models.PROTECT, related_name="evaluations")
+    evaluation_key = models.CharField(max_length=200, unique=True)
+    policy_key = models.CharField(max_length=64)
+    policy_version = models.PositiveIntegerField()
+    config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
+    cutoff_at = models.DateTimeField()
+    evaluator_version = models.CharField(max_length=100, blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.RUNNING)
+    input_digest = models.CharField(max_length=64, blank=True)
+    evidence = models.JSONField(default=dict)
+    blocking_reasons = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True)
+
+    class Meta:
+        indexes = [models.Index(fields=("epoch", "-id"), name="arena_readiness_latest")]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(status="RUNNING", completed_at__isnull=True)
+                    | Q(status__in=["BLOCKED", "FAILED", "COMPLETE"], completed_at__isnull=False)
+                ),
+                name="arena_readiness_terminal_time",
+            ),
+        ]

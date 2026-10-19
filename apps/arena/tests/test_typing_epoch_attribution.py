@@ -40,7 +40,7 @@ def core_snapshot(epoch, player) -> EpochPerformanceSnapshot:
 
 @pytest.mark.django_db
 def test_unclaimed_typing_credit_is_frozen_from_completion_source_time(
-    phase4_config_factory, season_factory, player_factory
+    phase4_config_factory, season_factory, player_factory, ready_epoch
 ) -> None:
     config = phase4_config_factory()
     season = season_factory(config, starts_at=START)
@@ -55,6 +55,7 @@ def test_unclaimed_typing_credit_is_frozen_from_completion_source_time(
     assert fact.source_time == attempt.submitted_at
     assert fact.amount == attempt.reward_amount
 
+    ready_epoch(epoch)
     freeze_epoch(epoch, at=epoch.ends_at)
     raw = core_snapshot(epoch, player).raw_inputs
     assert raw["durable_sources"]["TYPING_CREDIT"] == {
@@ -67,7 +68,7 @@ def test_unclaimed_typing_credit_is_frozen_from_completion_source_time(
 
 @pytest.mark.django_db
 def test_claim_before_freeze_and_unclaimed_source_sets_have_identical_raw_performance(
-    phase4_config_factory, season_factory, player_factory
+    phase4_config_factory, season_factory, player_factory, ready_epoch
 ) -> None:
     config = phase4_config_factory()
     season = season_factory(config, starts_at=START)
@@ -82,6 +83,7 @@ def test_claim_before_freeze_and_unclaimed_source_sets_have_identical_raw_perfor
     claim_wallet(claimed, "claim-before-freeze", at + timedelta(hours=1))
     RewardSettlementOutbox.objects.update(state="PROCESSED")
 
+    ready_epoch(epoch)
     freeze_epoch(epoch, at=epoch.ends_at)
     claimed_raw = core_snapshot(epoch, claimed).raw_inputs
     unclaimed_raw = core_snapshot(epoch, unclaimed).raw_inputs
@@ -92,7 +94,7 @@ def test_claim_before_freeze_and_unclaimed_source_sets_have_identical_raw_perfor
 
 @pytest.mark.django_db
 def test_typing_credits_spanning_epochs_remain_at_source_time_when_claimed_together(
-    phase4_config_factory, season_factory, player_factory
+    phase4_config_factory, season_factory, player_factory, ready_epoch
 ) -> None:
     config = phase4_config_factory()
     season = season_factory(config, starts_at=START)
@@ -102,11 +104,21 @@ def test_typing_credits_spanning_epochs_remain_at_source_time_when_claimed_toget
     TypingPhrase.objects.create(key="arena", version=1, text=TEXT, enabled=True)
 
     first_attempt = complete(player, "first", START + timedelta(days=1))
+    ready_epoch(first)
     freeze_epoch(first, at=first.ends_at)
     first_raw_before_claim = core_snapshot(first, player).raw_inputs
 
     second_attempt = complete(player, "second", START + timedelta(days=8))
     claim_wallet(player, "combined-claim", START + timedelta(days=8, hours=1))
+    # Exercise the canonical no-referral outcome; pending outboxes now correctly hold Freeze.
+    from apps.referrals.services import process_source_reward
+    from apps.rewards.models import RewardLedger
+
+    for outbox in RewardSettlementOutbox.objects.filter(state="PENDING"):
+        process_source_reward(RewardLedger.objects.get(pk=outbox.reward_id))
+        outbox.state = "PROCESSED"
+        outbox.save(update_fields=["state"])
+    ready_epoch(second)
     freeze_epoch(second, at=second.ends_at)
 
     assert core_snapshot(first, player).raw_inputs == first_raw_before_claim

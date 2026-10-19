@@ -44,6 +44,7 @@ def test_complete_six_epoch_close_failure_resume_and_barrier(
     season_factory: Any,
     player_factory: Any,
     monkeypatch: Any,
+    ready_epoch: Any,
 ) -> None:
     now = timezone.now()
     start = now - timedelta(days=46)
@@ -132,6 +133,7 @@ def test_complete_six_epoch_close_failure_resume_and_barrier(
     epochs = initialize_epochs(season)
     assert [row.epoch_number for row in epochs] == [1, 2, 3, 4, 5, 6]
     for epoch in epochs:
+        ready_epoch(epoch)
         frozen = freeze_epoch(epoch, at=epoch.ends_at)
         categories = list(frozen.category_budgets.values_list("category", flat=True))
 

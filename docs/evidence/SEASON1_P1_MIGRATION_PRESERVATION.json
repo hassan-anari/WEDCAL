@@ -1,0 +1,34 @@
+{
+  "arena_economicepoch": {
+    "count": 6,
+    "sha256": "dcd82ccc41a62b134dcf2b711df28feecf1d8ab5dbe76805a320f30300feb546"
+  },
+  "arena_epochperformancesnapshot": {
+    "count": 1,
+    "sha256": "c3eb34730ef6b28c572dad376a562bd62e5026ebe1147938567b0a3bc63bcbfd"
+  },
+  "arena_performancesourcefact": {
+    "count": 1,
+    "sha256": "4c10bdf41ebcb7c8ad143f9fde5ae713939fd9932aa1f208d2bf7643864ddb2c"
+  },
+  "arena_qualificationdecision": {
+    "count": 1,
+    "sha256": "729922aa55c004c457c09f7d3eb4182c9174bcd4fc5e180a6126f69236c1295f"
+  },
+  "game_config_gameconfigversion": {
+    "count": 1,
+    "sha256": "9363968c9346c60f5879d1bd79d22745a92d1c38b7488f297fda2f0ccc49e14e"
+  },
+  "progression_playerprogression": {
+    "count": 1,
+    "sha256": "99523584141adc66d660412bf28a39e5932e784d813ee6b6a03b9003b84208a3"
+  },
+  "rewards_rewardledger": {
+    "count": 1,
+    "sha256": "4f7e185ad716aa43ab51adfd179c7a97d50d49266b2d033a5a0e7751278be5d8"
+  },
+  "seasons_playerseason": {
+    "count": 1,
+    "sha256": "df5d198b67f962791ea675bc28b98b5a6716f4555f18948abca131727e375cb3"
+  }
+}
