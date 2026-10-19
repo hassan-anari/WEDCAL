@@ -96,6 +96,9 @@ def resolve_player(
     with transaction.atomic():
         player = Player.objects.select_for_update().get(pk=player.pk)
         changed: list[str] = []
+        if player.first_authenticated_at is None:
+            player.first_authenticated_at = timezone.now()
+            changed.append("first_authenticated_at")
         profile_is_newer = (
             telegram_update_id is not None
             and (

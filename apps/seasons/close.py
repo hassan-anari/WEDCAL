@@ -434,6 +434,16 @@ def reconcile_clan_projections(
 
 
 def reconcile_season_dlx(season: Season, *, record_residuals: bool = False) -> dict[str, Any]:
+    from apps.arena.epochs import reconcile_epoch
+    from apps.arena.models import (
+        CategoryCorrectionReserve,
+        DlxCorrection,
+        DlxCorrectionRound,
+        EconomicDeferral,
+        EpochPolicyBinding,
+    )
+    from apps.arena.policy import CATEGORIES
+
     config = resolve_game_config_version(season.baseline_config_id)
     policy = config.dlx_distribution
     if policy is None:
@@ -449,6 +459,30 @@ def reconcile_season_dlx(season: Season, *, record_residuals: bool = False) -> d
     residual = int(
         budgets.filter(epoch__epoch_number=6).aggregate(value=Sum("carry_out"))["value"] or 0
     )
+    reserve_total = int(
+        CategoryCorrectionReserve.objects.filter(budget__epoch__season=season).aggregate(
+            value=Sum("amount")
+        )["value"]
+        or 0
+    )
+    corrections_paid = int(
+        DlxCorrection.objects.filter(reserve__budget__epoch__season=season).aggregate(
+            value=Sum("amount")
+        )["value"]
+        or 0
+    )
+    bound = EpochPolicyBinding.objects.filter(epoch__season=season).exists()
+    admission_closed = not bound or timezone.now() >= season.ends_at
+    correction_rounds_sealed = not bound or DlxCorrectionRound.objects.filter(
+        reserve__budget__epoch__season=season
+    ).count() == CategoryCorrectionReserve.objects.filter(
+        budget__epoch__season=season
+    ).count() == len(epochs) * len(CATEGORIES)
+    unused_reserve = reserve_total - corrections_paid
+    residual += unused_reserve
+    unresolved_deferrals = EconomicDeferral.objects.filter(
+        epoch__season=season, resolution__isnull=True
+    ).count()
     confirmed_batches = AllocationBatch.objects.filter(
         epoch__season=season, confirmed_at__isnull=False
     ).count()
@@ -456,14 +490,32 @@ def reconcile_season_dlx(season: Season, *, record_residuals: bool = False) -> d
 
     adjustment_totals = season_adjustment_totals(season)
     if record_residuals:
+        if not admission_closed or not correction_rounds_sealed:
+            raise ValidationError("Correction admission or final category rounds remain open")
+        if unresolved_deferrals:
+            raise ValidationError("Economic deferrals remain unresolved")
         for row in budgets.filter(epoch__epoch_number=6).select_related("config_version"):
-            amount = row.carry_out
+            category_reserve = CategoryCorrectionReserve.objects.filter(
+                budget__epoch__season=season, budget__category=row.category
+            )
+            remaining_reserve = int(
+                category_reserve.aggregate(value=Sum("amount"))["value"] or 0
+            ) - int(
+                DlxCorrection.objects.filter(reserve__in=category_reserve).aggregate(
+                    value=Sum("amount")
+                )["value"]
+                or 0
+            )
+            amount = row.carry_out + remaining_reserve
             SeasonDlxResidualEvent.objects.get_or_create(
                 season=season,
                 category=row.category,
                 defaults={
                     "amount": amount,
-                    "provenance": {"epoch_category_budget_id": row.pk},
+                    "provenance": {
+                        "epoch_category_budget_id": row.pk,
+                        "unused_category_reserve": remaining_reserve,
+                    },
                     "config_version": row.config_version,
                     "disposition": "UNALLOCATED_SEASON_RESIDUAL",
                     "reason": "Final same-category carry has no seventh economic epoch",
@@ -478,6 +530,11 @@ def reconcile_season_dlx(season: Season, *, record_residuals: bool = False) -> d
         "authorized_budget": authorized_budget,
         "projected_allocations": allocated_projection,
         "confirmed_allocations": allocation_ledger,
+        "funded_corrections": corrections_paid,
+        "unused_correction_reserve": unused_reserve,
+        "correction_admission_closed": admission_closed,
+        "correction_rounds_sealed": correction_rounds_sealed,
+        "unresolved_economic_deferrals": unresolved_deferrals,
         "final_residual": residual,
         "confirmed_batches": confirmed_batches,
         "adjustments": adjustment_totals,
@@ -487,7 +544,12 @@ def reconcile_season_dlx(season: Season, *, record_residuals: bool = False) -> d
         "reconciled": exact_epochs
         and confirmed_batches == 6
         and allocated_projection == allocation_ledger
-        and allocation_ledger + residual == authorized_budget
+        and allocation_ledger + corrections_paid + residual == authorized_budget
+        and unused_reserve >= 0
+        and not unresolved_deferrals
+        and admission_closed
+        and correction_rounds_sealed
+        and all(all(reconcile_epoch(epoch).values()) for epoch in epochs)
         and not RewardLedger.objects.filter(season=season, source_type__icontains="DLX").exists(),
     }
 

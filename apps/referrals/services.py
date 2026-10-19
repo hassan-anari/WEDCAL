@@ -179,6 +179,9 @@ def activate_relation(relation_id: int, *, at: datetime | None = None) -> bool:
         ).update(next_evaluation_at=now + timedelta(hours=1))
         return False
     with transaction.atomic():
+        from apps.seasons.barrier import acquire_economic_write_barrier
+
+        acquire_economic_write_barrier(season.pk)
         relation = (
             ReferralRelation.objects.select_for_update()
             .select_related("invitee", "inviter")
@@ -214,6 +217,21 @@ def activate_relation(relation_id: int, *, at: datetime | None = None) -> bool:
         relation.verified_at = now
         relation.verified_config_id = config.id
         relation.save(update_fields=("status", "verified_at", "verified_config", "updated_at"))
+        from apps.arena.eligibility import activation_participation_evidence
+        from apps.arena.recognition import record_referral_activation
+
+        record_referral_activation(
+            relation,
+            {
+                "season_id": season.pk,
+                "activation_check": "LEVEL_AGE_MODERATION_PARTICIPATION_V1",
+                "required_level": config.referral.min_level,
+                "anti_sybil_required": config.referral.anti_sybil_pass_required,
+                "participation": activation_participation_evidence(
+                    relation.invitee, season_id=season.pk, at=now
+                ),
+            },
+        )
     return True
 
 
@@ -231,17 +249,41 @@ def referral_activation_is_safe(
     )
     anti_sybil_ok = True
     if config.referral.anti_sybil_pass_required:
+        from apps.arena.eligibility import referral_activation_eligibility
+        from apps.arena.models import EpochPolicyBinding
+        from apps.arena.policy import parse_policy
         from apps.arena.qualification import is_player_qualified
 
         predicate = (
             config.dlx_distribution.qualified_player_predicate if config.dlx_distribution else {}
         )
-        anti_sybil_ok = is_player_qualified(
-            relation.invitee,
-            policy_key=str(predicate.get("policy_key", "QUALIFIED_PLAYER")),
-            policy_version=int(predicate.get("policy_version", 1)),
-            at=at,
+        binding = (
+            EpochPolicyBinding.objects.select_related("policy", "epoch")
+            .filter(epoch__starts_at__lte=at, epoch__ends_at__gt=at, epoch__season__status="ACTIVE")
+            .first()
         )
+        if binding:
+            policy = parse_policy(binding.policy.payload)
+            anti_sybil_ok, _ = referral_activation_eligibility(
+                relation.invitee,
+                season_id=binding.epoch.season_id,
+                at=at,
+                min_age_hours=max(
+                    config.referral.min_account_age_hours, policy.number("min_age_hours")
+                ),
+                meaningful_days=policy.number("meaningful_days"),
+                daily_periods=policy.number("daily_only_periods"),
+                policy_key=str(predicate.get("policy_key", "QUALIFIED_PLAYER")),
+                policy_version=int(predicate.get("policy_version", 1)),
+            )
+        else:
+            # Unbound deployments retain the prior fail-closed activation contract.
+            anti_sybil_ok = is_player_qualified(
+                relation.invitee,
+                policy_key=str(predicate.get("policy_key", "QUALIFIED_PLAYER")),
+                policy_version=int(predicate.get("policy_version", 1)),
+                at=at,
+            )
     return bool(
         anti_sybil_ok
         and progression

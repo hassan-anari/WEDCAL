@@ -37,6 +37,7 @@ class EvaluationEvidence:
     source_completion: dict[str, Any]
     provenance: dict[str, Any]
     blocking_reasons: tuple[str, ...] = ()
+    scoped_pending_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,20 @@ class ApprovedEvaluator:
 # Populating this requires an independently reviewed policy/source-completion implementation.
 # Never add a settings switch, command flag, count-based fallback, or operator force-ready action.
 APPROVED_EVALUATORS: dict[tuple[str, int], ApprovedEvaluator] = {}
+
+
+def approved_evaluator(epoch: EconomicEpoch, key: str, version: int) -> ApprovedEvaluator | None:
+    from apps.arena.recognition import bound_policy
+
+    selected = bound_policy(epoch)
+    if selected is not None:
+        from apps.arena.economics import inspect_finalized_epoch
+
+        binding, _ = selected
+        return ApprovedEvaluator(
+            f"S1_FINALIZED_V1:{binding.policy.checksum}", inspect_finalized_epoch
+        )
+    return APPROVED_EVALUATORS.get((key, version))
 
 
 def policy_identity(epoch: EconomicEpoch) -> tuple[str, int]:
@@ -64,9 +79,16 @@ def policy_identity(epoch: EconomicEpoch) -> tuple[str, int]:
 def _inspect(epoch: EconomicEpoch, evaluator: ApprovedEvaluator) -> tuple[dict[str, Any], str]:
     result = evaluator.inspect(epoch)
     if (
-        min(result.scope_count, result.evaluated_count, result.unresolved_count) < 0
+        min(
+            result.scope_count,
+            result.evaluated_count,
+            result.unresolved_count,
+            result.scoped_pending_count,
+        )
+        < 0
         or result.evaluated_count > result.scope_count
         or result.unresolved_count > result.scope_count
+        or result.scoped_pending_count > result.scope_count
     ):
         raise ValidationError("QUALIFICATION_COVERAGE_INVALID")
     reasons = list(result.blocking_reasons)
@@ -78,6 +100,7 @@ def _inspect(epoch: EconomicEpoch, evaluator: ApprovedEvaluator) -> tuple[dict[s
         "scope_count": result.scope_count,
         "evaluated_count": result.evaluated_count,
         "unresolved_count": result.unresolved_count,
+        "scoped_pending_count": result.scoped_pending_count,
         "source_completion": result.source_completion,
         "provenance": result.provenance,
         "blocking_reasons": sorted(set(reasons)),
@@ -136,7 +159,7 @@ def evaluate_epoch_readiness(
                 reasons.append("EPOCH_FINALIZED")
             if timezone.now() < row.ends_at:
                 reasons.append("EPOCH_ACTIVITY_WINDOW_OPEN")
-            evaluator = APPROVED_EVALUATORS.get((key, version))
+            evaluator = approved_evaluator(row, key, version)
             if evaluator is None:
                 reasons.extend(
                     ["QUALIFICATION_EVALUATOR_UNCONFIGURED", "SOURCE_COMPLETION_UNVERIFIED"]
@@ -179,7 +202,7 @@ def readiness_blockers(epoch: EconomicEpoch) -> tuple[list[str], EpochReadinessE
     elif run.status != "COMPLETE":
         reasons.append(f"QUALIFICATION_{run.status}")
         reasons.extend(run.blocking_reasons)
-    evaluator = APPROVED_EVALUATORS.get((key, version))
+    evaluator = approved_evaluator(epoch, key, version)
     if evaluator is None:
         reasons.extend(["QUALIFICATION_EVALUATOR_UNCONFIGURED", "SOURCE_COMPLETION_UNVERIFIED"])
     if run is not None and run.status == "COMPLETE":
@@ -217,7 +240,7 @@ def preflight_epoch(epoch: EconomicEpoch) -> dict[str, Any]:
             policy_key=key, policy_version=version, effective_at__lte=row.ends_at
         )
         latest = decisions.order_by("player_id", "-effective_at", "-id").distinct("player_id")
-        counts = {"QUALIFIED": 0, "DISQUALIFIED": 0, "PENDING": 0}
+        counts = {state: 0 for state in QualificationDecision.Decision.values}
         # DISTINCT ON remains inside a subquery; counts never materialize player identifiers.
         for item in (
             QualificationDecision.objects.filter(pk__in=latest.values("pk"))
@@ -259,7 +282,7 @@ def preflight_epoch(epoch: EconomicEpoch) -> dict[str, Any]:
             reasons.extend([f"QUALIFICATION_{run.status}", *run.blocking_reasons])
         # A read-only preview never certifies a final transactional verification.
         reasons.append("FINAL_TRANSACTIONAL_VERIFICATION_REQUIRED")
-        if (key, version) not in APPROVED_EVALUATORS:
+        if approved_evaluator(row, key, version) is None:
             reasons.extend(["QUALIFICATION_EVALUATOR_UNCONFIGURED", "SOURCE_COMPLETION_UNVERIFIED"])
         facts = PerformanceSourceFact.objects.filter(
             season_id=row.season_id, source_time__gte=row.starts_at, source_time__lt=row.ends_at

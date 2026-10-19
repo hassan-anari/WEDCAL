@@ -262,6 +262,9 @@ def _mark_ready(player: Player, progress_id: int, at: datetime) -> PlayerMission
                 "updated_at",
             ]
         )
+        from apps.arena.recognition import record_mission_verification
+
+        record_mission_verification(progress)
     logger.info("mission_verified", player_id=player.pk, mission_key=progress.definition.key)
     return progress
 

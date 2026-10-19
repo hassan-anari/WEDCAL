@@ -494,6 +494,10 @@ def settle_clan_reward(
             daily.eligible_gross += source.eligible_gross
             daily.processed_sources = [*daily.processed_sources, source_key]
             daily.save()
+    from apps.arena.recognition import record_clan_contribution
+
+    if source_type == "CLAN_ACTIVITY":
+        record_clan_contribution(economic)
     return economic, True
 
 

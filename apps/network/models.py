@@ -55,6 +55,7 @@ class CreatorRegistrationStateEvent(models.Model):
     reward_eligible = models.BooleanField(default=False)
     occurred_at = models.DateTimeField(db_index=True)
     source = models.CharField(max_length=32)
+    owner = models.ForeignKey(Player, on_delete=models.PROTECT, null=True)
 
     class Meta:
         constraints = [
@@ -146,6 +147,7 @@ class CreatorWindowSettlement(models.Model):
     reward = models.OneToOneField(RewardLedger, on_delete=models.PROTECT, null=True, blank=True)
     state = models.CharField(max_length=32, choices=State.choices, default=State.ZERO)
     finalized_at = models.DateTimeField(null=True, blank=True)
+    owner = models.ForeignKey(Player, on_delete=models.PROTECT, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

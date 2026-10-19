@@ -216,6 +216,9 @@ def _finalize(activity: ClanActivity, now: datetime) -> bool:
                 occurred_at=item.observed_at,
             )
         source.update(window_processed=True)
+        from apps.arena.recognition import record_clan_window_presence
+
+        record_clan_window_presence(window)
         latest_accepted = source.filter(rewardable_chars__gt=0).order_by("-observed_at").first()
         if latest_accepted and latest_accepted.membership_id:
             from apps.clans.governance import record_clan_activity as advance_activity_clock

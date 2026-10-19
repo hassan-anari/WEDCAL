@@ -24,6 +24,7 @@ class Player(models.Model):
     profile_observed_at = models.DateTimeField(null=True, blank=True)
     profile_last_telegram_update_id = models.BigIntegerField(null=True, blank=True)
     first_seen_at = models.DateTimeField()
+    first_authenticated_at = models.DateTimeField(null=True, editable=False)
     first_seen_source = models.CharField(max_length=20, choices=FirstSeenSource.choices)
     first_private_contact_at = models.DateTimeField(null=True, blank=True)
     first_mini_app_at = models.DateTimeField(null=True, blank=True)

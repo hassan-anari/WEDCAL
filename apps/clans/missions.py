@@ -226,6 +226,12 @@ def record_mission_progress(
     progress.save(
         update_fields=("units", "progress_remainder", "completed_at", "reward_settlement")
     )
+    from apps.arena.recognition import record_clan_contribution
+
+    for participant in progress.participants.select_related("reward_settlement").filter(
+        reward_eligible=True, reward_settlement__isnull=False
+    ):
+        record_clan_contribution(participant.reward_settlement)
     return progress
 
 

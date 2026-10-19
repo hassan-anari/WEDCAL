@@ -65,7 +65,7 @@ def settle_claim_referral(invitee, key: str, at: datetime) -> RewardLedger:
 
 
 @pytest.mark.django_db
-def test_unclaimed_typing_credit_freezes_inviter_referral_source_time(
+def test_unclaimed_typing_passive_provenance_is_excluded_from_referral_acquisition(
     phase4_config_factory, season_factory, player_factory, ready_epoch
 ) -> None:
     config = phase4_config_factory()
@@ -90,11 +90,8 @@ def test_unclaimed_typing_credit_freezes_inviter_referral_source_time(
 
     ready_epoch(epoch)
     freeze_epoch(epoch, at=epoch.ends_at)
-    assert referral_raw(epoch, inviter) == {
-        "durable_source_amount": fact.amount,
-        "durable_source_events": 1,
-        "durable_source_type": "TYPING_REFERRAL_CREDIT",
-    }
+    # Passive XP-share evidence survives, but never becomes DLX acquisition performance.
+    assert referral_raw(epoch, inviter) == {"activated_relations": []}
 
 
 @pytest.mark.django_db
@@ -118,7 +115,7 @@ def test_claimed_and_unclaimed_typing_sources_freeze_identical_referral_inputs(
     ready_epoch(epoch)
     freeze_epoch(epoch, at=epoch.ends_at)
     assert referral_raw(epoch, inviter_a) == referral_raw(epoch, inviter_b)
-    assert referral_raw(epoch, inviter_a)["durable_source_events"] == 1
+    assert referral_raw(epoch, inviter_a) == {"activated_relations": []}
 
 
 @pytest.mark.django_db
@@ -143,10 +140,20 @@ def test_combined_cross_epoch_claim_preserves_each_referral_source_epoch(
     freeze_epoch(second, at=second.ends_at)
 
     assert referral_raw(first, inviter) == first_before_claim
-    assert first_before_claim["durable_source_amount"] == first_attempt.reward_amount * 300 // 10000
-    assert referral_raw(second, inviter)["durable_source_amount"] == (
-        second_attempt.reward_amount * 300 // 10000
+    assert first_before_claim == referral_raw(second, inviter) == {"activated_relations": []}
+    facts = list(
+        PerformanceSourceFact.objects.filter(source_type="TYPING_REFERRAL_CREDIT").order_by(
+            "source_time"
+        )
     )
+    assert [f.source_time for f in facts] == [
+        first_attempt.submitted_at,
+        second_attempt.submitted_at,
+    ]
+    assert [f.amount for f in facts] == [
+        first_attempt.reward_amount * 300 // 10000,
+        second_attempt.reward_amount * 300 // 10000,
+    ]
     assert PerformanceSourceFact.objects.filter(source_type="TYPING_REFERRAL_CREDIT").count() == 2
 
 
@@ -186,7 +193,7 @@ def test_later_referral_ledger_does_not_double_count_or_change_source_tier(
     share_reward = settle_claim_referral(invitee, "late", START + timedelta(days=8))
     assert share_reward.source_type == "REFERRAL"
     assert referral_raw(epoch, inviter) == frozen
-    assert frozen["durable_source_events"] == 1
+    assert frozen == {"activated_relations": []}
     assert frozen.get("events", 0) == 0
     fact.refresh_from_db()
     assert fact.metadata["tier_key"] == "BRONZE"

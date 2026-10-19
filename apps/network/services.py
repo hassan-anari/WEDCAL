@@ -96,7 +96,7 @@ def consume_registration_token(
             registration=registration,
             occurred_at=observed_at,
             source="TOKEN_CONSUMED",
-            defaults={"state": registration.state, "reward_eligible": False},
+            defaults={"state": registration.state, "reward_eligible": False, "owner": sender},
         )
         intent.consumed_at = timezone.now()
         intent.save(update_fields=("consumed_at",))
@@ -238,6 +238,7 @@ def verify_registration(registration_id: int) -> str:
             reward_eligible=locked.state == CreatorGroupRegistration.State.ACTIVE,
             occurred_at=timezone.now(),
             source="VERIFICATION",
+            owner=locked.creator,
         )
     return state
 
@@ -272,6 +273,7 @@ def deactivate_registration_at(registration_id: int, *, at: datetime, source: st
             reward_eligible=False,
             occurred_at=at,
             source=source,
+            owner=registration.creator,
         )
 
 
@@ -504,6 +506,7 @@ def _settle_window_locked(
             defaults={
                 "state": CreatorWindowSettlement.State.DEFERRED_SEASON_CLOSE,
                 "finalized_at": timezone.now(),
+                "owner": registration.creator,
                 "eligible_chars": chars,
                 "unique_speakers": speakers,
             },
@@ -530,7 +533,8 @@ def _settle_window_locked(
             defaults={
                 "eligible_chars": chars,
                 "unique_speakers": speakers,
-                "finalized_at": timezone.now(),
+                "finalized_at": None,
+                "owner": registration.creator,
             },
         )
         if not created:
@@ -565,6 +569,11 @@ def _settle_window_locked(
             allowance.points += points
             allowance.save(update_fields=("points",))
         window_rows.update(window_processed=True)
+        settlement.finalized_at = timezone.now()
+        settlement.save(update_fields=("finalized_at",))
+        from apps.arena.recognition import record_creator_window
+
+        record_creator_window(settlement)
     return settlement
 
 
@@ -628,6 +637,9 @@ def purge_activity_evidence(now: datetime | None = None, *, limit: int = 1000) -
     from apps.moderation.services import protected_network_activity_ids
 
     now = now or timezone.now()
+    from apps.arena.recognition import purge_creator_content_classes
+
+    purge_creator_content_classes(now)
     held = protected_network_activity_ids(now)
     content_ids = list(
         NetworkActivity.objects.filter(content_expires_at__lte=now)

@@ -507,7 +507,7 @@ def submit_batch(player: Player, payload: BatchInput, *, at: datetime) -> dict[s
             },
             projection_at=at if bound.id != current.id else None,
         )
-        PerformanceSourceFact.objects.create(
+        performance_fact = PerformanceSourceFact.objects.create(
             season=lease.season,
             player=player,
             category="CORE_GAMEPLAY",
@@ -522,6 +522,9 @@ def submit_batch(player: Player, payload: BatchInput, *, at: datetime) -> dict[s
                 "accepted_taps": accepted,
             },
         )
+        from apps.arena.recognition import record_core_fact
+
+        record_core_fact(performance_fact)
         state.remaining -= accepted
         state.next_sequence += accepted
         state.last_batch_at = at

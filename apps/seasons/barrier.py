@@ -26,6 +26,7 @@ def acquire_economic_write_barrier(season_id: int) -> None:
         raise RuntimeError("Economic barrier must be acquired inside transaction.atomic()")
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock_shared(%s, %s)", [LOCK_NAMESPACE, season_id])
+        cursor.execute("SELECT set_config('dexo.s1_source_writer', 'S1_FINALIZED_V1', true)")
     if SeasonCloseRun.objects.filter(
         season_id=season_id, barrier_established_at__isnull=False
     ).exists():

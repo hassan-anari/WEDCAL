@@ -190,7 +190,7 @@ def submit_attempt(
             )
             # Weekly performance follows completion source time, never voluntary claim time.
             # The attempt one-to-one credit and fact source identity make retries idempotent.
-            PerformanceSourceFact.objects.create(
+            performance_fact = PerformanceSourceFact.objects.create(
                 season=attempt.season,
                 player=player,
                 category="CORE_GAMEPLAY",
@@ -199,8 +199,16 @@ def submit_attempt(
                 source_time=at,
                 amount=reward,
                 config_version=attempt.config_version,
-                metadata={"attempt_id": attempt.pk, "credit_transaction_id": credit.pk},
+                metadata={
+                    "attempt_id": attempt.pk,
+                    "credit_transaction_id": credit.pk,
+                    "wpm": attempt.wpm,
+                    "accuracy_bps": attempt.accuracy_bps,
+                },
             )
+            from apps.arena.recognition import record_core_fact
+
+            record_core_fact(performance_fact)
             record_typing_credit_performance(
                 invitee=player,
                 season_id=attempt.season_id,
