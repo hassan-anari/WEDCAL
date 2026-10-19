@@ -1,5 +1,12 @@
 # Measured capacity and remaining validation
 
+Owner sequencing update: larger realistic end-to-end benchmarking is deferred to a separate
+post-merge phase after independent review and an explicitly authorized merge. No such benchmark
+was run in the final functional/operational continuation. Measurements below are historical
+pre-continuation evidence, including the hashed economic code at PR head
+`5b372224afc0a86f987261ecb652dc531b5a766b`; they do not certify the new final head. "Final-code repeat"
+below refers to that earlier measurement series, not the final operational completion revision.
+
 These measurements do **not** certify million-player Production readiness. A direct one-million
 registered-player run was feasible at the normalized economic receipt boundary. It is not a
 one-million-weekly-active run. Full source-producer throughput, realistic concurrent traffic,

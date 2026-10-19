@@ -12,6 +12,9 @@ approve policies, bind Seasons, authorize jobs, allocate DLX or rewrite balances
 | arena 0025 | approved pre-Freeze recipient provenance in funding guard | function replacement; immutable history unaffected |
 | arena 0026–0027 | durable evaluation history and deferred authorization/placement conservation | new empty table/index and constraint trigger; no history backfill |
 | arena 0024 | numeric `div()` for exact floor quotient at signed-bigint extremes | avoids PostgreSQL `/` significant-digit rounding; no stored recalculation |
+| arena 0028 | policy proposal/approval, alert incident/event/outbox tables and indexes | new empty tables; no historical rewrites or live destination/authority seeds |
+| arena 0029 | independent exact policy-approval guard; immutable proposal/approval/alert events; pinned delivery routes | trigger DDL on new tables only |
+| arena 0030 | reverse preflight refuses downgrade after Phase-4 history or published schema-4 use | read-only existence checks before any downgrade DDL; empty disposable reverse/forward remains supported |
 
 Unchanged protections include Phase-1 Freeze readiness, append-only allocations/source receipts,
 policy/version immutability, canonical source fencing, correction funding, source deletion guards
@@ -28,6 +31,8 @@ Rollback is an operational pause first, not reversal of rewards. Do not run pre-
 against active schema-4 Seasons. Keep schema/history and deploy a forward compatibility fix where
 necessary. Reversing 0020 reinstates a ≤6 check and removes funding/control tables; it is not safe
 once a Season has used those features. Reverse migration must fail rather than delete/reprice data.
+0030 now enforces that refusal before any Phase-4 reverse DDL if feature history or published
+schema-4 configuration exists. It does not merely rely on an operator remembering this warning.
 0022/0024 reverse function definitions remove Growth/extreme-budget support and require the same
 compatibility restriction. Do not truncate data to make a downgrade succeed. Empty disposable
 forward/reverse/forward checks are useful migration tests, not a Production rollback certification.

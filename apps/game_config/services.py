@@ -1405,6 +1405,22 @@ def publish_game_config(
         config = GameConfigVersion.objects.select_for_update().get(pk=config.pk)
         if config.status != GameConfigVersion.Status.DRAFT:
             raise ValidationError("Only draft configurations can be published")
+        if "daily" in config.payload:
+            # These are supported lifecycle invariants, not prospective tuning switches.
+            # Keep historical parsing intact; reject promises the earning engine cannot honor.
+            daily_lifecycle = {
+                "missed_full_period_resets_streak": True,
+                "catch_up_claims_enabled": False,
+                "cycle_restarts_after_day_7": True,
+                "streak_counter_continues_after_day_7": True,
+            }
+            if not isinstance(config.payload["daily"], dict) or any(
+                config.payload["daily"].get(key) is not value
+                for key, value in daily_lifecycle.items()
+            ):
+                raise ValidationError(
+                    "Unsupported Daily lifecycle flags; reward-cycle values remain configurable"
+                )
         if "referral" in config.payload:
             parse_game_config(config.payload)
             parse_phase5(config.payload)

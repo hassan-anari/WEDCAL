@@ -1,8 +1,11 @@
 # Phase 4 review package
 
-This Draft PR includes the full Phase 4 implementation and the revised Growth/Admin addendum.
-**Phase 4 is not declared complete:** full Production-like million-user traffic/source/Close capacity
-and external monitoring integration remain unverified. All economic activation stays off.
+This Draft PR covers Phase 4, the revised Growth/Admin addendum and the owner's final functional/
+operational completion request. Policy registration, backend alerts, semantic configuration review
+and the read-only frontend handoff are included. Final SHA/CI evidence is recorded on PR #38.
+Large realistic performance work is explicitly deferred until independent review and an authorized
+merge. Functional implementation completeness is separate from Production-capacity certification.
+All live economic activation and external alert delivery stay off.
 
 * [Configuration ownership and binding](ARCHITECTURE.md)
 * [Generic Growth rule, examples and conservation](GROWTH_POLICY.md)
@@ -10,8 +13,13 @@ and external monitoring integration remain unverified. All economic activation s
 * [Migration/compatibility/rollback review](MIGRATIONS.md)
 * [Hardcoded-value ownership matrix](HARDCODED_AUDIT.md) and [numeric inventory](numeric-inventory.csv)
 * [Read-only Admin permissions and evidence handling](ADMIN_INSPECTION.md)
+* [Two-person policy registration and approval](POLICY_REGISTRATION.md)
+* [Economic alert detection, routing, retry and recovery](ALERTS.md)
+* [Semantic configuration audit](SEMANTIC_AUDIT.md)
+* [Exact read-only FROCAL compatibility handoff](FROCAL_HANDOFF.md)
 * [Validation and complete original/addendum requirement matrix](VALIDATION.md)
 * [Measured capacity, projections and bottlenecks](CAPACITY.md)
+* [Explicitly deferred post-merge performance scope](DEFERRED_PERFORMANCE.md)
 * [Synthetic lifecycle reports](simulations/) / [economic Admin projections](inspection/) /
   [performance measurements and query plans](performance/)
 

@@ -6,7 +6,8 @@ The owner addendum approves the generic pre-Freeze rule; no live policy or activ
 
 1. Review source retention, durable canonical evidence and historical coverage. Unknown global
    ingress remains a blocker; scoping unfinished user work does not assert it finished.
-2. Review/publish an immutable economic policy independently with a real approval reference.
+2. Use the [two-person registration workflow](POLICY_REGISTRATION.md) to validate, submit and
+   independently approve/register an immutable economic policy with real audit references.
    Select its exact key/version/checksum in schema 4 GameConfig; publish via validated service/admin.
 3. Create a DRAFT Season using the approved published config and matching dates. Activate via the
    admin activation form, with `arena.bind_economic_policy` and reviewed source-coverage evidence.
@@ -43,10 +44,11 @@ The owner addendum approves the generic pre-Freeze rule; no live policy or activ
 
 Each attempt records stage, control authority, status, failure category and reconciliation
 results. Structured `dlx_automation_stage_result` logs include Season/Epoch/stage/status/error.
-`operational_snapshot.dlx_automation` exposes status/error counts. Operator alerts must be connected
-to the deployment's monitoring system: alert on BLOCKED/FAILED, stale RUNNING attempts, worker/queue
-backlog and overdue ended-but-unsettled Epochs. No Telegram broadcast or external alert is sent here.
-There is no newly configured external paging destination in this PR.
+`operational_snapshot.dlx_automation` exposes status/error counts. The implemented
+[economic alert scanner/outbox](ALERTS.md) detects deadlines, blocked/failed stages, Growth,
+reconciliation, stale/repeated workers and failed/manual Close. Detection and delivery default off.
+No real destination or external message is configured/sent in this PR. Owner-authorized routing,
+credentials and an external application/Beat liveness monitor are activation prerequisites.
 
 A PostgreSQL session advisory lock prevents overlapping Season workers. A killed process releases
 it; the next owner marks abandoned RUNNING attempts INTERRUPTED and resumes idempotent stages.

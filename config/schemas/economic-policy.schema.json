@@ -1,0 +1,558 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Immutable EconomicPolicyVersion payload",
+  "description": "Registration enforces this shape plus existing weight sums, caps, supported recognition, mission identities and checksum validation. Legacy documents retain their existing implementation contract.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "implementation",
+        "recognition",
+        "scale",
+        "days",
+        "min_age_hours",
+        "meaningful_days",
+        "daily_only_periods",
+        "community_messages_per_day",
+        "tap_weight",
+        "tap_saturation",
+        "typing_weight",
+        "typing_runs_per_day",
+        "typing_wpm_ceiling",
+        "daily_weight",
+        "mission_weight",
+        "mission_limit",
+        "independent_mission_keys",
+        "clan_work_weight",
+        "clan_consistency_weight",
+        "clan_saturation",
+        "clan_meaningful_contribution",
+        "creator_h_weight",
+        "creator_w_weight",
+        "creator_h_saturation",
+        "creator_window_speakers",
+        "creator_window_characters",
+        "creator_windows_per_day",
+        "creator_speaker_span_seconds",
+        "creator_window_seconds",
+        "creator_distinct_messages",
+        "referral_saturation",
+        "minimum_category_score",
+        "participation_targets",
+        "player_cap_bps",
+        "carry_release_bps",
+        "correction_reserve_bps",
+        "growth"
+      ],
+      "properties": {
+        "scale": {
+          "const": 10000
+        },
+        "days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "min_age_hours": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "meaningful_days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "daily_only_periods": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "community_messages_per_day": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "tap_weight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "tap_saturation": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "typing_weight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "typing_runs_per_day": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "typing_wpm_ceiling": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "daily_weight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "mission_weight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "mission_limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "clan_work_weight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "clan_consistency_weight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "clan_saturation": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "clan_meaningful_contribution": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "creator_h_weight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "creator_w_weight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "creator_h_saturation": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "creator_window_speakers": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "creator_window_characters": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "creator_windows_per_day": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "creator_speaker_span_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "creator_window_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "creator_distinct_messages": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "referral_saturation": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "minimum_category_score": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "player_cap_bps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "carry_release_bps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "correction_reserve_bps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "implementation": {
+          "const": "CONFIGURABLE_V1"
+        },
+        "recognition": {
+          "const": "FINALIZED_ONCE_V1"
+        },
+        "participation_targets": {
+          "type": "object",
+          "required": [
+            "CLAN_PERFORMANCE",
+            "CORE_GAMEPLAY",
+            "CREATOR_COMMUNITY_GROWTH",
+            "VERIFIED_REFERRAL",
+            "LOYALTY_CONSISTENCY"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "CLAN_PERFORMANCE": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "CORE_GAMEPLAY": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "CREATOR_COMMUNITY_GROWTH": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "VERIFIED_REFERRAL": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "LOYALTY_CONSISTENCY": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            }
+          }
+        },
+        "independent_mission_keys": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "visit-dalexio",
+              "view-x-update",
+              "join-telegram",
+              "read-season-brief"
+            ]
+          }
+        },
+        "growth": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "rule"
+          ],
+          "properties": {
+            "rule": {
+              "enum": [
+                "DISABLED",
+                "SEASON_TO_DATE_PRE_FREEZE_EQUAL_V1"
+              ]
+            },
+            "approval_reference": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          },
+          "if": {
+            "properties": {
+              "rule": {
+                "const": "SEASON_TO_DATE_PRE_FREEZE_EQUAL_V1"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "approval_reference"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "implementation",
+        "recognition",
+        "scale",
+        "days",
+        "min_age_hours",
+        "meaningful_days",
+        "daily_only_periods",
+        "community_messages_per_day",
+        "tap_weight",
+        "tap_saturation",
+        "typing_weight",
+        "typing_runs_per_day",
+        "typing_wpm_ceiling",
+        "daily_weight",
+        "mission_weight",
+        "mission_limit",
+        "independent_mission_keys",
+        "clan_work_weight",
+        "clan_consistency_weight",
+        "clan_saturation",
+        "clan_meaningful_contribution",
+        "creator_h_weight",
+        "creator_w_weight",
+        "creator_h_saturation",
+        "creator_window_speakers",
+        "creator_window_characters",
+        "creator_windows_per_day",
+        "creator_speaker_span_seconds",
+        "creator_window_seconds",
+        "creator_distinct_messages",
+        "referral_saturation",
+        "minimum_category_score",
+        "participation_targets",
+        "player_cap_bps",
+        "carry_release_bps",
+        "correction_reserve_bps",
+        "growth_milestones"
+      ],
+      "properties": {
+        "scale": {
+          "const": 10000
+        },
+        "days": {
+          "const": 7
+        },
+        "min_age_hours": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "meaningful_days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "daily_only_periods": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "community_messages_per_day": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "tap_weight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "tap_saturation": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "typing_weight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "typing_runs_per_day": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "typing_wpm_ceiling": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "daily_weight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "mission_weight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "mission_limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "clan_work_weight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "clan_consistency_weight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "clan_saturation": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "clan_meaningful_contribution": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "creator_h_weight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "creator_w_weight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "creator_h_saturation": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "creator_window_speakers": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "creator_window_characters": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "creator_windows_per_day": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "creator_speaker_span_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "creator_window_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "creator_distinct_messages": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "referral_saturation": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "minimum_category_score": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "player_cap_bps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "carry_release_bps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "correction_reserve_bps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "implementation": {
+          "const": "S1_FINALIZED_V1"
+        },
+        "recognition": {
+          "const": "FINALIZED_ONCE_V1"
+        },
+        "participation_targets": {
+          "type": "object",
+          "required": [
+            "CLAN_PERFORMANCE",
+            "CORE_GAMEPLAY",
+            "CREATOR_COMMUNITY_GROWTH",
+            "VERIFIED_REFERRAL",
+            "LOYALTY_CONSISTENCY"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "CLAN_PERFORMANCE": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "CORE_GAMEPLAY": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "CREATOR_COMMUNITY_GROWTH": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "VERIFIED_REFERRAL": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "LOYALTY_CONSISTENCY": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            }
+          }
+        },
+        "independent_mission_keys": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "visit-dalexio",
+              "view-x-update",
+              "join-telegram",
+              "read-season-brief"
+            ]
+          }
+        },
+        "growth_milestones": {
+          "const": []
+        }
+      }
+    }
+  ]
+}

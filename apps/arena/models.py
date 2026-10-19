@@ -749,3 +749,73 @@ class GrowthEvaluation(models.Model):
     class Meta:
         indexes = [models.Index(fields=("season", "epoch", "-id"), name="arena_growth_evaluation")]
         permissions = [("view_economic_overview", "Can inspect read-only economic overviews")]
+
+
+class EconomicPolicyProposal(models.Model):
+    key = models.CharField(max_length=64)
+    version = models.PositiveIntegerField()
+    payload = models.JSONField()
+    checksum = models.CharField(max_length=64)
+    submitted_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    submission_reference = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        permissions = [
+            ("propose_economic_policy", "Can submit validated economic policy proposals")
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=("key", "version"), name="arena_policy_proposal_version")
+        ]
+
+
+class EconomicPolicyApproval(models.Model):
+    proposal = models.OneToOneField(EconomicPolicyProposal, on_delete=models.PROTECT)
+    policy = models.OneToOneField(EconomicPolicyVersion, on_delete=models.PROTECT)
+    approved_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    approval_reference = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        permissions = [("approve_economic_policy", "Can independently approve economic policies")]
+
+
+class EconomicAlert(models.Model):
+    fingerprint = models.CharField(max_length=64, unique=True)
+    season = models.ForeignKey("seasons.Season", on_delete=models.PROTECT)
+    epoch = models.ForeignKey(EconomicEpoch, null=True, on_delete=models.PROTECT)
+    code = models.CharField(max_length=48)
+    severity = models.CharField(max_length=16)
+    status = models.CharField(max_length=16, default="OPEN")
+    evidence = models.JSONField(default=dict)
+    opened_at = models.DateTimeField()
+    last_seen_at = models.DateTimeField()
+    resolved_at = models.DateTimeField(null=True)
+
+    class Meta:
+        indexes = [models.Index(fields=("status", "season"), name="arena_alert_open")]
+
+
+class EconomicAlertEvent(models.Model):
+    alert = models.ForeignKey(EconomicAlert, on_delete=models.PROTECT, related_name="events")
+    outcome = models.CharField(max_length=16)
+    severity = models.CharField(max_length=16)
+    evidence = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class EconomicAlertDelivery(models.Model):
+    event = models.ForeignKey(EconomicAlertEvent, on_delete=models.PROTECT)
+    route_key = models.CharField(max_length=64)
+    route_config = models.JSONField()
+    status = models.CharField(max_length=16, default="PENDING")
+    attempts = models.PositiveIntegerField(default=0)
+    next_attempt_at = models.DateTimeField()
+    delivered_at = models.DateTimeField(null=True)
+    last_error_code = models.CharField(max_length=48, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("event", "route_key"), name="arena_alert_route_once")
+        ]
+        indexes = [models.Index(fields=("status", "next_attempt_at"), name="arena_alert_due")]

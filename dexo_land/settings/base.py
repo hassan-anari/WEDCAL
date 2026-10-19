@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from pathlib import Path
@@ -442,3 +443,55 @@ DLX_AUTOMATION_SOURCE_BATCH_SIZE = int(os.getenv("DLX_AUTOMATION_SOURCE_BATCH_SI
 # Large Epochs use separate operational limits from request workers.
 DLX_AUTOMATION_SOFT_TIME_LIMIT = int(os.getenv("DLX_AUTOMATION_SOFT_TIME_LIMIT", "3600"))
 DLX_AUTOMATION_TIME_LIMIT = int(os.getenv("DLX_AUTOMATION_TIME_LIMIT", "3660"))
+
+# Operator monitoring is independent of economic activation. Both switches default off.
+ECONOMIC_ALERTS_ENABLED = env_bool("ECONOMIC_ALERTS_ENABLED")
+ECONOMIC_ALERT_DELIVERY_ENABLED = env_bool("ECONOMIC_ALERT_DELIVERY_ENABLED")
+ECONOMIC_ALERT_EMAIL_BACKEND = os.getenv("ECONOMIC_ALERT_EMAIL_BACKEND", "")
+ECONOMIC_ALERT_ROUTES = json.loads(os.getenv("ECONOMIC_ALERT_ROUTES", "{}"))
+ECONOMIC_ALERT_BATCH_SIZE = int(os.getenv("ECONOMIC_ALERT_BATCH_SIZE", "100"))
+ECONOMIC_ALERT_FAILURE_COUNT = int(os.getenv("ECONOMIC_ALERT_FAILURE_COUNT", "3"))
+ECONOMIC_ALERT_FAILURE_WINDOW_SECONDS = int(
+    os.getenv("ECONOMIC_ALERT_FAILURE_WINDOW_SECONDS", "3600")
+)
+ECONOMIC_ALERT_MAX_ATTEMPTS = int(os.getenv("ECONOMIC_ALERT_MAX_ATTEMPTS", "5"))
+ECONOMIC_ALERT_RETRY_BASE_SECONDS = int(os.getenv("ECONOMIC_ALERT_RETRY_BASE_SECONDS", "30"))
+ECONOMIC_ALERT_RETRY_MAX_SECONDS = int(os.getenv("ECONOMIC_ALERT_RETRY_MAX_SECONDS", "3600"))
+ECONOMIC_ALERT_SEND_TIMEOUT_SECONDS = int(os.getenv("ECONOMIC_ALERT_SEND_TIMEOUT_SECONDS", "10"))
+ECONOMIC_ALERT_RULES = {
+    "EPOCH_FREEZE_OVERDUE": {"enabled": True, "severity": "ERROR", "grace_seconds": 900},
+    "DLX_SETTLEMENT_OVERDUE": {"enabled": True, "severity": "ERROR", "grace_seconds": 900},
+    "DLX_LIFECYCLE_BLOCKED": {"enabled": True, "severity": "ERROR", "grace_seconds": 0},
+    "GROWTH_FINALIZATION_FAILED": {"enabled": True, "severity": "CRITICAL", "grace_seconds": 0},
+    "ACCOUNTING_RECONCILIATION_MISMATCH": {
+        "enabled": True,
+        "severity": "CRITICAL",
+        "grace_seconds": 0,
+    },
+    "ECONOMIC_WORKER_STALE": {"enabled": True, "severity": "ERROR", "grace_seconds": 3900},
+    "ECONOMIC_WORKER_REPEATED_FAILURE": {
+        "enabled": True,
+        "severity": "CRITICAL",
+        "grace_seconds": 0,
+    },
+    "SEASON_CLOSE_BLOCKED": {"enabled": True, "severity": "CRITICAL", "grace_seconds": 0},
+}
+for alert_code, alert_override in json.loads(
+    os.getenv("ECONOMIC_ALERT_RULE_OVERRIDES", "{}")
+).items():
+    if alert_code not in ECONOMIC_ALERT_RULES or set(alert_override) - {
+        "enabled",
+        "severity",
+        "grace_seconds",
+    }:
+        raise ImproperlyConfigured("Invalid economic alert rule override")
+    ECONOMIC_ALERT_RULES[alert_code].update(alert_override)
+CELERY_BEAT_SCHEDULE["monitor-economic-operations"] = {
+    "task": "apps.arena.tasks.monitor_economic_operations",
+    "schedule": int(os.getenv("ECONOMIC_ALERT_SCAN_SECONDS", "60")),
+}
+EMAIL_HOST = os.getenv("EMAIL_HOST", "localhost")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)

@@ -53,7 +53,15 @@ def configurable_world(phase4_config_factory, player_factory, clock, monkeypatch
     sequence = 0
 
     def make(
-        count=2, days=7, closing=1, gate=1, base=100003, maximum=200019, milestones=(), targets=None
+        count=2,
+        days=7,
+        closing=1,
+        gate=1,
+        base=100003,
+        maximum=200019,
+        milestones=(),
+        targets=None,
+        registered=False,
     ):
         nonlocal sequence
         sequence += 1
@@ -67,13 +75,35 @@ def configurable_world(phase4_config_factory, player_factory, clock, monkeypatch
             "rule": "SEASON_TO_DATE_PRE_FREEZE_EQUAL_V1" if milestones else "DISABLED",
             "approval_reference": "SYNTHETIC_TEST_OWNER_APPROVAL",
         }
-        document = EconomicPolicyVersion.objects.create(
-            key=f"phase4-{sequence}",
-            version=1,
-            payload=values,
-            checksum=digest(values),
-            approval_reference="SYNTHETIC_TEST_POLICY_APPROVAL",
-        )
+        if registered:
+            from apps.arena.policy_registration import approve_policy, propose_policy
+
+            author = User.objects.create_superuser(username=f"phase4-policy-author-{sequence}")
+            proposal = propose_policy(
+                key=f"phase4-{sequence}",
+                version=1,
+                payload=values,
+                actor=author,
+                submission_reference="SYNTHETIC_TEST_PROPOSAL",
+                expected_checksum=digest(values),
+                dry_run=False,
+            )
+            approval = approve_policy(
+                proposal["proposal_id"],
+                actor=actor,
+                approval_reference="SYNTHETIC_TEST_POLICY_APPROVAL",
+                expected_checksum=digest(values),
+                dry_run=False,
+            )
+            document = EconomicPolicyVersion.objects.get(pk=approval["policy_id"])
+        else:
+            document = EconomicPolicyVersion.objects.create(
+                key=f"phase4-{sequence}",
+                version=1,
+                payload=values,
+                checksum=digest(values),
+                approval_reference="SYNTHETIC_TEST_POLICY_APPROVAL",
+            )
 
         def configure(payload):
             payload.clear()
@@ -157,17 +187,27 @@ def milestone(key, threshold, amount):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "count,days,closing,gate", [(2, 7, 1, 1), (6, 7, 3, 3), (3, 5, 2, 1), (8, 3, 2, 1)]
+    "count,days,closing,gate,base,maximum,registered",
+    [
+        (2, 7, 1, 1, 100003, 200019, False),
+        (6, 7, 3, 3, 100003, 200019, False),
+        (3, 5, 2, 1, 100003, 200019, False),
+        (8, 3, 2, 1, 100003, 200019, False),
+        (2, 7, 1, 1, 3000000, 5000000, True),
+        (6, 7, 3, 3, 60000000, 100000000, True),
+    ],
 )
 def test_profiles_automatic_full_lifecycle_exact_residual(
-    configurable_world, count, days, closing, gate, monkeypatch
+    configurable_world, count, days, closing, gate, base, maximum, registered, monkeypatch
 ):
-    w = configurable_world(count, days, closing, gate)
+    w = configurable_world(
+        count, days, closing, gate, base=base, maximum=maximum, registered=registered
+    )
     p = w.player()
     assert len(w.epochs) == count
     assert economic_window_end(w.season) == w.epochs[-1].ends_at
     assert w.season.ends_at - w.epochs[-1].ends_at == timedelta(days=closing)
-    assert sum(e.base_budget for e in w.epochs) == 100003
+    assert sum(e.base_budget for e in w.epochs) == base
     assert run_weekly_lifecycle(w.season) == 0  # Binding alone never activates workers.
     w.enable()
     for epoch in w.epochs:
@@ -185,7 +225,24 @@ def test_profiles_automatic_full_lifecycle_exact_residual(
             finalize_correction_round(epoch, category, actor=w.actor)
     result = reconcile_season_dlx(w.season, record_residuals=True)
     assert result["reconciled"], result
-    assert result["confirmed_allocations"] + result["final_residual"] == 100003
+    assert result["confirmed_allocations"] + result["final_residual"] == base
+    if registered:
+        from apps.rewards.bootstrap import build_bootstrap
+        from apps.rewards.schemas import BootstrapOutput
+
+        bootstrap = BootstrapOutput(
+            **build_bootstrap(p, w.epochs[-1].ends_at, request_id="phase4-configurable-contract")
+        ).model_dump(mode="json")
+        timing = bootstrap["season"]["timing"]
+        assert timing["epoch_count"] == count and timing["closing_days"] == closing
+        assert timing["product_period_days"] == count * days + closing
+        assert timing["settlement_start_epoch"] == gate
+        assert not bootstrap["gameplay"]["reward_earning_allowed"]
+        contract_dir = Path("work/phase4-bootstrap")
+        contract_dir.mkdir(parents=True, exist_ok=True)
+        (contract_dir / f"registered-{count}.json").write_text(
+            json.dumps(bootstrap, indent=2) + "\n"
+        )
     before = list(DlxAllocation.objects.values_list("pk", "amount"))
     run_weekly_lifecycle(w.season)
     assert list(DlxAllocation.objects.values_list("pk", "amount")) == before
@@ -217,8 +274,9 @@ def test_profiles_automatic_full_lifecycle_exact_residual(
         "epoch_days": days,
         "closing_days": closing,
         "settlement_gate": gate,
-        "base": 100003,
-        "maximum": 200019,
+        "base": base,
+        "maximum": maximum,
+        "registered_policy": registered,
         "allocation_total": result["confirmed_allocations"],
         "final_residual": result["final_residual"],
         "correction_reserve_unused": result["unused_correction_reserve"],
@@ -245,7 +303,8 @@ def test_profiles_automatic_full_lifecycle_exact_residual(
     }
     directory = Path("work/phase4-simulations")
     directory.mkdir(parents=True, exist_ok=True)
-    (directory / f"{count}x{days}plus{closing}.json").write_text(
+    prefix = "registered-" if registered else ""
+    (directory / f"{prefix}{count}x{days}plus{closing}.json").write_text(
         json.dumps(output, indent=2) + "\n"
     )
 

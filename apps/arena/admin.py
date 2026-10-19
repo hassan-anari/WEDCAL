@@ -59,6 +59,11 @@ SCOPES = {
     "economicautomationcontrol": ("season_id", None),
     "economicautomationattempt": ("epoch__season_id", "epoch_id"),
     "growthevaluation": ("season_id", "epoch_id"),
+    "economicpolicyproposal": (None, None),
+    "economicpolicyapproval": (None, None),
+    "economicalert": ("season_id", "epoch_id"),
+    "economicalertevent": ("alert__season_id", "alert__epoch_id"),
+    "economicalertdelivery": ("event__alert__season_id", "event__alert__epoch_id"),
 }
 
 POLICY_NUMBERS = frozenset(
@@ -295,7 +300,9 @@ class ReadOnlyEconomicAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
                         for key in keys
                         if key in value and isinstance(value[key], (str, int, bool, type(None)))
                     }
-                    if isinstance(obj, models.EconomicPolicyVersion):
+                    if isinstance(
+                        obj, (models.EconomicPolicyVersion, models.EconomicPolicyProposal)
+                    ):
                         safe[field.name]["parameters"] = {
                             key: value[key] for key in POLICY_NUMBERS if type(value.get(key)) is int
                         }
@@ -320,6 +327,8 @@ class ReadOnlyEconomicAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
             current: Any = obj
             for part in epoch_lookup.split("__"):
                 current = getattr(current, part)
+            if current is None:
+                return "—"
             return format_html(
                 '<a href="{}">Epoch economic overview</a>',
                 reverse("admin:arena_epoch_economics", args=(current,)),
@@ -390,6 +399,11 @@ for model in (
     models.EconomicAutomationControl,
     models.EconomicAutomationAttempt,
     models.GrowthEvaluation,
+    models.EconomicPolicyProposal,
+    models.EconomicPolicyApproval,
+    models.EconomicAlert,
+    models.EconomicAlertEvent,
+    models.EconomicAlertDelivery,
 ):
     names = {field.name for field in model._meta.fields}
     display = ["id"] + [
@@ -397,6 +411,11 @@ for model in (
         for name in (
             "key",
             "version",
+            "code",
+            "severity",
+            "route_key",
+            "stage",
+            "attempts",
             "season",
             "epoch",
             "category",
@@ -416,6 +435,12 @@ for model in (
             "created_at",
             "effective_at",
             "confirmed_at",
+            "opened_at",
+            "resolved_at",
+            "started_at",
+            "completed_at",
+            "next_attempt_at",
+            "delivered_at",
         )
         if name in names
     ]
@@ -433,7 +458,9 @@ for model in (
     }:
         filters.append(EpochFilter)
     filters += [
-        name for name in ("category", "state", "status", "outcome", "decision") if name in names
+        name
+        for name in ("category", "state", "status", "outcome", "decision", "code", "severity")
+        if name in names
     ]
     related = tuple(
         field.name
@@ -453,7 +480,7 @@ for model in (
             "search_fields": ("=id", "=milestone_key")
             if "milestone_key" in names
             else ("=id", "=key")
-            if model is models.EconomicPolicyVersion
+            if model in {models.EconomicPolicyVersion, models.EconomicPolicyProposal}
             else ("=id",),
         },
     )

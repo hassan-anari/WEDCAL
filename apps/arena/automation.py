@@ -135,14 +135,29 @@ def run_weekly_lifecycle(season: Season, *, capability: str = CAPABILITY) -> int
         if control is None or not control.enabled:
             return 0
         season = Season.objects.select_related("baseline_config").get(pk=season.pk)
-        if (
-            capability != CAPABILITY
-            or control.capability != capability
-            or control.config_checksum != season.baseline_config.payload_checksum
-            or season.status != "ACTIVE"
-            or _compatible(season).pk != control.policy_id
-        ):
-            raise ValidationError("AUTOMATION_WORKER_OR_POLICY_INCOMPATIBLE")
+        try:
+            if (
+                capability != CAPABILITY
+                or control.capability != capability
+                or control.config_checksum != season.baseline_config.payload_checksum
+                or season.status != "ACTIVE"
+                or _compatible(season).pk != control.policy_id
+            ):
+                raise ValidationError("AUTOMATION_WORKER_OR_POLICY_INCOMPATIBLE")
+        except ValidationError:
+            target = (
+                season.economic_epochs.exclude(state="SETTLED").order_by("epoch_number").first()
+            )
+            if target is not None:
+                EconomicAutomationAttempt.objects.create(
+                    epoch=target,
+                    control=control,
+                    stage="COMPATIBILITY",
+                    status="BLOCKED",
+                    error_code="AUTOMATION_WORKER_OR_POLICY_INCOMPATIBLE",
+                    completed_at=timezone.now(),
+                )
+            raise
         # RUNNING rows can only belong to a lost prior worker, since we own its session lock.
         EconomicAutomationAttempt.objects.filter(epoch__season=season, status="RUNNING").update(
             status="INTERRUPTED", error_code="WORKER_CONNECTION_LOST", completed_at=timezone.now()

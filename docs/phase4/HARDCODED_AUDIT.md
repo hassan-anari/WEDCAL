@@ -45,9 +45,12 @@ to the final checkout. Security/storage/protocol invariants remain in code, not 
 
 The mechanical inventory includes source numbers, not a formal semantic proof about every possible
 number encoded in arbitrary string content. Documentation/sample values do not execute economics.
-Legacy disabled fallback configs remain parseable and retain original behavior. FROCAL was not
-accessed or changed. Its dependency is to consume additive bootstrap timing, eliminate assumed
-6/42/45 UI math and keep closing separate from earning; reviewed backend schemas are provided first.
+Legacy disabled fallback configs remain parseable and retain original behavior. A fresh
+[semantic source pass](SEMANTIC_AUDIT.md) now verifies the requested economic/gameplay domains and
+records the unsupported Daily lifecycle publication fix. Read-only FROCAL inspection found no
+fixed 6/42/45 remote Season math; its parser strips additive timing and its UI lacks an earning/
+closing distinction. The exact dependency and compatibility evidence are in [the handoff](FROCAL_HANDOFF.md).
+No FROCAL source was changed.
 
 Million-user operational bounds require contention and queue-load validation beyond a single
 normalized-receipt probe. No statement here certifies Production sizing or full throughput readiness.

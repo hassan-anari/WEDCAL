@@ -7,6 +7,11 @@ CategoryCorrectionReserve, CorrectionAssessment, DlxCorrectionRound, DlxCorrecti
 DlxCorrection, DlxCorrectionAttempt, DlxCorrectionAdjustment and CreatorContentClass.
 PerformanceSourceFact and EpochReadinessEvaluation are included, together with new Growth funding,
 GrowthEvaluation and automation control/attempt records. Existing registrations remain available.
+The final continuation also registers EconomicPolicyProposal, EconomicPolicyApproval, EconomicAlert,
+EconomicAlertEvent and EconomicAlertDelivery with the same read-only restrictions. Recipient routing
+JSON is redacted/deferred. Proposal/approval and alert events have database immutability guards;
+delivery routing is pinned. Policy registration and manual DEAD-delivery retry use permissioned
+services/commands, never an editable Admin audit model.
 
 Every audit inspector denies Add/Change/Delete, has no actions or editable inlines and uses Django
 model view permissions. Explicit economic overview permission (`arena.view_economic_overview`)

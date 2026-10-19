@@ -14,11 +14,30 @@ apps/arena/adjustments.py,96,0,ARITHMETIC_OR_BOUND,"Identity, index, denominatio
 apps/arena/adjustments.py,96,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","forfeited = values.get(""FORFEIT"", 0) - values.get(""REVERSAL"", 0)"
 apps/arena/adjustments.py,106,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","values = {row[""kind""]: int(row[""v""] or 0) for row in rows}"
 apps/arena/adjustments.py,116,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","values[row[""kind""]] = values.get(row[""kind""], 0) + int(row[""v""])"
-apps/arena/admin.py,183,50,REVIEW_CONTEXT,Contextual non-reward literal; review with domain matrix,code/runtime; see context,list_per_page = 50
-apps/arena/admin.py,184,50,REVIEW_CONTEXT,Contextual non-reward literal; review with domain matrix,code/runtime; see context,list_max_show_all = 50
-apps/arena/admin.py,109,100,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","for pk, code in Season.objects.order_by(""-pk"").values_list(""pk"", ""code"")[:100]"
-apps/arena/admin.py,144,100,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",)[:100]
-apps/arena/admin.py,352,2,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","""report"": json.dumps(report, indent=2, default=str),"
+apps/arena/admin.py,188,50,REVIEW_CONTEXT,Contextual non-reward literal; review with domain matrix,code/runtime; see context,list_per_page = 50
+apps/arena/admin.py,189,50,REVIEW_CONTEXT,Contextual non-reward literal; review with domain matrix,code/runtime; see context,list_max_show_all = 50
+apps/arena/admin.py,114,100,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","for pk, code in Season.objects.order_by(""-pk"").values_list(""pk"", ""code"")[:100]"
+apps/arena/admin.py,149,100,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",)[:100]
+apps/arena/admin.py,361,2,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","""report"": json.dumps(report, indent=2, default=str),"
+apps/arena/alerts.py,300,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",row.attempts += 1
+apps/arena/alerts.py,227,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",return 0
+apps/arena/alerts.py,233,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",return 0
+apps/arena/alerts.py,325,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",if message.send() != 1:
+apps/arena/alerts.py,360,255,REVIEW_CONTEXT,Contextual non-reward literal; review with domain matrix,code/runtime; see context,if not reference.strip() or len(reference) > 255:
+apps/arena/alerts.py,45,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","if type(getattr(settings, name)) is not int or getattr(settings, name) <= 0:"
+apps/arena/alerts.py,53,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","or rule[""grace_seconds""] < 0"
+apps/arena/alerts.py,58,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","and rule[""grace_seconds""] != 0"
+apps/arena/alerts.py,232,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",if not cursor.fetchone()[0]:
+apps/arena/alerts.py,71,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",or not 0 < len(key) <= 64
+apps/arena/alerts.py,71,64,REVIEW_CONTEXT,Contextual non-reward literal; review with domain matrix,code/runtime; see context,or not 0 < len(key) <= 64
+apps/arena/alerts.py,124,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",days=((epoch.season.settlement_start_epoch or 1) - 1) * setup.epoch_days
+apps/arena/alerts.py,114,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","latest_attempt_id=Subquery(latest.values(""pk"")[:1]),"
+apps/arena/alerts.py,115,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","automation_enabled=Subquery(controls.values(""enabled"")[:1]),"
+apps/arena/alerts.py,124,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",days=((epoch.season.settlement_start_epoch or 1) - 1) * setup.epoch_days
+apps/arena/alerts.py,322,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","""Message-ID"": f""<economic-alert-{row.pk}@{route['from_email'].rsplit('@', 1)[1]}>"""
+apps/arena/alerts.py,322,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","""Message-ID"": f""<economic-alert-{row.pk}@{route['from_email'].rsplit('@', 1)[1]}>"""
+apps/arena/alerts.py,334,2,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",* 2
+apps/arena/alerts.py,335,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","** min(row.attempts - 1, settings.ECONOMIC_ALERT_RETRY_MAX_SECONDS.bit_length()),"
 apps/arena/api.py,102,2,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",available_season: Literal[2] = 2
 apps/arena/api.py,120,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",claimable: Literal[0] = 0
 apps/arena/api.py,102,2,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",available_season: Literal[2] = 2
@@ -46,14 +65,14 @@ apps/arena/automation.py,28,11044,REVIEW_CONTEXT,Contextual non-reward literal; 
 apps/arena/automation.py,29,11043,REVIEW_CONTEXT,Contextual non-reward literal; review with domain matrix,code/runtime; see context,WORKER_LOCK = 11043
 apps/arena/automation.py,48,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",if len(documents) != 1:
 apps/arena/automation.py,51,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","binding, policy = selected[0]"
-apps/arena/automation.py,150,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",count = 0
+apps/arena/automation.py,165,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",count = 0
 apps/arena/automation.py,50,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",assert selected[0] is not None
 apps/arena/automation.py,132,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",return 0
 apps/arena/automation.py,136,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",return 0
 apps/arena/automation.py,47,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",documents = {value[0].policy_id for value in selected if value is not None}
 apps/arena/automation.py,131,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",if not cursor.fetchone()[0]:
-apps/arena/automation.py,181,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",count += 1
-apps/arena/automation.py,189,128,REVIEW_CONTEXT,Contextual non-reward literal; review with domain matrix,code/runtime; see context,attempt.error_code = str(exc)[:128]
+apps/arena/automation.py,196,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",count += 1
+apps/arena/automation.py,204,128,REVIEW_CONTEXT,Contextual non-reward literal; review with domain matrix,code/runtime; see context,attempt.error_code = str(exc)[:128]
 apps/arena/corrections.py,120,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","creator_h_units: int = 0,"
 apps/arena/corrections.py,40,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","return int(queryset.aggregate(total=Sum(""amount""))[""total""] or 0)"
 apps/arena/corrections.py,65,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",if len(digests) != 1:
@@ -162,6 +181,8 @@ apps/arena/inspection.py,80,100,ARITHMETIC_OR_BOUND,"Identity, index, denominati
 apps/arena/management/commands/epoch_freeze_preflight.py,28,2,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","returncode=2,"
 apps/arena/management/commands/epoch_freeze_preflight.py,23,3,REVIEW_CONTEXT,Contextual non-reward literal; review with domain matrix,code/runtime; see context,"raise CommandError(""Season/Epoch not found"", returncode=3) from exc"
 apps/arena/management/commands/rebuild_live_clan_rankings.py,46,500,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,.iterator(chunk_size=500)
+apps/arena/management/commands/register_economic_policy.py,43,1024,REVIEW_CONTEXT,Contextual non-reward literal; review with domain matrix,code/runtime; see context,if path.stat().st_size > 1024 * 1024:
+apps/arena/management/commands/register_economic_policy.py,43,1024,REVIEW_CONTEXT,Contextual non-reward literal; review with domain matrix,code/runtime; see context,if path.stat().st_size > 1024 * 1024:
 apps/arena/migrations/0001_initial.py,43,10,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,"max_length=10,"
 apps/arena/migrations/0001_initial.py,47,0,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,"(""growth_budget"", models.PositiveBigIntegerField(default=0)),"
 apps/arena/migrations/0001_initial.py,82,200,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,"(""idempotency_key"", models.CharField(max_length=200, unique=True)),"
@@ -354,6 +375,22 @@ apps/arena/migrations/0026_growth_evaluation_audit.py,26,64,MIGRATION_HISTORY,Ap
 apps/arena/migrations/0026_growth_evaluation_audit.py,27,40,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,"(""outcome"", models.CharField(max_length=40)),"
 apps/arena/migrations/0026_growth_evaluation_audit.py,26,64,SQL_SCHEMA_HISTORY,Database invariant or historical guard; review with migration matrix,database schema,"(""config_checksum"", models.CharField(max_length=64)),"
 apps/arena/migrations/0027_growth_conservation_audit_guard.py,8,0,SQL_SCHEMA_HISTORY,Database invariant or historical guard; review with migration matrix,database schema,"IF NEW.unlocked_amount<>(SELECT COALESCE(sum(amount),0) FROM arena_growthepochfunding"
+apps/arena/migrations/0028_policy_registration_operational_alerts.py,25,64,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,"(""fingerprint"", models.CharField(max_length=64, unique=True)),"
+apps/arena/migrations/0028_policy_registration_operational_alerts.py,26,48,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,"(""code"", models.CharField(max_length=48)),"
+apps/arena/migrations/0028_policy_registration_operational_alerts.py,27,16,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,"(""severity"", models.CharField(max_length=16)),"
+apps/arena/migrations/0028_policy_registration_operational_alerts.py,28,16,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,"(""status"", models.CharField(default=""OPEN"", max_length=16)),"
+apps/arena/migrations/0028_policy_registration_operational_alerts.py,58,16,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,"(""outcome"", models.CharField(max_length=16)),"
+apps/arena/migrations/0028_policy_registration_operational_alerts.py,59,16,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,"(""severity"", models.CharField(max_length=16)),"
+apps/arena/migrations/0028_policy_registration_operational_alerts.py,81,64,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,"(""route_key"", models.CharField(max_length=64)),"
+apps/arena/migrations/0028_policy_registration_operational_alerts.py,83,16,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,"(""status"", models.CharField(default=""PENDING"", max_length=16)),"
+apps/arena/migrations/0028_policy_registration_operational_alerts.py,84,0,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,"(""attempts"", models.PositiveIntegerField(default=0)),"
+apps/arena/migrations/0028_policy_registration_operational_alerts.py,87,48,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,"(""last_error_code"", models.CharField(blank=True, max_length=48)),"
+apps/arena/migrations/0028_policy_registration_operational_alerts.py,105,64,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,"(""key"", models.CharField(max_length=64)),"
+apps/arena/migrations/0028_policy_registration_operational_alerts.py,108,64,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,"(""checksum"", models.CharField(max_length=64)),"
+apps/arena/migrations/0028_policy_registration_operational_alerts.py,109,255,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,"(""submission_reference"", models.CharField(max_length=255)),"
+apps/arena/migrations/0028_policy_registration_operational_alerts.py,133,255,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,"(""approval_reference"", models.CharField(max_length=255)),"
+apps/arena/migrations/0028_policy_registration_operational_alerts.py,108,64,SQL_SCHEMA_HISTORY,Database invariant or historical guard; review with migration matrix,database schema,"(""checksum"", models.CharField(max_length=64)),"
+apps/arena/migrations/0030_protect_feature_history_on_reverse.py,27,4,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,".filter(schema_version__gte=4, status=""PUBLISHED"")"
 apps/arena/models.py,18,8,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,"entity_type = models.CharField(max_length=8, choices=Entity.choices)"
 apps/arena/models.py,22,8,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,"operation = models.CharField(max_length=8, choices=Operation.choices)"
 apps/arena/models.py,23,200,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,source_id = models.CharField(max_length=200)
@@ -449,6 +486,20 @@ apps/arena/models.py,727,128,STRUCTURAL_BOUND,"Storage, protocol, shape or valid
 apps/arena/models.py,744,64,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,cohort_digest = models.CharField(max_length=64)
 apps/arena/models.py,745,64,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,config_checksum = models.CharField(max_length=64)
 apps/arena/models.py,746,40,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,outcome = models.CharField(max_length=40)
+apps/arena/models.py,755,64,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,key = models.CharField(max_length=64)
+apps/arena/models.py,758,64,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,checksum = models.CharField(max_length=64)
+apps/arena/models.py,760,255,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,submission_reference = models.CharField(max_length=255)
+apps/arena/models.py,776,255,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,approval_reference = models.CharField(max_length=255)
+apps/arena/models.py,784,64,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,"fingerprint = models.CharField(max_length=64, unique=True)"
+apps/arena/models.py,787,48,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,code = models.CharField(max_length=48)
+apps/arena/models.py,788,16,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,severity = models.CharField(max_length=16)
+apps/arena/models.py,789,16,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,"status = models.CharField(max_length=16, default=""OPEN"")"
+apps/arena/models.py,801,16,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,outcome = models.CharField(max_length=16)
+apps/arena/models.py,802,16,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,severity = models.CharField(max_length=16)
+apps/arena/models.py,809,64,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,route_key = models.CharField(max_length=64)
+apps/arena/models.py,811,16,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,"status = models.CharField(max_length=16, default=""PENDING"")"
+apps/arena/models.py,812,0,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,attempts = models.PositiveIntegerField(default=0)
+apps/arena/models.py,815,48,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,"last_error_code = models.CharField(max_length=48, blank=True)"
 apps/arena/models.py,111,1,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,"models.CheckConstraint(condition=Q(epoch_number__gte=1), name=""arena_epoch_range""),"
 apps/arena/models.py,295,0,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,"models.CheckConstraint(condition=Q(amount__gt=0), name=""arena_allocation_positive""),"
 apps/arena/models.py,329,0,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,"models.CheckConstraint(condition=Q(amount__gt=0), name=""arena_adjustment_positive"")"
@@ -460,6 +511,20 @@ apps/arena/policy.py,47,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or 
 apps/arena/policy.py,53,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",if type(value) is not int or value <= 0:
 apps/arena/policy.py,99,10000,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",s != 10000
 apps/arena/policy.py,100,7,REVIEW_CONTEXT,Contextual non-reward literal; review with domain matrix,code/runtime; see context,"or (self.values[""implementation""] == ""S1_FINALIZED_V1"" and self.number(""days"") != 7)"
+apps/arena/policy_registration.py,87,255,REVIEW_CONTEXT,Contextual non-reward literal; review with domain matrix,code/runtime; see context,"if not isinstance(value, str) or not value.strip() or len(value) > 255:"
+apps/arena/policy_registration.py,109,64,REVIEW_CONTEXT,Contextual non-reward literal; review with domain matrix,code/runtime; see context,"if not isinstance(key, str) or not key.strip() or len(key) > 64 or key != key.strip():"
+apps/arena/policy_registration.py,111,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",if type(version) is not int or not 0 < version <= 2**31 - 1:
+apps/arena/policy_registration.py,64,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",if type(payload[key]) is not int or not 0 < payload[key] <= 2**63 - 1:
+apps/arena/policy_registration.py,111,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",if type(version) is not int or not 0 < version <= 2**31 - 1:
+apps/arena/policy_registration.py,64,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",if type(payload[key]) is not int or not 0 < payload[key] <= 2**63 - 1:
+apps/arena/policy_registration.py,111,2,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",if type(version) is not int or not 0 < version <= 2**31 - 1:
+apps/arena/policy_registration.py,111,31,REVIEW_CONTEXT,Contextual non-reward literal; review with domain matrix,code/runtime; see context,if type(version) is not int or not 0 < version <= 2**31 - 1:
+apps/arena/policy_registration.py,64,2,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",if type(payload[key]) is not int or not 0 < payload[key] <= 2**63 - 1:
+apps/arena/policy_registration.py,64,63,REVIEW_CONTEXT,Contextual non-reward literal; review with domain matrix,code/runtime; see context,if type(payload[key]) is not int or not 0 < payload[key] <= 2**63 - 1:
+apps/arena/policy_registration.py,70,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",or any(type(v) is not int or not 0 < v <= 2**63 - 1 for v in targets.values())
+apps/arena/policy_registration.py,70,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",or any(type(v) is not int or not 0 < v <= 2**63 - 1 for v in targets.values())
+apps/arena/policy_registration.py,70,2,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",or any(type(v) is not int or not 0 < v <= 2**63 - 1 for v in targets.values())
+apps/arena/policy_registration.py,70,63,REVIEW_CONTEXT,Contextual non-reward literal; review with domain matrix,code/runtime; see context,or any(type(v) is not int or not 0 < v <= 2**63 - 1 for v in targets.values())
 apps/arena/qualification.py,174,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","for offset in range(0, len(rows), 1000):"
 apps/arena/qualification.py,174,1000,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","for offset in range(0, len(rows), 1000):"
 apps/arena/qualification.py,199,1000,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"QualificationDecision.objects.bulk_create(pending, batch_size=1000)"
@@ -1198,7 +1263,7 @@ apps/core/metrics.py,22,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or 
 apps/core/metrics.py,24,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","max(int((timezone.now() - oldest).total_seconds()), 0) if oldest else 0"
 apps/core/metrics.py,24,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","max(int((timezone.now() - oldest).total_seconds()), 0) if oldest else 0"
 apps/core/metrics.py,26,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","""retries"": RewardSettlementOutbox.objects.filter(attempts__gt=1).count(),"
-apps/core/metrics.py,55,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","""base_tap_pending"": BaseTapDailyAccumulator.objects.filter(pending_points__gt=0).count(),"
+apps/core/metrics.py,70,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","""base_tap_pending"": BaseTapDailyAccumulator.objects.filter(pending_points__gt=0).count(),"
 apps/core/middleware.py,114,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","bucket = int(__import__(""time"").time()) // policy[1]"
 apps/core/middleware.py,117,1,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"count = 1 if cache.add(key, 1, timeout=policy[1] + 1) else cache.incr(key)"
 apps/core/middleware.py,117,1,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"count = 1 if cache.add(key, 1, timeout=policy[1] + 1) else cache.incr(key)"
@@ -1253,7 +1318,7 @@ apps/game_config/services.py,1146,1,CONFIG_VALIDATION,Validate domain input or p
 apps/game_config/services.py,1147,1,CONFIG_VALIDATION,Validate domain input or preserve an immutable legacy parser,refer to ownership matrix,"""first-clan"": 1,"
 apps/game_config/services.py,1148,1,CONFIG_VALIDATION,Validate domain input or preserve an immutable legacy parser,refer to ownership matrix,"""first-contribution"": 1,"
 apps/game_config/services.py,1071,4,CONFIG_VALIDATION,Validate domain input or preserve an immutable legacy parser,refer to ownership matrix,"if meta[""schema_version""] >= 4:"
-apps/game_config/services.py,1486,0,CONFIG_VALIDATION,Validate domain input or preserve an immutable legacy parser,refer to ownership matrix,config = configs[0]
+apps/game_config/services.py,1502,0,CONFIG_VALIDATION,Validate domain input or preserve an immutable legacy parser,refer to ownership matrix,config = configs[0]
 apps/game_config/services.py,52,1,CONFIG_VALIDATION,Validate domain input or preserve an immutable legacy parser,refer to ownership matrix,"and old.get(""base_tap"", {}).get(""protocol_version"", 1) == 1"
 apps/game_config/services.py,413,50,CONFIG_VALIDATION,Validate domain input or preserve an immutable legacy parser,refer to ownership matrix,"return parse_rankings(payload) if ""rankings"" in payload else RankingsConfig(50, 100, 1)"
 apps/game_config/services.py,413,100,CONFIG_VALIDATION,Validate domain input or preserve an immutable legacy parser,refer to ownership matrix,"return parse_rankings(payload) if ""rankings"" in payload else RankingsConfig(50, 100, 1)"
@@ -1275,7 +1340,7 @@ apps/game_config/services.py,1095,10000,CONFIG_VALIDATION,Validate domain input 
 apps/game_config/services.py,1213,0,CONFIG_VALIDATION,Validate domain input or preserve an immutable legacy parser,refer to ownership matrix,"if rule.get(""point_reward"") != 0:"
 apps/game_config/services.py,1272,10000,CONFIG_VALIDATION,Validate domain input or preserve an immutable legacy parser,refer to ownership matrix,if top_ten > 10000 or top_one > 10000 or top_one > top_ten:
 apps/game_config/services.py,1272,10000,CONFIG_VALIDATION,Validate domain input or preserve an immutable legacy parser,refer to ownership matrix,if top_ten > 10000 or top_one > 10000 or top_one > top_ten:
-apps/game_config/services.py,1427,4,CONFIG_VALIDATION,Validate domain input or preserve an immutable legacy parser,refer to ownership matrix,"if config.payload.get(""meta"", {}).get(""schema_version"", 0) >= 4:"
+apps/game_config/services.py,1443,4,CONFIG_VALIDATION,Validate domain input or preserve an immutable legacy parser,refer to ownership matrix,"if config.payload.get(""meta"", {}).get(""schema_version"", 0) >= 4:"
 apps/game_config/services.py,52,1,CONFIG_VALIDATION,Validate domain input or preserve an immutable legacy parser,refer to ownership matrix,"and old.get(""base_tap"", {}).get(""protocol_version"", 1) == 1"
 apps/game_config/services.py,55,0,CONFIG_VALIDATION,Validate domain input or preserve an immutable legacy parser,refer to ownership matrix,"if (utc.hour, utc.minute, utc.second, utc.microsecond) != (0, 0, 0, 0):"
 apps/game_config/services.py,55,0,CONFIG_VALIDATION,Validate domain input or preserve an immutable legacy parser,refer to ownership matrix,"if (utc.hour, utc.minute, utc.second, utc.microsecond) != (0, 0, 0, 0):"
@@ -1374,8 +1439,8 @@ apps/game_config/services.py,1376,1,CONFIG_VALIDATION,Validate domain input or p
 apps/game_config/services.py,1376,1,CONFIG_VALIDATION,Validate domain input or preserve an immutable legacy parser,refer to ownership matrix,"BaseTapConfig(False, 1, 1, ""UTC"", 1, 0, 1),"
 apps/game_config/services.py,1376,0,CONFIG_VALIDATION,Validate domain input or preserve an immutable legacy parser,refer to ownership matrix,"BaseTapConfig(False, 1, 1, ""UTC"", 1, 0, 1),"
 apps/game_config/services.py,1376,1,CONFIG_VALIDATION,Validate domain input or preserve an immutable legacy parser,refer to ownership matrix,"BaseTapConfig(False, 1, 1, ""UTC"", 1, 0, 1),"
-apps/game_config/services.py,1427,0,CONFIG_VALIDATION,Validate domain input or preserve an immutable legacy parser,refer to ownership matrix,"if config.payload.get(""meta"", {}).get(""schema_version"", 0) >= 4:"
-apps/game_config/services.py,1482,2,CONFIG_VALIDATION,Validate domain input or preserve an immutable legacy parser,refer to ownership matrix,").order_by(""-effective_at"", ""-pk"")[:2]"
+apps/game_config/services.py,1443,0,CONFIG_VALIDATION,Validate domain input or preserve an immutable legacy parser,refer to ownership matrix,"if config.payload.get(""meta"", {}).get(""schema_version"", 0) >= 4:"
+apps/game_config/services.py,1498,2,CONFIG_VALIDATION,Validate domain input or preserve an immutable legacy parser,refer to ownership matrix,").order_by(""-effective_at"", ""-pk"")[:2]"
 apps/game_config/services.py,43,0,CONFIG_VALIDATION,Validate domain input or preserve an immutable legacy parser,refer to ownership matrix,"0,"
 apps/game_config/services.py,44,0,CONFIG_VALIDATION,Validate domain input or preserve an immutable legacy parser,refer to ownership matrix,"0,"
 apps/game_config/services.py,394,1,CONFIG_VALIDATION,Validate domain input or preserve an immutable legacy parser,refer to ownership matrix,"_integer(raw[""default_page_size""], ""ranking default page size"", minimum=1),"
@@ -2450,33 +2515,41 @@ dexo_land/api.py,68,1000,OPERATIONAL_BOUND,"Workload/timeout control, not an ear
 dexo_land/api.py,68,1000,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"response[""Retry-After""] = str(max(1, (exc.retry_after_ms or 1000) // 1000))"
 dexo_land/api.py,91,503,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"retryable=exc.status_code == 503,"
 dexo_land/api.py,172,404,PROTOCOL,HTTP status; no economic parameter,protocol,"""CLAN_NOT_FOUND"" if exc.status_code == 404 else ""CLAN_REQUEST_REJECTED"","
-dexo_land/settings/base.py,9,2,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,BASE_DIR = Path(__file__).resolve().parents[2]
-dexo_land/settings/base.py,312,1,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""version"": 1,"
-dexo_land/settings/base.py,345,3600,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 3600,"
-dexo_land/settings/base.py,350,60,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 60,"
-dexo_land/settings/base.py,388,60,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"60,"
-dexo_land/settings/base.py,390,60,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"MUTATION_THROTTLE_POLICIES[""/api/v1/daily""] = (int(os.getenv(""THROTTLE_DAILY_REQUESTS"", ""30"")), 60)"
-dexo_land/settings/base.py,425,5.0,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 5.0,"
-dexo_land/settings/base.py,433,5.0,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 5.0,"
-dexo_land/settings/base.py,95,0,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""CONN_MAX_AGE"": 0,"
-dexo_land/settings/base.py,179,3600,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 3600,"
-dexo_land/settings/base.py,183,300,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 300,"
-dexo_land/settings/base.py,187,60,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 60,"
-dexo_land/settings/base.py,191,60,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 60,"
-dexo_land/settings/base.py,195,60,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 60,"
-dexo_land/settings/base.py,199,300,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 300,"
-dexo_land/settings/base.py,203,300,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 300,"
-dexo_land/settings/base.py,207,3600,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 3600,"
-dexo_land/settings/base.py,211,60,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 60,"
-dexo_land/settings/base.py,215,60,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 60,"
-dexo_land/settings/base.py,219,60,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 60,"
-dexo_land/settings/base.py,223,60,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 60,"
-dexo_land/settings/base.py,227,60,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 60,"
-dexo_land/settings/base.py,231,15,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 15,"
-dexo_land/settings/base.py,243,30,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 30,"
-dexo_land/settings/base.py,247,30,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 30,"
-dexo_land/settings/base.py,251,30,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 30,"
-dexo_land/settings/base.py,255,60,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 60,"
+dexo_land/settings/base.py,10,2,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,BASE_DIR = Path(__file__).resolve().parents[2]
+dexo_land/settings/base.py,313,1,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""version"": 1,"
+dexo_land/settings/base.py,346,3600,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 3600,"
+dexo_land/settings/base.py,351,60,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 60,"
+dexo_land/settings/base.py,389,60,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"60,"
+dexo_land/settings/base.py,391,60,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"MUTATION_THROTTLE_POLICIES[""/api/v1/daily""] = (int(os.getenv(""THROTTLE_DAILY_REQUESTS"", ""30"")), 60)"
+dexo_land/settings/base.py,426,5.0,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 5.0,"
+dexo_land/settings/base.py,434,5.0,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 5.0,"
+dexo_land/settings/base.py,96,0,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""CONN_MAX_AGE"": 0,"
+dexo_land/settings/base.py,462,900,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""EPOCH_FREEZE_OVERDUE"": {""enabled"": True, ""severity"": ""ERROR"", ""grace_seconds"": 900},"
+dexo_land/settings/base.py,463,900,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""DLX_SETTLEMENT_OVERDUE"": {""enabled"": True, ""severity"": ""ERROR"", ""grace_seconds"": 900},"
+dexo_land/settings/base.py,464,0,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""DLX_LIFECYCLE_BLOCKED"": {""enabled"": True, ""severity"": ""ERROR"", ""grace_seconds"": 0},"
+dexo_land/settings/base.py,465,0,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""GROWTH_FINALIZATION_FAILED"": {""enabled"": True, ""severity"": ""CRITICAL"", ""grace_seconds"": 0},"
+dexo_land/settings/base.py,469,0,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""grace_seconds"": 0,"
+dexo_land/settings/base.py,471,3900,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""ECONOMIC_WORKER_STALE"": {""enabled"": True, ""severity"": ""ERROR"", ""grace_seconds"": 3900},"
+dexo_land/settings/base.py,475,0,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""grace_seconds"": 0,"
+dexo_land/settings/base.py,477,0,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""SEASON_CLOSE_BLOCKED"": {""enabled"": True, ""severity"": ""CRITICAL"", ""grace_seconds"": 0},"
+dexo_land/settings/base.py,180,3600,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 3600,"
+dexo_land/settings/base.py,184,300,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 300,"
+dexo_land/settings/base.py,188,60,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 60,"
+dexo_land/settings/base.py,192,60,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 60,"
+dexo_land/settings/base.py,196,60,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 60,"
+dexo_land/settings/base.py,200,300,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 300,"
+dexo_land/settings/base.py,204,300,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 300,"
+dexo_land/settings/base.py,208,3600,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 3600,"
+dexo_land/settings/base.py,212,60,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 60,"
+dexo_land/settings/base.py,216,60,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 60,"
+dexo_land/settings/base.py,220,60,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 60,"
+dexo_land/settings/base.py,224,60,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 60,"
+dexo_land/settings/base.py,228,60,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 60,"
+dexo_land/settings/base.py,232,15,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 15,"
+dexo_land/settings/base.py,244,30,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 30,"
+dexo_land/settings/base.py,248,30,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 30,"
+dexo_land/settings/base.py,252,30,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 30,"
+dexo_land/settings/base.py,256,60,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"""schedule"": 60,"
 config/examples/configurable.alternate.game-config.json,,4,EXAMPLE_CONFIG,"Explicit example/default input, never hardcoded domain behavior",meta.schema_version,
 config/examples/configurable.alternate.game-config.json,,45,EXAMPLE_CONFIG,"Explicit example/default input, never hardcoded domain behavior",meta.nominal_season_duration_days,
 config/examples/configurable.alternate.game-config.json,,1,EXAMPLE_CONFIG,"Explicit example/default input, never hardcoded domain behavior",progression.levels[0].level,

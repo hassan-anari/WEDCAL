@@ -6,6 +6,9 @@ Published GameConfig is the setup entry point. `dlx_distribution.economic_policy
 an immutable `EconomicPolicyVersion` by key/version/checksum. There are no copied economic formulas
 in the GameConfig. An approved policy must already exist before new-style publication. Its
 approval reference is independently auditable; existence does not activate workers.
+Operators create that document through the [two-person proposal/approval workflow](POLICY_REGISTRATION.md),
+with strict schema/checksum validation and dry-run defaults. Policy and workflow Admin records stay
+read-only. Registration itself cannot publish GameConfig, bind a Season or enable automation.
 
 Publication validates the complete existing gameplay configuration plus setup. Activation validates
 the selected document, its checksum and approval, checks `policy.days == timing.epoch_days`, initializes

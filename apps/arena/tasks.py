@@ -85,3 +85,32 @@ def settle_epochs() -> int:
         run_one_season_economics.delay(season_id)
         count += 1
     return count
+
+
+@shared_task(name="apps.arena.tasks.monitor_economic_operations")  # type: ignore[untyped-decorator]
+def monitor_economic_operations() -> int:
+    from apps.arena.alerts import scan_alerts
+    from apps.arena.models import EconomicAlertDelivery
+
+    detected = scan_alerts()
+    if settings.ECONOMIC_ALERT_DELIVERY_ENABLED:
+        from django.utils import timezone
+
+        for pk in (
+            EconomicAlertDelivery.objects.filter(
+                status="PENDING", next_attempt_at__lte=timezone.now()
+            )
+            .order_by("pk")
+            .values_list("pk", flat=True)[: settings.ECONOMIC_ALERT_BATCH_SIZE]
+        ):
+            deliver_economic_alert.delay(pk)
+    return detected
+
+
+@shared_task(  # type: ignore[untyped-decorator]
+    name="apps.arena.tasks.deliver_economic_alert", acks_late=True, reject_on_worker_lost=True
+)
+def deliver_economic_alert(delivery_id: int) -> bool:
+    from apps.arena.alerts import deliver_alert
+
+    return deliver_alert(delivery_id)

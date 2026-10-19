@@ -34,7 +34,12 @@ def outbox_metrics() -> dict[str, Any]:
 
 
 def operational_snapshot() -> dict[str, Any]:
-    from apps.arena.models import EconomicAutomationAttempt, RankingProjectionEvent
+    from apps.arena.models import (
+        EconomicAlert,
+        EconomicAlertDelivery,
+        EconomicAutomationAttempt,
+        RankingProjectionEvent,
+    )
     from apps.base_tap.models import BaseTapDailyAccumulator
     from apps.network.models import CreatorWindowSettlement
     from apps.notifications.models import BroadcastRecipient, TelegramDelivery
@@ -52,6 +57,16 @@ def operational_snapshot() -> dict[str, Any]:
             .annotate(count=Count("pk"))
             .order_by("status", "error_code")
         ),
+        "economic_alerts": {
+            "open": list(
+                EconomicAlert.objects.filter(status="OPEN")
+                .values("code", "severity")
+                .annotate(count=Count("pk"))
+            ),
+            "deliveries": list(
+                EconomicAlertDelivery.objects.values("status").annotate(count=Count("pk"))
+            ),
+        },
         "base_tap_pending": BaseTapDailyAccumulator.objects.filter(pending_points__gt=0).count(),
         "creator_windows_pending": CreatorWindowSettlement.objects.filter(
             finalized_at__isnull=True
