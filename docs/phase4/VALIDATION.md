@@ -5,6 +5,18 @@ original Phase 4 scope. The owner explicitly deferred larger realistic performan
 independent review and an authorized merge. Functional implementation and Production-capacity
 certification are separate. Required final-head CI results and exact SHA are reported on Draft PR #38.
 
+## Private Telegram channel correction
+
+The owner replaced economic alert email with private Telegram delivery after reviewed head
+`cdd0aa372889956868708ba2c02bd29db5c1e1b7`. Detection and economic formulas remain unchanged.
+Database operator authorization, immediate revalidation, private-contact checks, shared Bot API
+budgets, durable per-recipient leases, bounded safe retries, UNCERTAIN reconciliation and held
+permissioned tests are implemented. The targeted real-PostgreSQL suite passed **46 tests in 118.19s on a fresh isolated database**,
+including actual old-history migration preservation and refusal of a populated private-history
+reverse. All transport calls were mocked; no external messages or live operator changes occurred.
+The broader policy/configuration/Growth/Admin/alert subset passed **101 tests in 126.31s**.
+Final SHA/full regression and migration-cycle results are recorded on Draft PR #38.
+
 ## PostgreSQL evidence
 
 Final-completion targeted runs: policy registration, alerts, semantic-band/config and GameConfig
@@ -17,8 +29,8 @@ The final comprehensive functional subset passed **73 tests in 100.10s**; the la
 inspection refinement separately passed **17 tests in 6.31s**. No prior assertion was weakened.
 
 New artifacts demonstrate two independent policy actors, zero dry-run writes, one registration
-under retry/concurrency and no automatic bindings/control; captured opening/recovery email messages
-through the locmem transport; and actual closing Bootstrap responses accepted by the unchanged
+under retry/concurrency and no automatic bindings/control; captured opening/recovery private Telegram messages
+through the mocked shared Bot API; and actual closing Bootstrap responses accepted by the unchanged
 FROCAL parser. Populated downgrade is rejected before reverse DDL, while the empty cycle passes.
 
 Local full regression run: **1,296 passed, 4 opt-in skips**, 511.43 seconds, PostgreSQL 17.11.
@@ -72,7 +84,7 @@ synthetic boundary evidence, with the capacity limitations recorded separately.
 | 3 Generic timing/topology/closing | Implemented/verified 2/3/6/8 Epochs, multiple day lengths, no closing Epoch, historical parsers preserved | FROCAL must consume additive timing contract separately |
 | 4 Configurable budgets and immutable commitments | Implemented/verified arbitrary valid integers, exact base/category remainders, signed-bigint boundary | storage/authorization bounds remain structural |
 | 5 Complete Growth Unlock | Implemented/PG verified; authoritative STD count, unique immutable event/placements, reserve/cap integration | live configurations and activation absent by design |
-| 6 Weekly automatic lifecycle | Implemented/verified explicit authority, chronology/gate, restart/retry/pause, source blockers, durable compatibility rejection and economic alert scanner/outbox | real email routing/credentials, health-monitor configuration and deployed compatibility remain operational prerequisites |
+| 6 Weekly automatic lifecycle | Implemented/verified explicit authority, chronology/gate, restart/retry/pause, source blockers, durable compatibility rejection and economic alert scanner/outbox | authorized database operators/private-chat reachability, health-monitor configuration and deployed compatibility remain operational prerequisites |
 | 7 Repository hardcoded-value audit | Inventory, ownership matrix and fresh semantic source pass completed; unsupported Daily lifecycle publication fixed; custom Clan bands verified | independent PR review remains; no unsupported formal-proof claim |
 | 8 Clan Mission semantics | Preserved; pinned band amounts, compatible config, immutable definitions; existing Individual/Group lifecycle regressions | no band migration/repricing feature added |
 | 9 Safe mid-Season tuning | Implemented/verified Daily/Typing in-flight cutovers and historical ledger attribution; active setup mutation rejected | existing gameplay-specific publication restrictions retained |
@@ -83,9 +95,10 @@ synthetic boundary evidence, with the capacity limitations recorded separately.
 | Growth addendum 1.1–1.6 | Implemented/PG verified generic pre-Freeze recognition, STD distinct count, final-Epoch funding, A–E, atomic exact placement | no additional unapproved economic recognition rule introduced |
 | Admin addendum 2.1–2.4 | Implemented/PG verified all listed models plus facts/readiness/workflow/alert records, protected summaries, redaction, no mutation | history-heavy Admin load testing explicitly deferred |
 | Addendum testing/delivery | Growth/Admin tests, worked examples, locking/conservation, sample reports and required CI included | deployment/merge/activation remain prohibited |
+| Private Telegram delivery correction | Implemented/PG verified database receive/test permissions, private-only targeting, shared budget/429, ambiguous/crash outcomes, safe review, held tests and history-preserving migration | real bot reachability and delivery remain separately authorized activation checks; no email fallback |
 | Additional owner clarification | Official gate/history/no-milestone zero behavior preserved; full original scope retained | no competing PR or Demo-only engine |
 | Final request 1: policy workflow | Implemented/PG verified two actors, strict shape/checksum, dry-run, permission checks, atomic idempotent approval, readonly Admin | actual live documents/approvals are not created |
-| Final request 2: operational alerts | Implemented/PG verified all required conditions, routing/severity/dedup, retry, recovery, durable evidence and metrics | real destination/SMTP credentials, liveness monitoring and activation need owner authorization |
+| Final request 2: operational alerts | Implemented/PG verified all required conditions, routing/severity/dedup, retry, recovery, durable evidence and metrics | authorized private Telegram destination/bot configuration, liveness monitoring and activation need owner authorization |
 | Final request 3: frontend compatibility | Exact pinned read-only FROCAL audit and unchanged-parser harness; authoritative backend timing and fixtures provided | frontend implementation/browser/device acceptance require separate authorization |
 | Final request 4–6: tests/audit/report | Targeted real-PG lifecycle, registration, alerts, semantic bands and migration evidence; final full CI and updated package | performance certification remains deferred, not implied by green tests |
 

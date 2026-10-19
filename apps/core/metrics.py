@@ -64,7 +64,9 @@ def operational_snapshot() -> dict[str, Any]:
                 .annotate(count=Count("pk"))
             ),
             "deliveries": list(
-                EconomicAlertDelivery.objects.values("status").annotate(count=Count("pk"))
+                EconomicAlertDelivery.objects.values(
+                    "channel", "status", "last_error_code"
+                ).annotate(count=Count("pk"))
             ),
         },
         "base_tap_pending": BaseTapDailyAccumulator.objects.filter(pending_points__gt=0).count(),

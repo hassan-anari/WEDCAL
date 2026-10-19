@@ -1,35 +1,14 @@
 {
   "synthetic": true,
-  "transport": "django.core.mail.backends.locmem.EmailBackend",
+  "transport": "mocked shared Telegram Bot API",
   "captured_messages": [
     {
-      "alert_id": 82,
-      "code": "EPOCH_FREEZE_OVERDUE",
-      "epoch_id": 2780,
-      "event_id": 143,
-      "evidence": {
-        "cutoff": "2026-10-27T22:33:06.352397+00:00",
-        "epoch_state": "OPEN",
-        "settlement_gate_at": "2026-10-20T22:33:06.352397+00:00"
-      },
-      "outcome": "OPENED",
-      "season_id": 1909,
-      "severity": "ERROR"
+      "chat_id": 771001,
+      "text": "Dexo Land \u2014 Economic Alert\n\nSeverity: ERROR\nEvent: Epoch Freeze Overdue\nTransition: OPENED\nSeason: 2\nEpoch: 1\nStatus: OPEN\nIncident ID: 1\nEvent ID: 1\nTime: 2026-10-28 00:33:06 UTC\n\nAction: Review the economic incident in Django Admin."
     },
     {
-      "alert_id": 82,
-      "code": "EPOCH_FREEZE_OVERDUE",
-      "epoch_id": 2780,
-      "event_id": 144,
-      "evidence": {
-        "cutoff": "2026-10-27T22:33:06.352397+00:00",
-        "epoch_state": "OPEN",
-        "resolution": "CONDITION_NO_LONGER_DETECTED",
-        "settlement_gate_at": "2026-10-20T22:33:06.352397+00:00"
-      },
-      "outcome": "RESOLVED",
-      "season_id": 1909,
-      "severity": "ERROR"
+      "chat_id": 771001,
+      "text": "Dexo Land \u2014 Economic Alert\n\nSeverity: ERROR\nEvent: Epoch Freeze Overdue\nTransition: RESOLVED\nSeason: 2\nEpoch: 1\nStatus: RESOLVED\nIncident ID: 1\nEvent ID: 4\nTime: 2026-10-28 00:33:06 UTC\n\nAction: Review the economic incident in Django Admin."
     }
   ],
   "events": [
@@ -38,7 +17,23 @@
       "severity": "ERROR"
     },
     {
+      "outcome": "DISPATCH_STARTED",
+      "severity": "ERROR"
+    },
+    {
+      "outcome": "DELIVERY_RESULT",
+      "severity": "ERROR"
+    },
+    {
       "outcome": "RESOLVED",
+      "severity": "ERROR"
+    },
+    {
+      "outcome": "DISPATCH_STARTED",
+      "severity": "ERROR"
+    },
+    {
+      "outcome": "DELIVERY_RESULT",
       "severity": "ERROR"
     }
   ],

@@ -12,7 +12,8 @@ EconomicAlertEvent and EconomicAlertDelivery with the same read-only restriction
 JSON is redacted/deferred. Proposal/approval and alert events have database immutability guards;
 URL filters cannot probe JSON through either direct or related fields, private routing or submission
 references. The explicit approver command can inspect the submitted reference during its dry-run.
-delivery routing is pinned. Policy registration and manual DEAD-delivery retry use permissioned
+Delivery routing is pinned. Telegram recipient IDs and lease tokens are hidden; channel, safe error
+codes, message IDs and lease deadlines support inspection. Policy registration and manual DEAD/UNCERTAIN-delivery recovery use permissioned
 services/commands, never an editable Admin audit model.
 
 Every audit inspector denies Add/Change/Delete, has no actions or editable inlines and uses Django

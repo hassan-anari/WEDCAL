@@ -1,24 +1,20 @@
-"""Durable operator alerts and retryable email outbox; never changes economic authority."""
+"""Durable economic incident detection; private operator delivery is a separate outbox."""
 
-import json
 import re
 from datetime import datetime, timedelta
 from typing import Any
 
 import structlog
 from django.conf import settings
-from django.contrib.auth.models import User
-from django.core.exceptions import PermissionDenied, ValidationError
-from django.core.mail import EmailMessage, get_connection
-from django.core.validators import validate_email
+from django.core.exceptions import ValidationError
 from django.db import connection, transaction
 from django.db.models import OuterRef, Subquery
 from django.utils import timezone
 
+from apps.arena.alert_delivery import materialize_event
 from apps.arena.epochs import reconcile_epoch
 from apps.arena.models import (
     EconomicAlert,
-    EconomicAlertDelivery,
     EconomicAlertEvent,
     EconomicAutomationAttempt,
     EconomicAutomationControl,
@@ -40,7 +36,7 @@ def alert_rules() -> dict[str, dict[str, Any]]:
         "ECONOMIC_ALERT_MAX_ATTEMPTS",
         "ECONOMIC_ALERT_RETRY_BASE_SECONDS",
         "ECONOMIC_ALERT_RETRY_MAX_SECONDS",
-        "ECONOMIC_ALERT_SEND_TIMEOUT_SECONDS",
+        "ECONOMIC_ALERT_DELIVERY_LEASE_SECONDS",
     ):
         if type(getattr(settings, name)) is not int or getattr(settings, name) <= 0:
             raise ValidationError("ECONOMIC_ALERT_OPERATIONAL_BOUND_INVALID")
@@ -59,28 +55,6 @@ def alert_rules() -> dict[str, dict[str, Any]]:
         ):
             raise ValidationError("ECONOMIC_ALERT_GRACE_ONLY_FOR_DEADLINE_RULES")
     return rules
-
-
-def alert_routes() -> dict[str, Any]:
-    routes = settings.ECONOMIC_ALERT_ROUTES
-    if not isinstance(routes, dict):
-        raise ValidationError("ECONOMIC_ALERT_ROUTES_INVALID")
-    for key, route in routes.items():
-        if (
-            not isinstance(key, str)
-            or not 0 < len(key) <= 64
-            or not isinstance(route, dict)
-            or set(route) != {"recipients", "from_email", "severities"}
-            or not isinstance(route["recipients"], list)
-            or not route["recipients"]
-            or not isinstance(route["severities"], list)
-            or not route["severities"]
-            or any(s not in SEVERITIES for s in route["severities"])
-        ):
-            raise ValidationError("ECONOMIC_ALERT_ROUTE_INVALID")
-        for address in [route["from_email"], *route["recipients"]]:
-            validate_email(address)
-    return routes
 
 
 def detect_conditions(now: datetime | None = None) -> list[dict[str, Any]]:
@@ -203,15 +177,11 @@ def detect_conditions(now: datetime | None = None) -> list[dict[str, Any]]:
     return list({row["fingerprint"]: row for row in findings}.values())
 
 
-def _event(alert: EconomicAlert, outcome: str, routes: dict[str, Any], now: datetime) -> None:
+def _event(alert: EconomicAlert, outcome: str, now: datetime) -> None:
     event = EconomicAlertEvent.objects.create(
         alert=alert, outcome=outcome, severity=alert.severity, evidence=alert.evidence
     )
-    for key, route in routes.items():
-        if event.severity in route["severities"]:
-            EconomicAlertDelivery.objects.create(
-                event=event, route_key=key, route_config=route, next_attempt_at=now
-            )
+    materialize_event(event, now=now)
     logger.warning(
         "economic_alert_transition",
         alert_id=alert.pk,
@@ -226,7 +196,7 @@ def scan_alerts(*, now: datetime | None = None) -> int:
     if not settings.ECONOMIC_ALERTS_ENABLED:
         return 0
     now = now or timezone.now()
-    routes = alert_routes()  # Validate before any mutation or recovery decision.
+    alert_rules()  # Validate before any mutation or recovery decision.
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_try_advisory_xact_lock(11045, 0)")
         if not cursor.fetchone()[0]:
@@ -255,129 +225,12 @@ def scan_alerts(*, now: datetime | None = None) -> int:
         row.resolved_at = None
         row.save()
         if outcome:
-            _event(row, outcome, routes, now)
+            _event(row, outcome, now)
     for row in EconomicAlert.objects.filter(status="OPEN").exclude(fingerprint__in=fingerprints):
         row.status = "RESOLVED"
         row.resolved_at = now
         row.last_seen_at = now
         row.evidence = {**row.evidence, "resolution": "CONDITION_NO_LONGER_DETECTED"}
         row.save()
-        _event(row, "RESOLVED", routes, now)
+        _event(row, "RESOLVED", now)
     return len(findings)
-
-
-@transaction.atomic
-def deliver_alert(delivery_id: int, *, now: datetime | None = None) -> bool:
-    if not settings.ECONOMIC_ALERT_DELIVERY_ENABLED:
-        return False
-    alert_rules()
-    backend = settings.ECONOMIC_ALERT_EMAIL_BACKEND
-    if backend not in {
-        "django.core.mail.backends.locmem.EmailBackend",
-        "django.core.mail.backends.smtp.EmailBackend",
-    }:
-        raise ValidationError("EXPLICIT_ECONOMIC_ALERT_EMAIL_BACKEND_REQUIRED")
-    now = now or timezone.now()
-    row = (
-        EconomicAlertDelivery.objects.select_for_update(of=("self",), skip_locked=True)
-        .select_related("event__alert")
-        .filter(pk=delivery_id, status="PENDING", next_attempt_at__lte=now)
-        .first()
-    )
-    if row is None:
-        return False
-    if EconomicAlertDelivery.objects.filter(
-        event__alert_id=row.event.alert_id,
-        route_key=row.route_key,
-        event_id__lt=row.event_id,
-        status="PENDING",
-    ).exists():
-        return False  # Recovery must not overtake an opening delivery still pending on this route.
-    # Revalidate the pinned routing snapshot; never copy credentials into durable routing data.
-    route = row.route_config
-    for address in [route["from_email"], *route["recipients"]]:
-        validate_email(address)
-    row.attempts += 1
-    try:
-        alert = row.event.alert
-        payload = {
-            "alert_id": alert.pk,
-            "event_id": row.event_id,
-            "code": alert.code,
-            "outcome": row.event.outcome,
-            "severity": row.event.severity,
-            "season_id": alert.season_id,
-            "epoch_id": alert.epoch_id,
-            "evidence": row.event.evidence,
-        }
-        message = EmailMessage(
-            subject=f"[{row.event.severity}] {alert.code}: {row.event.outcome}",
-            body=json.dumps(payload, sort_keys=True),
-            from_email=route["from_email"],
-            to=route["recipients"],
-            connection=get_connection(
-                backend=backend, timeout=settings.ECONOMIC_ALERT_SEND_TIMEOUT_SECONDS
-            ),
-            headers={
-                "Message-ID": f"<economic-alert-{row.pk}@{route['from_email'].rsplit('@', 1)[1]}>"
-            },
-        )
-        if message.send() != 1:
-            raise ConnectionError("Transport did not acknowledge delivery")
-    except Exception:
-        row.last_error_code = "TRANSPORT_FAILURE"
-        row.status = "DEAD" if row.attempts >= settings.ECONOMIC_ALERT_MAX_ATTEMPTS else "PENDING"
-        row.next_attempt_at = now + timedelta(
-            seconds=min(
-                settings.ECONOMIC_ALERT_RETRY_MAX_SECONDS,
-                settings.ECONOMIC_ALERT_RETRY_BASE_SECONDS
-                * 2
-                ** min(row.attempts - 1, settings.ECONOMIC_ALERT_RETRY_MAX_SECONDS.bit_length()),
-            )
-        )
-    else:
-        row.status = "DELIVERED"
-        row.last_error_code = ""
-        row.delivered_at = now
-    row.save()
-    return row.status == "DELIVERED"
-
-
-@transaction.atomic
-def retry_dead_delivery(
-    delivery_id: int,
-    *,
-    actor: User,
-    reference: str,
-    dry_run: bool = True,
-) -> dict[str, Any]:
-    if (
-        not actor.is_active
-        or not actor.is_staff
-        or not actor.has_perm("arena.control_economic_automation")
-    ):
-        raise PermissionDenied("Economic operator authority required")
-    if not reference.strip() or len(reference) > 255:
-        raise ValidationError("ECONOMIC_ALERT_RETRY_REFERENCE_REQUIRED")
-    row = (
-        EconomicAlertDelivery.objects.select_for_update()
-        .select_related("event")
-        .get(pk=delivery_id)
-    )
-    if row.status != "DEAD":
-        raise ValidationError("ONLY_DEAD_ALERT_DELIVERIES_REQUIRE_MANUAL_RETRY")
-    if not dry_run:
-        row.status = "PENDING"
-        row.next_attempt_at = timezone.now()
-        row.save(update_fields=("status", "next_attempt_at"))
-        EconomicAlertEvent.objects.create(
-            alert_id=row.event.alert_id,
-            outcome="RETRY_REQUESTED",
-            severity=row.event.severity,
-            evidence={
-                "delivery_id": row.pk,
-                "actor_id": actor.pk,
-                "reference_digest": digest(reference),
-            },
-        )
-    return {"dry_run": dry_run, "delivery_id": row.pk, "attempts": row.attempts}

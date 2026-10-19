@@ -794,6 +794,10 @@ class EconomicAlert(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=("status", "season"), name="arena_alert_open")]
+        permissions = [
+            ("receive_economic_alert", "Can receive private economic alerts"),
+            ("test_economic_alert", "Can test economic alerts in own authorized private chat"),
+        ]
 
 
 class EconomicAlertEvent(models.Model):
@@ -805,6 +809,15 @@ class EconomicAlertEvent(models.Model):
 
 
 class EconomicAlertDelivery(models.Model):
+    # LEGACY preserves earlier delivery history without retaining an executable transport.
+    channel = models.CharField(max_length=24, default="LEGACY")
+    operator = models.ForeignKey(
+        "notifications.BotAdminOperator", null=True, on_delete=models.PROTECT
+    )
+    telegram_user_id = models.BigIntegerField(null=True)
+    telegram_message_id = models.BigIntegerField(null=True)
+    lease_token = models.UUIDField(null=True)
+    lease_expires_at = models.DateTimeField(null=True)
     event = models.ForeignKey(EconomicAlertEvent, on_delete=models.PROTECT)
     route_key = models.CharField(max_length=64)
     route_config = models.JSONField()
@@ -816,6 +829,25 @@ class EconomicAlertDelivery(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=("event", "route_key"), name="arena_alert_route_once")
+            models.UniqueConstraint(fields=("event", "route_key"), name="arena_alert_route_once"),
+            models.UniqueConstraint(fields=("event", "operator"), name="arena_alert_operator_once"),
+            models.UniqueConstraint(
+                fields=("event", "telegram_user_id"), name="arena_alert_private_chat_once"
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    channel="LEGACY", operator__isnull=True, telegram_user_id__isnull=True
+                )
+                | models.Q(
+                    channel="TELEGRAM_PRIVATE",
+                    operator__isnull=False,
+                    telegram_user_id__isnull=False,
+                    telegram_user_id__gt=0,
+                ),
+                name="arena_alert_private_target",
+            ),
         ]
-        indexes = [models.Index(fields=("status", "next_attempt_at"), name="arena_alert_due")]
+        indexes = [
+            models.Index(fields=("status", "next_attempt_at"), name="arena_alert_due"),
+            models.Index(fields=("status", "lease_expires_at"), name="arena_alert_send_lease"),
+        ]

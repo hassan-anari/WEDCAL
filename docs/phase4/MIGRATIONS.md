@@ -14,6 +14,7 @@ approve policies, bind Seasons, authorize jobs, allocate DLX or rewrite balances
 | arena 0024 | numeric `div()` for exact floor quotient at signed-bigint extremes | avoids PostgreSQL `/` significant-digit rounding; no stored recalculation |
 | arena 0028 | policy proposal/approval, alert incident/event/outbox tables and indexes | new empty tables; no historical rewrites or live destination/authority seeds |
 | arena 0029 | independent exact policy-approval guard; immutable proposal/approval/alert events; pinned delivery routes | trigger DDL on new tables only |
+| arena 0031 | additive private Telegram recipient/channel/message-ID/lease fields; retires pending legacy delivery with durable events; pins targets and forbids history deletion | no accounting mutation or permission/operator seeds; populated private-history downgrade refused before DDL; real historical and empty-cycle tests |
 | arena 0030 | reverse preflight refuses downgrade after Phase-4 history or published schema-4 use | read-only existence checks before any downgrade DDL; empty disposable reverse/forward remains supported |
 
 Unchanged protections include Phase-1 Freeze readiness, append-only allocations/source receipts,

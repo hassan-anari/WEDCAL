@@ -28,7 +28,7 @@ strings have been formally proved safe. Independent PR review remains the normal
 | `network/services.py:settle_window`; chars/points/daily cap | all rates, limits and anti-abuse from source/window config | immutable canonical source facts | Creator owner/speaker anti-duplication, source retention and late-source regressions |
 | `progression/services.py:calculate_progression` | Level/Dexo thresholds from effective versioned config; no service level curve | ledger immutable; prospective read projection references effective config | existing progression/boundary tests |
 | achievements seven-day=7, thirty-day=30; medal 1000/100 examples | Named achievement identities retain their meaning; Season honor thresholds/ranks are baseline inputs | immutable entitlement/final standing | existing achievements/ranking/Close regressions; no medal rebalance |
-| new alert 900/3900/3/3600 defaults and page/workload/retry limits | Runtime operational controls, not economic inputs; configurable env/rules/routes | process config; per-event route snapshot pinned | threshold/severity/dedup/retry tests; locmem transport only |
+| new alert 900/3900/3/3600 defaults and page/workload/retry limits | Runtime operational controls, not economic inputs; configurable env/rules/routes | process config; per-event route snapshot pinned | threshold/severity/dedup/retry tests; mocked Telegram transport only |
 | storage lengths, integer bounds, lock namespaces, category identities, denominator, uniqueness | Structural/security invariants; remain code/DB enforced | schema/transaction invariant | DB immutability/conservation/compatibility/concurrency tests |
 
 The custom-band regression creates and activates new definitions in an active Season using a

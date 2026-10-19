@@ -255,6 +255,8 @@ class ReadOnlyEconomicAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
 
     def get_fields(self, request: HttpRequest, obj: Any = None) -> tuple[str, ...]:
         hidden = {
+            "telegram_user_id",
+            "lease_token",
             "fingerprint",
             "source_id",
             "reason",
@@ -311,6 +313,20 @@ class ReadOnlyEconomicAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
             "counted_population",
             "implementation",
         }
+        if isinstance(obj, models.EconomicAlertEvent):
+            keys |= {
+                "delivery_id",
+                "source_event_id",
+                "error_code",
+                "transport_code",
+                "attempt",
+                "status",
+                "action",
+                "resulting_status",
+                "actor_id",
+                "reference_digest",
+                "previous_status",
+            }
         for field in obj._meta.fields:
             value = getattr(obj, field.name)
             if isinstance(field, db_models.JSONField):
@@ -435,6 +451,10 @@ for model in (
             "code",
             "severity",
             "route_key",
+            "channel",
+            "last_error_code",
+            "telegram_message_id",
+            "lease_expires_at",
             "stage",
             "attempts",
             "season",

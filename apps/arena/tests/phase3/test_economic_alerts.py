@@ -11,13 +11,13 @@ from threading import Barrier
 import pytest
 from django.contrib import admin
 from django.contrib.auth.models import User
-from django.core import mail
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.management import call_command
 from django.db import DatabaseError, close_old_connections, connections, transaction
 from django.urls import reverse
 
-from apps.arena.alerts import deliver_alert, detect_conditions, retry_dead_delivery, scan_alerts
+from apps.arena.alert_delivery import deliver_alert, retry_dead_delivery
+from apps.arena.alerts import detect_conditions, scan_alerts
 from apps.arena.automation import run_weekly_lifecycle
 from apps.arena.models import (
     DlxCorrection,
@@ -28,24 +28,34 @@ from apps.arena.models import (
     EconomicPolicyApproval,
     EconomicPolicyProposal,
 )
+from apps.notifications.models import BotAdminOperator
 from apps.seasons.models import SeasonCloseRun
+from apps.telegram.bot_api import TelegramResult
 
 from .test_phase4_configurable import configurable_world, milestone  # noqa: F401
 
 
 @pytest.fixture
-def alerts(settings):
+def alerts(settings, player_factory, monkeypatch):
     settings.ECONOMIC_ALERTS_ENABLED = True
     settings.ECONOMIC_ALERT_DELIVERY_ENABLED = True
-    settings.ECONOMIC_ALERT_EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
-    settings.ECONOMIC_ALERT_ROUTES = {
-        "test-ops": {
-            "recipients": ["operator@example.invalid"],
-            "from_email": "alerts@example.invalid",
-            "severities": ["WARNING", "ERROR", "CRITICAL"],
-        }
-    }
     settings.ECONOMIC_ALERT_RULES = copy.deepcopy(settings.ECONOMIC_ALERT_RULES)
+    user = User.objects.create_superuser("economic-alert-operator")
+    player = player_factory(771001)
+    player.first_private_contact_at = player.first_seen_at
+    player.save(update_fields=("first_private_contact_at",))
+    settings.TEST_OPERATOR = BotAdminOperator.objects.create(
+        user=user, telegram_user_id=player.telegram_user_id, enabled=True
+    )
+    settings.CAPTURED_MESSAGES = []
+
+    def send(chat_id, text):
+        assert not connections["default"].in_atomic_block
+        settings.CAPTURED_MESSAGES.append({"chat_id": chat_id, "text": text})
+        return TelegramResult(True, {"message_id": len(settings.CAPTURED_MESSAGES)})
+
+    monkeypatch.setattr("apps.telegram.bot_api.send_message", send)
+    settings.TEST_SEND = send
     return settings
 
 
@@ -54,7 +64,7 @@ def overdue(w):
     w.clock["at"] = w.epochs[0].ends_at + timedelta(hours=2)
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_disabled_monitor_and_delivery_cannot_send(configurable_world, settings):
     w = configurable_world()
     overdue(w)
@@ -63,7 +73,7 @@ def test_disabled_monitor_and_delivery_cannot_send(configurable_world, settings)
     assert not deliver_alert(99999)
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_deadline_dedup_recovery_and_disposable_delivery(configurable_world, alerts):
     w = configurable_world()
     overdue(w)
@@ -75,24 +85,28 @@ def test_deadline_dedup_recovery_and_disposable_delivery(configurable_world, ale
     delivery = EconomicAlertDelivery.objects.get()
     assert deliver_alert(delivery.pk)
     assert not deliver_alert(delivery.pk)
-    assert len(mail.outbox) == 1 and mail.outbox[0].to == ["operator@example.invalid"]
-    assert json.loads(str(mail.outbox[0].body))["code"] == incident.code
+    assert len(alerts.CAPTURED_MESSAGES) == 1
+    assert alerts.CAPTURED_MESSAGES[0]["chat_id"] == alerts.TEST_OPERATOR.telegram_user_id
+    assert "Epoch Freeze Overdue" in alerts.CAPTURED_MESSAGES[0]["text"]
     assert run_weekly_lifecycle(w.season) == 1
     assert scan_alerts() == 0
     incident.refresh_from_db()
     assert incident.status == "RESOLVED"
     recovery = EconomicAlertDelivery.objects.exclude(pk=delivery.pk).get()
     assert deliver_alert(recovery.pk)
-    assert json.loads(str(mail.outbox[-1].body))["outcome"] == "RESOLVED"
-    assert scan_alerts() == 0 and EconomicAlertEvent.objects.count() == 2
+    assert "Transition: RESOLVED" in alerts.CAPTURED_MESSAGES[-1]["text"]
+    assert (
+        scan_alerts() == 0
+        and EconomicAlertEvent.objects.filter(outcome__in=["OPENED", "RESOLVED"]).count() == 2
+    )
     directory = Path("work/phase4-alert-reports")
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "lifecycle.json").write_text(
         json.dumps(
             {
                 "synthetic": True,
-                "transport": alerts.ECONOMIC_ALERT_EMAIL_BACKEND,
-                "captured_messages": [json.loads(str(message.body)) for message in mail.outbox],
+                "transport": "mocked shared Telegram Bot API",
+                "captured_messages": alerts.CAPTURED_MESSAGES,
                 "events": list(
                     EconomicAlertEvent.objects.order_by("pk").values("outcome", "severity")
                 ),
@@ -109,7 +123,7 @@ def test_deadline_dedup_recovery_and_disposable_delivery(configurable_world, ale
         EconomicAlertEvent.objects.filter(pk=recovery.event_id).update(outcome="rewritten")
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_growth_repeated_failure_and_real_worker_recovery(configurable_world, alerts):
     w = configurable_world(milestones=[milestone("approved", 1, 101)])
     overdue(w)
@@ -130,7 +144,7 @@ def test_growth_repeated_failure_and_real_worker_recovery(configurable_world, al
     assert not EconomicAlert.objects.filter(status="OPEN").exists()
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_recovery_delivery_waits_for_pending_opening(configurable_world, alerts):
     w = configurable_world()
     overdue(w)
@@ -142,10 +156,13 @@ def test_recovery_delivery_waits_for_pending_opening(configurable_world, alerts)
     assert not deliver_alert(recovery.pk)
     assert deliver_alert(opening.pk)
     assert deliver_alert(recovery.pk)
-    assert [json.loads(str(m.body))["outcome"] for m in mail.outbox] == ["OPENED", "RESOLVED"]
+    assert [
+        "Transition: OPENED" in alerts.CAPTURED_MESSAGES[0]["text"],
+        "Transition: RESOLVED" in alerts.CAPTURED_MESSAGES[1]["text"],
+    ] == [True, True]
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_stale_worker_and_restart_recovery(configurable_world, alerts):
     w = configurable_world()
     w.enable()
@@ -167,7 +184,7 @@ def test_stale_worker_and_restart_recovery(configurable_world, alerts):
     assert not EconomicAlert.objects.filter(status="OPEN").exists()
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_incompatible_worker_is_durably_visible_before_economic_work(configurable_world, alerts):
     w = configurable_world()
     w.enable()
@@ -180,7 +197,7 @@ def test_incompatible_worker_is_durably_visible_before_economic_work(configurabl
     assert not w.season.economic_epochs.exclude(state="OPEN").exists()
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_official_gate_and_pause_are_not_false_overdue_failures(configurable_world, alerts):
     from apps.arena.automation import control_automation
 
@@ -198,7 +215,7 @@ def test_official_gate_and_pause_are_not_false_overdue_failures(configurable_wor
     assert not EconomicAlert.objects.filter(status="OPEN").exists()
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_reconciliation_signal_and_failed_or_manual_close(configurable_world, alerts, monkeypatch):
     w = configurable_world()
     overdue(w)
@@ -227,7 +244,7 @@ def test_reconciliation_signal_and_failed_or_manual_close(configurable_world, al
     assert EconomicAlert.objects.get(code="SEASON_CLOSE_BLOCKED").status == "RESOLVED"
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_transport_retry_exhaustion_permissioned_recovery_and_pinned_routing(
     configurable_world, alerts, monkeypatch
 ):
@@ -235,17 +252,16 @@ def test_transport_retry_exhaustion_permissioned_recovery_and_pinned_routing(
     overdue(w)
     scan_alerts()
     row = EconomicAlertDelivery.objects.get()
-    original = __import__("apps.arena.alerts", fromlist=["get_connection"]).get_connection
     monkeypatch.setattr(
-        "apps.arena.alerts.get_connection",
-        lambda **_: (_ for _ in ()).throw(ConnectionError("test only")),
+        "apps.telegram.bot_api.send_message",
+        lambda *_: TelegramResult(False, category="rate_limited", retry_after=1),
     )
     alerts.ECONOMIC_ALERT_MAX_ATTEMPTS = 2
     for now in (w.clock["at"], w.clock["at"] + timedelta(hours=1)):
         assert not deliver_alert(row.pk, now=now)
     row.refresh_from_db()
     assert row.status == "DEAD" and row.attempts == 2
-    assert row.last_error_code == "TRANSPORT_FAILURE"
+    assert row.last_error_code == "RATE_LIMITED"
     assert retry_dead_delivery(row.pk, actor=w.actor, reference="fixed-test-route")["dry_run"]
     row.refresh_from_db()
     assert row.status == "DEAD"
@@ -257,18 +273,17 @@ def test_transport_retry_exhaustion_permissioned_recovery_and_pinned_routing(
             dry_run=False,
         )
     retry_dead_delivery(row.pk, actor=w.actor, reference="fixed-test-route", dry_run=False)
-    monkeypatch.setattr("apps.arena.alerts.get_connection", original)
-    alerts.ECONOMIC_ALERT_ROUTES["test-ops"]["recipients"] = ["changed@example.invalid"]
+    monkeypatch.setattr("apps.telegram.bot_api.send_message", alerts.TEST_SEND)
     assert deliver_alert(row.pk)
     row.refresh_from_db()
     assert row.attempts == 3
-    assert mail.outbox[-1].to == ["operator@example.invalid"]
+    assert alerts.CAPTURED_MESSAGES[-1]["chat_id"] == alerts.TEST_OPERATOR.telegram_user_id
     assert EconomicAlertEvent.objects.filter(outcome="RETRY_REQUESTED").count() == 1
     with pytest.raises(DatabaseError), transaction.atomic():
         EconomicAlertDelivery.objects.filter(pk=row.pk).update(route_config={})
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_failed_scan_cannot_resolve_alerts_or_deliver_from_preview(
     configurable_world, alerts, monkeypatch
 ):
@@ -286,13 +301,13 @@ def test_failed_scan_cannot_resolve_alerts_or_deliver_from_preview(
         scan_alerts()
     assert EconomicAlert.objects.get().status == "OPEN"
     monkeypatch.setattr("apps.arena.alerts.detect_conditions", original)
-    alerts.ECONOMIC_ALERT_ROUTES = {"bad-route": {}}
+    alerts.ECONOMIC_ALERT_RULES["EPOCH_FREEZE_OVERDUE"]["severity"] = "INVALID"
     with pytest.raises(ValidationError):
         scan_alerts()
     assert EconomicAlert.objects.get().status == "OPEN"
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_configured_deadline_severity_and_dedup(configurable_world, alerts):
     w = configurable_world()
     overdue(w)
@@ -333,10 +348,10 @@ def test_concurrent_scans_and_deliveries_do_not_duplicate_outbox(configurable_wo
         outcomes = list(
             pool.map(worker, [lambda: deliver_alert(row.pk), lambda: deliver_alert(row.pk)])
         )
-    assert outcomes.count(True) == 1 and len(mail.outbox) == 1
+    assert outcomes.count(True) == 1 and len(alerts.CAPTURED_MESSAGES) == 1
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_new_audit_admins_are_read_only_and_route_details_redacted(
     configurable_world, alerts, client, rf
 ):
@@ -360,16 +375,19 @@ def test_new_audit_admins_are_read_only_and_route_details_redacted(
         assert not inspector.get_actions(request)
     row = EconomicAlertDelivery.objects.get()
     page = client.get(reverse("admin:arena_economicalertdelivery_change", args=(row.pk,)))
-    assert page.status_code == 200 and b"operator@example.invalid" not in page.content
+    assert (
+        page.status_code == 200
+        and str(alerts.TEST_OPERATOR.telegram_user_id).encode() not in page.content
+    )
     assert not admin.site._registry[EconomicAlertDelivery].lookup_allowed(
-        "route_config__recipients", "operator@example.invalid", request
+        "route_config__telegram_user_id", str(alerts.TEST_OPERATOR.telegram_user_id), request
     )
     assert not admin.site._registry[DlxCorrection].lookup_allowed(
         "entitlement__calculation__proof", "x", request
     )
     assert client.get(
         reverse("admin:arena_economicalertdelivery_changelist"),
-        {"route_config__recipients__contains": "operator@example.invalid"},
+        {"route_config__telegram_user_id": str(alerts.TEST_OPERATOR.telegram_user_id)},
     ).status_code in {302, 400}
     assert (
         client.post(
