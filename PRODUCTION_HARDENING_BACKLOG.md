@@ -155,7 +155,7 @@ Until functional MVP is complete:
 | PH-040 | Season 2 REFERENCE/LIVE price source semantics | OPEN | PHASE-BLOCKER | Season 2 price integration, not S1 | High financial UI |
 | PH-041 | DLX native precision / off-chain → chain conversion | OPEN | PHASE-BLOCKER | Before any on-chain claim/transfer | Critical financial |
 | PH-042 | Fraud forfeiture/adjustment ledger + appeal/audit path | RESOLVED | PHASE-BLOCKER | Accepted in merged Phase 9; Phase-10 operations retained | High |
-| PH-043 | `read-season-brief` authoritative INTERNAL evidence | OWNER PRODUCT DECISION REQUIRED BEFORE S1 LAUNCH | LAUNCH-BLOCKER | Final S1 mission/launch gate | High functional |
+| PH-043 | `read-season-brief` official external mission | OWNER DECISION RESOLVED / VERSIONED ACTIVATION PENDING | LAUNCH-BLOCKER | Phase 2 backend review, controlled configuration and paired acceptance | High functional |
 | PH-044 | Repeated same-key multi-season medal provenance | WATCH | SEASON-2-BLOCKER | Before Season 2 Profile/Collection integration | Medium product/API |
 
 ---
@@ -648,18 +648,22 @@ Current `/bootstrap` returns `dict[str, Any]`. As Profile, Clan, Arena and notif
 
 ## PH-043 — Season Brief INTERNAL mission lacks authoritative completion evidence
 
-The enabled Season 1 `read-season-brief` mission has no approved server-owned fact or verifier.
-The existing INTERNAL verifier therefore fails closed rather than accepting a client assertion.
+Historical finding: the enabled INTERNAL `read-season-brief` mission had no approved server-owned
+fact or verifier and failed closed. The owner's Season 1 completion Phase 2 decision now approves
+the official `https://dexoland.dalexio.com/` TIMED_EXTERNAL interaction using existing token/dwell
+and canonical claim infrastructure. [Implementation and safe activation handoff](docs/SEASON1_PHASE2_GAMEPLAY_HANDOFF.md).
 
-**Status:** OWNER PRODUCT DECISION REQUIRED BEFORE S1 LAUNCH
+**Status:** OWNER DECISION RESOLVED / VERSIONED ACTIVATION AND ACCEPTANCE PENDING
 **Gate:** LAUNCH-BLOCKER
 **Target / Promotion Trigger:** This does not block Phase 6/7 MVP feature development today, but
 must be resolved before the final Season 1 mission/launch gate, once the authoritative
 server-observed completion action is approved.
 
-**Acceptance:** Define the approved server-owned read/open evidence, implement an authenticated
-idempotent recording action, connect it to normal Mission verification, and cover authorization and
-retry behavior without awarding points directly from the evidence endpoint.
+**Acceptance:** Review the Phase 2 backend, retain immutable published policy and protected
+definition history, publish a matching effective-dated mission rule if required, activate a fresh
+definition version through existing controlled Admin, and verify the final backend/frontend pin
+in isolated staging/device acceptance. Token plus elapsed server time does not prove reading.
+No production activation, rewrite or test reward is performed by the Phase 2 implementation task.
 
 ---
 

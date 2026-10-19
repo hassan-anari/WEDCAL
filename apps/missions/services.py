@@ -42,6 +42,19 @@ class MissionStart:
     destination_url: str | None
 
 
+SEASON_BRIEF_DESTINATION = "https://dexoland.dalexio.com/"
+
+
+def require_approved_destination(definition: MissionDefinition) -> None:
+    """PH-043 owner decision; legacy definitions remain historical, never auto-converted."""
+    if definition.key == "read-season-brief" and (
+        definition.verification_family != MissionDefinition.Verification.TIMED_EXTERNAL
+        or definition.repeat_policy != MissionDefinition.Repeat.ONCE
+        or definition.verification_parameters.get("destination_url") != SEASON_BRIEF_DESTINATION
+    ):
+        raise MissionUnavailable("Publish and activate the approved external Season Brief version")
+
+
 def _definition(key: str, at: datetime) -> MissionDefinition:
     definition = (
         MissionDefinition.objects.filter(key=key, enabled=True)
@@ -144,6 +157,11 @@ def list_missions(player: Player, at: datetime) -> list[dict[str, object]]:
             continue  # Quarantine malformed/legacy rows; one definition cannot break Bootstrap.
         period = _mission_period(definition, at, resolved)
         row = progress.get((definition.pk, period))
+        try:
+            require_approved_destination(definition)
+            available = True
+        except MissionUnavailable:
+            available = False
         result.append(
             {
                 "key": definition.key,
@@ -153,13 +171,9 @@ def list_missions(player: Player, at: datetime) -> list[dict[str, object]]:
                 "verification_family": definition.verification_family,
                 "repeat_policy": definition.repeat_policy,
                 "reward_amount": rule.reward_points,
-                "state": row.status
-                if row
-                else ("UNAVAILABLE" if definition.key == "read-season-brief" else "AVAILABLE"),
-                "available": definition.key != "read-season-brief",
-                "unavailable_reason": "PRODUCT_EVIDENCE_PENDING"
-                if definition.key == "read-season-brief"
-                else None,
+                "state": row.status if row else ("AVAILABLE" if available else "UNAVAILABLE"),
+                "available": available,
+                "unavailable_reason": None if available else "PRODUCT_EVIDENCE_PENDING",
                 "destination_url": definition.verification_parameters.get("destination_url"),
                 "opened_at": row.opened_at if row else None,
                 "verified_at": row.verified_at if row else None,
@@ -175,6 +189,7 @@ def start_mission(player: Player, key: str, at: datetime) -> MissionStart:
         raise MissionUnavailable("Missions are unavailable in the effective configuration")
     definition = _definition(key, at)
     _require_policy_binding(definition, resolved)
+    require_approved_destination(definition)
     eligibility = _mission_period(definition, at, resolved)
     with transaction.atomic():
         player = Player.objects.select_for_update().get(pk=player.pk)
@@ -227,6 +242,8 @@ def _mark_ready(player: Player, progress_id: int, at: datetime) -> PlayerMission
         )
         if progress.status in (PlayerMission.Status.REWARD_READY, PlayerMission.Status.CLAIMED):
             return progress
+        if not resolved.missions.enabled or not progress.definition.enabled:
+            raise MissionUnavailable("Mission was disabled before verification completed")
         rule = resolved.missions.definition(progress.definition.key)
         _require_policy_binding(progress.definition, resolved)
         progress.status = PlayerMission.Status.REWARD_READY
@@ -253,8 +270,11 @@ def verify_mission(
     player: Player, key: str, at: datetime, token: str | None = None
 ) -> PlayerMission:
     resolved = resolve_effective_game_config(at)
+    if not resolved.missions.enabled:
+        raise MissionUnavailable("Missions are unavailable in the effective configuration")
     definition = _definition(key, at)
     _require_policy_binding(definition, resolved)
+    require_approved_destination(definition)
     eligibility = _mission_period(definition, at, resolved)
     progress = (
         PlayerMission.objects.select_related("definition")

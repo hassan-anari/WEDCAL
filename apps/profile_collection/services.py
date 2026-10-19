@@ -202,6 +202,25 @@ def reconcile_profile(
                 },
             )
             awards[key] = award
+    from apps.profile_collection.clan_medals import qualifying_clan_medals
+
+    missing_clan_medals = {"clan-loyalty", "leadership"} - awards.keys()
+    if missing_clan_medals:
+        for key, evidence in qualifying_clan_medals(
+            player, resolved, at, keys=missing_clan_medals
+        ).items():
+            award, _ = PlayerMedalAward.objects.get_or_create(
+                player=player,
+                medal_key=key,
+                source_season=None,
+                defaults={
+                    "awarded_at": at,
+                    "config_version": config,
+                    "reason": key.upper().replace("-", "_"),
+                    "evidence_metadata": evidence,
+                },
+            )
+            awards[key] = award
     achievement_keys, medal_keys = set(existing), set(awards)
     frames = {x.key: x for x in resolved.profile_collection.frames}
     titles = {x.key: x for x in resolved.profile_collection.titles}

@@ -14,7 +14,7 @@ the remaining repository-owner and product-owner launch decisions.
 | Capacity evidence / sizing | PASS | Narrow 50K baseline executed; larger tiers remain WATCH measurements and no unsupported 1M capacity claim is made |
 | Security and secret-rotation verification | PASS | Production HTTP/settings/proxy behavior and rotation procedure reviewed; deployment ownership remains operational |
 | Dependency/container vulnerabilities | PASS | Final hosted Trivy JSON/SARIF/policy retained; 0 CRITICAL, 0 fixable HIGH/CRITICAL, 8 unique no-fix IDs individually reviewed; policy passed |
-| `read-season-brief` evidence (PH-043) | BLOCKED | OWNER PRODUCT DECISION REQUIRED BEFORE S1 LAUNCH |
+| `read-season-brief` evidence (PH-043) | VERSIONED ACTIVATION / ACCEPTANCE PENDING | Owner approved official TIMED_EXTERNAL website flow; [Phase 2 handoff](SEASON1_PHASE2_GAMEPLAY_HANDOFF.md). Preserve historical definitions/config; publish matching policy and activate only after approved release and paired staging/device acceptance. |
 | Main branch protection (PH-037) | OWNER_ACTION_REQUIRED | Require PR, Contract Gate, Foundation; block force/delete |
 | Season-2 gameplay | NOT_APPLICABLE | Explicitly outside this release |
 | Phase-11 application-controlled merge gates | PASS | Contract Gate, Foundation, Release Scans, 542 tests, runtime smoke, PH-008 and PH-039 accepted |

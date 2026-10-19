@@ -24,7 +24,7 @@ from apps.notifications.models import OperatorAuditEvent
 def validate_definition(row: Any, *, activating: bool = False) -> dict[str, Any]:
     from apps.clans.missions import SUPPORTED_REQUIREMENTS
     from apps.clans.models import ClanMissionDefinition
-    from apps.missions.services import _require_policy_binding
+    from apps.missions.services import _require_policy_binding, require_approved_destination
 
     row.full_clean()
     if isinstance(row, ClanMissionDefinition):
@@ -70,6 +70,7 @@ def validate_definition(row: Any, *, activating: bool = False) -> dict[str, Any]
         }
     resolved = resolve_effective_game_config(timezone.now())
     _require_policy_binding(row, resolved)
+    require_approved_destination(row)
     if not resolved.missions.enabled:
         raise ValidationError("Personal missions are disabled in effective GameConfig.")
     if activating and row.available_until and row.available_until <= timezone.now():
@@ -83,9 +84,7 @@ def validate_definition(row: Any, *, activating: bool = False) -> dict[str, Any]
         "reward_points": rule.reward_points,
         "parameters": row.verification_parameters,
         "settlement": "Existing verification and idempotent claim workflow.",
-        "availability": "PRODUCT_EVIDENCE_PENDING"
-        if row.key == "read-season-brief"
-        else "Configured",
+        "availability": "Configured",
     }
 
 
