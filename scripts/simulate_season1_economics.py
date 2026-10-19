@@ -27,14 +27,14 @@ BUDGETS = dict(
 )
 
 
-def population(size: int) -> dict[str, Any]:
+def population(size: int, active: tuple[str, ...] = CATEGORIES) -> dict[str, Any]:
     carry = dict.fromkeys(CATEGORIES, 0)
     weeks = []
     allocated_total = reserves = 0
     for week in range(1, 7):
         categories: dict[str, Any] = {}
         for category, base in BUDGETS.items():
-            scores = dict.fromkeys(range(1, size + 1), 6000)
+            scores = dict.fromkeys(range(1, size + 1), 6000) if category in active else {}
             h = size * 7 * 10000 if category == CATEGORIES[2] else 0
             limit, reserve = emission_limit(base, carry[category], category, scores, h, POLICY)
             allocation = proportional_allocation(scores, limit, base // 100)
@@ -45,8 +45,8 @@ def population(size: int) -> dict[str, Any]:
                 "reserve": reserve,
                 "supported_limit": limit,
                 "allocated": amount,
-                "min_player": min(allocation.values()),
-                "max_player": max(allocation.values()),
+                "min_player": min(allocation.values(), default=0),
+                "max_player": max(allocation.values(), default=0),
             }
             carry[category] = base + carry[category] - amount - reserve
             categories[category]["carry_out"] = carry[category]
@@ -64,7 +64,7 @@ def population(size: int) -> dict[str, Any]:
     return {
         "players": size,
         "assumption": (
-            "Every account eligible in every category; "
+            "Hypothetical eligible beneficiary count per category; lifecycle-independent upper bound; "
             "Creator H conserves one speaker-day/account/day; no corrections paid"
         ),
         "weeks": weeks,
@@ -175,6 +175,7 @@ def main() -> None:
     output = {
         "policy": str(POLICY_PATH.name),
         "populations": [population(n) for n in (2, 1000, 10000)],
+        "feasible_two_player_core_loyalty": population(2, (CATEGORIES[1], CATEGORIES[4])),
         "adversarial": {
             "all_category_networks": [population(n) for n in (100, 1000)],
             "tap_only_100_and_1000": "0 qualification / 0 allocation",

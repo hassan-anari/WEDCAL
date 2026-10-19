@@ -3,7 +3,7 @@
     "all_category_networks": [
       {
         "allocated_total": 8265000,
-        "assumption": "Every account eligible in every category; Creator H conserves one speaker-day/account/day; no corrections paid",
+        "assumption": "Hypothetical eligible beneficiary count per category; lifecycle-independent upper bound; Creator H conserves one speaker-day/account/day; no corrections paid",
         "final_residual": 51735000,
         "players": 100,
         "reserves": 3000000,
@@ -348,7 +348,7 @@
       },
       {
         "allocated_total": 57000000,
-        "assumption": "Every account eligible in every category; Creator H conserves one speaker-day/account/day; no corrections paid",
+        "assumption": "Hypothetical eligible beneficiary count per category; lifecycle-independent upper bound; Creator H conserves one speaker-day/account/day; no corrections paid",
         "final_residual": 3000000,
         "players": 1000,
         "reserves": 3000000,
@@ -727,6 +727,351 @@
     "residual_risk": "Coordinated accounts that satisfy all authoritative independent routes can qualify; no unique-human verification is claimed. See all-category population upper bounds.",
     "tap_only_100_and_1000": "0 qualification / 0 allocation"
   },
+  "feasible_two_player_core_loyalty": {
+    "allocated_total": 41325,
+    "assumption": "Hypothetical eligible beneficiary count per category; lifecycle-independent upper bound; Creator H conserves one speaker-day/account/day; no corrections paid",
+    "final_residual": 59958675,
+    "players": 2,
+    "reserves": 3000000,
+    "weeks": [
+      {
+        "allocated": 5700,
+        "categories": {
+          "CLAN_PERFORMANCE": {
+            "allocated": 0,
+            "carry_in": 0,
+            "carry_out": 3325000,
+            "fresh": 3500000,
+            "max_player": 0,
+            "min_player": 0,
+            "reserve": 175000,
+            "supported_limit": 0
+          },
+          "CORE_GAMEPLAY": {
+            "allocated": 3800,
+            "carry_in": 0,
+            "carry_out": 1896200,
+            "fresh": 2000000,
+            "max_player": 1900,
+            "min_player": 1900,
+            "reserve": 100000,
+            "supported_limit": 3800
+          },
+          "CREATOR_COMMUNITY_GROWTH": {
+            "allocated": 0,
+            "carry_in": 0,
+            "carry_out": 1900000,
+            "fresh": 2000000,
+            "max_player": 0,
+            "min_player": 0,
+            "reserve": 100000,
+            "supported_limit": 0
+          },
+          "LOYALTY_CONSISTENCY": {
+            "allocated": 1900,
+            "carry_in": 0,
+            "carry_out": 948100,
+            "fresh": 1000000,
+            "max_player": 950,
+            "min_player": 950,
+            "reserve": 50000,
+            "supported_limit": 1900
+          },
+          "VERIFIED_REFERRAL": {
+            "allocated": 0,
+            "carry_in": 0,
+            "carry_out": 1425000,
+            "fresh": 1500000,
+            "max_player": 0,
+            "min_player": 0,
+            "reserve": 75000,
+            "supported_limit": 0
+          }
+        },
+        "week": 1
+      },
+      {
+        "allocated": 7125,
+        "categories": {
+          "CLAN_PERFORMANCE": {
+            "allocated": 0,
+            "carry_in": 3325000,
+            "carry_out": 6650000,
+            "fresh": 3500000,
+            "max_player": 0,
+            "min_player": 0,
+            "reserve": 175000,
+            "supported_limit": 0
+          },
+          "CORE_GAMEPLAY": {
+            "allocated": 4750,
+            "carry_in": 1896200,
+            "carry_out": 3791450,
+            "fresh": 2000000,
+            "max_player": 2375,
+            "min_player": 2375,
+            "reserve": 100000,
+            "supported_limit": 4750
+          },
+          "CREATOR_COMMUNITY_GROWTH": {
+            "allocated": 0,
+            "carry_in": 1900000,
+            "carry_out": 3800000,
+            "fresh": 2000000,
+            "max_player": 0,
+            "min_player": 0,
+            "reserve": 100000,
+            "supported_limit": 0
+          },
+          "LOYALTY_CONSISTENCY": {
+            "allocated": 2375,
+            "carry_in": 948100,
+            "carry_out": 1895725,
+            "fresh": 1000000,
+            "max_player": 1188,
+            "min_player": 1187,
+            "reserve": 50000,
+            "supported_limit": 2375
+          },
+          "VERIFIED_REFERRAL": {
+            "allocated": 0,
+            "carry_in": 1425000,
+            "carry_out": 2850000,
+            "fresh": 1500000,
+            "max_player": 0,
+            "min_player": 0,
+            "reserve": 75000,
+            "supported_limit": 0
+          }
+        },
+        "week": 2
+      },
+      {
+        "allocated": 7125,
+        "categories": {
+          "CLAN_PERFORMANCE": {
+            "allocated": 0,
+            "carry_in": 6650000,
+            "carry_out": 9975000,
+            "fresh": 3500000,
+            "max_player": 0,
+            "min_player": 0,
+            "reserve": 175000,
+            "supported_limit": 0
+          },
+          "CORE_GAMEPLAY": {
+            "allocated": 4750,
+            "carry_in": 3791450,
+            "carry_out": 5686700,
+            "fresh": 2000000,
+            "max_player": 2375,
+            "min_player": 2375,
+            "reserve": 100000,
+            "supported_limit": 4750
+          },
+          "CREATOR_COMMUNITY_GROWTH": {
+            "allocated": 0,
+            "carry_in": 3800000,
+            "carry_out": 5700000,
+            "fresh": 2000000,
+            "max_player": 0,
+            "min_player": 0,
+            "reserve": 100000,
+            "supported_limit": 0
+          },
+          "LOYALTY_CONSISTENCY": {
+            "allocated": 2375,
+            "carry_in": 1895725,
+            "carry_out": 2843350,
+            "fresh": 1000000,
+            "max_player": 1188,
+            "min_player": 1187,
+            "reserve": 50000,
+            "supported_limit": 2375
+          },
+          "VERIFIED_REFERRAL": {
+            "allocated": 0,
+            "carry_in": 2850000,
+            "carry_out": 4275000,
+            "fresh": 1500000,
+            "max_player": 0,
+            "min_player": 0,
+            "reserve": 75000,
+            "supported_limit": 0
+          }
+        },
+        "week": 3
+      },
+      {
+        "allocated": 7125,
+        "categories": {
+          "CLAN_PERFORMANCE": {
+            "allocated": 0,
+            "carry_in": 9975000,
+            "carry_out": 13300000,
+            "fresh": 3500000,
+            "max_player": 0,
+            "min_player": 0,
+            "reserve": 175000,
+            "supported_limit": 0
+          },
+          "CORE_GAMEPLAY": {
+            "allocated": 4750,
+            "carry_in": 5686700,
+            "carry_out": 7581950,
+            "fresh": 2000000,
+            "max_player": 2375,
+            "min_player": 2375,
+            "reserve": 100000,
+            "supported_limit": 4750
+          },
+          "CREATOR_COMMUNITY_GROWTH": {
+            "allocated": 0,
+            "carry_in": 5700000,
+            "carry_out": 7600000,
+            "fresh": 2000000,
+            "max_player": 0,
+            "min_player": 0,
+            "reserve": 100000,
+            "supported_limit": 0
+          },
+          "LOYALTY_CONSISTENCY": {
+            "allocated": 2375,
+            "carry_in": 2843350,
+            "carry_out": 3790975,
+            "fresh": 1000000,
+            "max_player": 1188,
+            "min_player": 1187,
+            "reserve": 50000,
+            "supported_limit": 2375
+          },
+          "VERIFIED_REFERRAL": {
+            "allocated": 0,
+            "carry_in": 4275000,
+            "carry_out": 5700000,
+            "fresh": 1500000,
+            "max_player": 0,
+            "min_player": 0,
+            "reserve": 75000,
+            "supported_limit": 0
+          }
+        },
+        "week": 4
+      },
+      {
+        "allocated": 7125,
+        "categories": {
+          "CLAN_PERFORMANCE": {
+            "allocated": 0,
+            "carry_in": 13300000,
+            "carry_out": 16625000,
+            "fresh": 3500000,
+            "max_player": 0,
+            "min_player": 0,
+            "reserve": 175000,
+            "supported_limit": 0
+          },
+          "CORE_GAMEPLAY": {
+            "allocated": 4750,
+            "carry_in": 7581950,
+            "carry_out": 9477200,
+            "fresh": 2000000,
+            "max_player": 2375,
+            "min_player": 2375,
+            "reserve": 100000,
+            "supported_limit": 4750
+          },
+          "CREATOR_COMMUNITY_GROWTH": {
+            "allocated": 0,
+            "carry_in": 7600000,
+            "carry_out": 9500000,
+            "fresh": 2000000,
+            "max_player": 0,
+            "min_player": 0,
+            "reserve": 100000,
+            "supported_limit": 0
+          },
+          "LOYALTY_CONSISTENCY": {
+            "allocated": 2375,
+            "carry_in": 3790975,
+            "carry_out": 4738600,
+            "fresh": 1000000,
+            "max_player": 1188,
+            "min_player": 1187,
+            "reserve": 50000,
+            "supported_limit": 2375
+          },
+          "VERIFIED_REFERRAL": {
+            "allocated": 0,
+            "carry_in": 5700000,
+            "carry_out": 7125000,
+            "fresh": 1500000,
+            "max_player": 0,
+            "min_player": 0,
+            "reserve": 75000,
+            "supported_limit": 0
+          }
+        },
+        "week": 5
+      },
+      {
+        "allocated": 7125,
+        "categories": {
+          "CLAN_PERFORMANCE": {
+            "allocated": 0,
+            "carry_in": 16625000,
+            "carry_out": 19950000,
+            "fresh": 3500000,
+            "max_player": 0,
+            "min_player": 0,
+            "reserve": 175000,
+            "supported_limit": 0
+          },
+          "CORE_GAMEPLAY": {
+            "allocated": 4750,
+            "carry_in": 9477200,
+            "carry_out": 11372450,
+            "fresh": 2000000,
+            "max_player": 2375,
+            "min_player": 2375,
+            "reserve": 100000,
+            "supported_limit": 4750
+          },
+          "CREATOR_COMMUNITY_GROWTH": {
+            "allocated": 0,
+            "carry_in": 9500000,
+            "carry_out": 11400000,
+            "fresh": 2000000,
+            "max_player": 0,
+            "min_player": 0,
+            "reserve": 100000,
+            "supported_limit": 0
+          },
+          "LOYALTY_CONSISTENCY": {
+            "allocated": 2375,
+            "carry_in": 4738600,
+            "carry_out": 5686225,
+            "fresh": 1000000,
+            "max_player": 1188,
+            "min_player": 1187,
+            "reserve": 50000,
+            "supported_limit": 2375
+          },
+          "VERIFIED_REFERRAL": {
+            "allocated": 0,
+            "carry_in": 7125000,
+            "carry_out": 8550000,
+            "fresh": 1500000,
+            "max_player": 0,
+            "min_player": 0,
+            "reserve": 75000,
+            "supported_limit": 0
+          }
+        },
+        "week": 6
+      }
+    ]
+  },
   "four_players": [
     {
       "categories": {
@@ -885,7 +1230,7 @@
   "populations": [
     {
       "allocated_total": 165295,
-      "assumption": "Every account eligible in every category; Creator H conserves one speaker-day/account/day; no corrections paid",
+      "assumption": "Hypothetical eligible beneficiary count per category; lifecycle-independent upper bound; Creator H conserves one speaker-day/account/day; no corrections paid",
       "final_residual": 59834705,
       "players": 2,
       "reserves": 3000000,
@@ -1230,7 +1575,7 @@
     },
     {
       "allocated_total": 57000000,
-      "assumption": "Every account eligible in every category; Creator H conserves one speaker-day/account/day; no corrections paid",
+      "assumption": "Hypothetical eligible beneficiary count per category; lifecycle-independent upper bound; Creator H conserves one speaker-day/account/day; no corrections paid",
       "final_residual": 3000000,
       "players": 1000,
       "reserves": 3000000,
@@ -1575,7 +1920,7 @@
     },
     {
       "allocated_total": 57000000,
-      "assumption": "Every account eligible in every category; Creator H conserves one speaker-day/account/day; no corrections paid",
+      "assumption": "Hypothetical eligible beneficiary count per category; lifecycle-independent upper bound; Creator H conserves one speaker-day/account/day; no corrections paid",
       "final_residual": 3000000,
       "players": 10000,
       "reserves": 3000000,
