@@ -64,7 +64,8 @@ def population(size: int, active: tuple[str, ...] = CATEGORIES) -> dict[str, Any
     return {
         "players": size,
         "assumption": (
-            "Hypothetical eligible beneficiary count per category; lifecycle-independent upper bound; "
+            "Hypothetical eligible beneficiary count per category; "
+            "lifecycle-independent upper bound; "
             "Creator H conserves one speaker-day/account/day; no corrections paid"
         ),
         "weeks": weeks,
