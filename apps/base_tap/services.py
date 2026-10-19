@@ -115,7 +115,7 @@ def submit_tap_batch(
         )
         from apps.arena.models import PerformanceSourceFact
 
-        PerformanceSourceFact.objects.create(
+        performance_fact = PerformanceSourceFact.objects.create(
             season=season,
             player=locked_player,
             category="CORE_GAMEPLAY",
@@ -126,6 +126,9 @@ def submit_tap_batch(
             config_version_id=config.id,
             metadata={"accepted_taps": accepted, "utc_day": str(utc_day)},
         )
+        from apps.arena.recognition import record_core_fact
+
+        record_core_fact(performance_fact)
         accumulator.accepted_taps += accepted
         accumulator.pending_points += earned
         if accumulator.first_accepted_at is None:

@@ -104,6 +104,16 @@ def season_adjustment_totals(season: Season) -> dict[str, int]:
         .annotate(v=Sum("amount"))
     )
     values = {row["kind"]: int(row["v"] or 0) for row in rows}
+    from apps.arena.models import DlxCorrectionAdjustment
+
+    for row in (
+        DlxCorrectionAdjustment.objects.filter(
+            correction__entitlement__deferral__epoch__season=season
+        )
+        .values("kind")
+        .annotate(v=Sum("amount"))
+    ):
+        values[row["kind"]] = values.get(row["kind"], 0) + int(row["v"])
     holds = values.get(DlxAdjustment.Kind.HOLD, 0)
     released = values.get(DlxAdjustment.Kind.RELEASE_HOLD, 0)
     forfeits = values.get(DlxAdjustment.Kind.FORFEIT, 0)

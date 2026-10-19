@@ -1,3 +1,5 @@
+import uuid
+
 from django.db import models
 from django.db.models import Q
 
@@ -46,6 +48,7 @@ class RankingProjectionState(models.Model):
 class QualificationDecision(models.Model):
     class Decision(models.TextChoices):
         QUALIFIED = "QUALIFIED", "Qualified"
+        NOT_YET_QUALIFIED = "NOT_YET_QUALIFIED", "Not yet qualified"
         DISQUALIFIED = "DISQUALIFIED", "Disqualified"
         PENDING = "PENDING", "Pending review"
 
@@ -54,7 +57,7 @@ class QualificationDecision(models.Model):
     )
     policy_key = models.CharField(max_length=64)
     policy_version = models.PositiveIntegerField()
-    decision = models.CharField(max_length=16, choices=Decision.choices)
+    decision = models.CharField(max_length=24, choices=Decision.choices)
     effective_at = models.DateTimeField()
     reason_code = models.CharField(max_length=64)
     source = models.CharField(max_length=64)
@@ -399,4 +402,285 @@ class EpochReadinessEvaluation(models.Model):
                 ),
                 name="arena_readiness_terminal_time",
             ),
+        ]
+
+
+class EconomicPolicyVersion(models.Model):
+    """Immutable policy document; existence is not activation authority."""
+
+    key = models.CharField(max_length=64)
+    version = models.PositiveIntegerField()
+    payload = models.JSONField()
+    checksum = models.CharField(max_length=64)
+    approval_reference = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        permissions = [("bind_economic_policy", "Can bind independently approved economic policy")]
+        constraints = [
+            models.UniqueConstraint(fields=("key", "version"), name="arena_policy_version")
+        ]
+
+
+class EpochPolicyBinding(models.Model):
+    epoch = models.OneToOneField(
+        EconomicEpoch, on_delete=models.PROTECT, related_name="economic_policy"
+    )
+    policy = models.ForeignKey(EconomicPolicyVersion, on_delete=models.PROTECT)
+    approved_by = models.ForeignKey("auth.User", on_delete=models.PROTECT)
+    evidence_reference = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class EconomicRecognition(models.Model):
+    """One monetary recognition per canonical source; actor presence is also usable for Loyalty."""
+
+    epoch = models.ForeignKey(EconomicEpoch, on_delete=models.PROTECT, related_name="recognitions")
+    player = models.ForeignKey(
+        "players.Player", on_delete=models.PROTECT, related_name="economic_recognitions"
+    )
+    actor = models.ForeignKey(
+        "players.Player", on_delete=models.PROTECT, related_name="economic_participation"
+    )
+    category = models.CharField(max_length=40)
+    component = models.CharField(max_length=24)
+    source_type = models.CharField(max_length=40)
+    source_id = models.CharField(max_length=128)
+    source_time = models.DateTimeField()
+    finalized_at = models.DateTimeField()
+    recognized_at = models.DateTimeField()
+    config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
+    policy = models.ForeignKey(EconomicPolicyVersion, on_delete=models.PROTECT)
+    inputs = models.JSONField()
+    evidence_digest = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("source_type", "source_id"), name="arena_recognition_once"
+            )
+        ]
+        indexes = [
+            models.Index(fields=("epoch", "category", "player"), name="arena_recognized_category")
+        ]
+
+
+class EconomicDeferral(models.Model):
+    """Explicit scoped exposure. This record never asserts that source work completed."""
+
+    epoch = models.ForeignKey(
+        EconomicEpoch, on_delete=models.PROTECT, related_name="economic_deferrals"
+    )
+    provider = models.CharField(max_length=40)
+    source_id = models.CharField(max_length=128)
+    player = models.ForeignKey("players.Player", on_delete=models.PROTECT, null=True)
+    category = models.CharField(max_length=40, blank=True)
+    reason = models.CharField(max_length=64)
+    evidence = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    @property
+    def assessment(self) -> "CorrectionAssessment":
+        row = self.assessments.order_by("-pk").first()
+        if row is None:
+            raise AttributeError("No economic correction assessment")
+        return row
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("epoch", "provider", "source_id"), name="arena_scoped_deferral"
+            )
+        ]
+        permissions = [("resolve_economic_deferral", "Can resolve scoped economic deferral")]
+
+
+class EconomicDeferralResolution(models.Model):
+    deferral = models.OneToOneField(
+        EconomicDeferral, on_delete=models.PROTECT, related_name="resolution"
+    )
+    outcome = models.CharField(max_length=32)
+    actor = models.ForeignKey("auth.User", on_delete=models.PROTECT, null=True)
+    service_actor = models.CharField(max_length=64, blank=True)
+    evidence_reference = models.CharField(max_length=255)
+    recognition = models.ForeignKey(EconomicRecognition, on_delete=models.PROTECT, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class EconomicReviewDecision(models.Model):
+    epoch = models.ForeignKey(EconomicEpoch, on_delete=models.PROTECT)
+    player = models.ForeignKey("players.Player", on_delete=models.PROTECT)
+    outcome = models.CharField(
+        max_length=16, choices=(("CLEARED", "Cleared"), ("DISQUALIFIED", "Disqualified"))
+    )
+    actor = models.ForeignKey("auth.User", on_delete=models.PROTECT)
+    reason = models.CharField(max_length=1000)
+    evidence_reference = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("epoch", "player"), name="arena_review_disposition")
+        ]
+        permissions = [("review_economic_eligibility", "Can review scoped economic eligibility")]
+
+
+class EpochSourceManifest(models.Model):
+    epoch = models.ForeignKey(
+        EconomicEpoch, on_delete=models.PROTECT, related_name="source_manifests"
+    )
+    policy = models.ForeignKey(EconomicPolicyVersion, on_delete=models.PROTECT)
+    input_digest = models.CharField(max_length=64)
+    evidence = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("epoch", "input_digest"), name="arena_source_manifest")
+        ]
+
+
+class CategoryCorrectionReserve(models.Model):
+    budget = models.OneToOneField(
+        EpochCategoryBudget, on_delete=models.PROTECT, related_name="correction_reserve"
+    )
+    amount = models.PositiveBigIntegerField()
+    policy = models.ForeignKey(EconomicPolicyVersion, on_delete=models.PROTECT)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class DlxCorrectionEntitlement(models.Model):
+    """Reviewed exact entitlement. Approval does not guarantee reserve availability."""
+
+    deferral = models.OneToOneField(
+        EconomicDeferral, on_delete=models.PROTECT, related_name="entitlement"
+    )
+    round = models.ForeignKey(
+        "DlxCorrectionRound", on_delete=models.PROTECT, related_name="entitlements"
+    )
+    player = models.ForeignKey("players.Player", on_delete=models.PROTECT)
+    category = models.CharField(max_length=40)
+    amount = models.PositiveBigIntegerField()
+    actor = models.ForeignKey("auth.User", on_delete=models.PROTECT)
+    evidence_reference = models.CharField(max_length=255)
+    calculation = models.JSONField()
+    idempotency_key = models.CharField(max_length=200, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        permissions = [("approve_dlx_correction", "Can approve funded DLX correction entitlement")]
+        constraints = [
+            models.CheckConstraint(condition=Q(amount__gt=0), name="arena_correction_positive")
+        ]
+
+
+class DlxCorrection(models.Model):
+    entitlement = models.OneToOneField(
+        DlxCorrectionEntitlement, on_delete=models.PROTECT, related_name="payment"
+    )
+    reserve = models.ForeignKey(
+        CategoryCorrectionReserve, on_delete=models.PROTECT, related_name="payments"
+    )
+    amount = models.PositiveBigIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(amount__gt=0), name="arena_correction_payment_positive"
+            )
+        ]
+
+
+class DlxCorrectionAttempt(models.Model):
+    entitlement = models.ForeignKey(DlxCorrectionEntitlement, on_delete=models.PROTECT)
+    idempotency_key = models.CharField(max_length=200, unique=True)
+    outcome = models.CharField(max_length=32)
+    available_amount = models.PositiveBigIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class CreatorContentClass(models.Model):
+    """Expiring fingerprint lookup; permanent receipts keep only an opaque random class ID."""
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    epoch = models.ForeignKey(EconomicEpoch, on_delete=models.PROTECT)
+    owner = models.ForeignKey("players.Player", on_delete=models.PROTECT)
+    day = models.PositiveSmallIntegerField()
+    fingerprint = models.CharField(max_length=64, null=True)
+    expires_at = models.DateTimeField(db_index=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("epoch", "owner", "day", "fingerprint"),
+                condition=Q(fingerprint__isnull=False),
+                name="arena_creator_content_class",
+            )
+        ]
+
+
+class CorrectionAssessment(models.Model):
+    deferral = models.ForeignKey(
+        EconomicDeferral, on_delete=models.PROTECT, related_name="assessments"
+    )
+    input_digest = models.CharField(max_length=64, default="")
+    performance_units = models.PositiveBigIntegerField()
+    creator_h_units = models.PositiveBigIntegerField(default=0)
+    actor = models.ForeignKey("auth.User", on_delete=models.PROTECT)
+    evidence_reference = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("deferral", "input_digest"), name="arena_assessment_input_unique"
+            )
+        ]
+
+
+class DlxCorrectionRound(models.Model):
+    reserve = models.OneToOneField(
+        CategoryCorrectionReserve, on_delete=models.PROTECT, related_name="correction_round"
+    )
+    actor = models.ForeignKey("auth.User", on_delete=models.PROTECT)
+    input_digest = models.CharField(max_length=64)
+    calculation = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class DlxCorrectionAdjustment(models.Model):
+    correction = models.ForeignKey(
+        DlxCorrection, on_delete=models.PROTECT, related_name="adjustments"
+    )
+    kind = models.CharField(max_length=16, choices=DlxAdjustment.Kind.choices)
+    amount = models.PositiveBigIntegerField()
+    actor = models.ForeignKey("auth.User", on_delete=models.PROTECT)
+    reason = models.CharField(max_length=1000)
+    evidence_reference = models.CharField(max_length=255)
+    idempotency_key = models.CharField(max_length=200, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(amount__gt=0), name="arena_correction_adjustment_positive"
+            )
+        ]
+
+
+class EconomicDeferralEvidence(models.Model):
+    """Append-only finalized source proof received after the original scoped case."""
+
+    deferral = models.ForeignKey(EconomicDeferral, on_delete=models.PROTECT, related_name="proofs")
+    evidence_digest = models.CharField(max_length=64)
+    payload = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("deferral", "evidence_digest"), name="arena_deferral_proof_unique"
+            )
         ]

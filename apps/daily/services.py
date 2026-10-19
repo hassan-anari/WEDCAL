@@ -71,6 +71,9 @@ def claim_daily(player: Player, at: datetime) -> tuple[DailyClaim, bool]:
         at, resolved.daily.reset_timezone, resolved.daily.reset_hour, resolved.daily.reset_minute
     )
     with transaction.atomic():
+        from apps.seasons.barrier import acquire_economic_write_barrier
+
+        acquire_economic_write_barrier(season.pk)
         player = Player.objects.select_for_update().get(pk=player.pk)
         existing = DailyClaim.objects.filter(player=player, claim_period=period.key).first()
         if existing:
@@ -112,6 +115,9 @@ def claim_daily(player: Player, at: datetime) -> tuple[DailyClaim, bool]:
         )
         claim.reward_ledger = ledger
         claim.save(update_fields=["reward_ledger", "updated_at"])
+        from apps.arena.recognition import record_daily_claim
+
+        record_daily_claim(claim)
     logger.info("daily_claimed", player_id=player.pk, period=period.key, reward=reward)
     return claim, True
 

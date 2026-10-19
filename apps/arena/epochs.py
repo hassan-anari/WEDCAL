@@ -1,11 +1,10 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import cast
 
 from django.core.exceptions import ValidationError
 from django.db import connection, transaction
-from django.db.models import Count, Max, Q, Sum
+from django.db.models import Count, Q, Sum
 from django.utils import timezone
 
 from apps.arena.models import (
@@ -79,6 +78,12 @@ def epoch_for_source_time(season: Season, source_time: datetime) -> EconomicEpoc
 
 def drain_blockers(epoch: EconomicEpoch) -> list[DrainBlocker]:
     """Query unfinished durable work scoped to this Season and pre-cutoff source time."""
+    from apps.arena.recognition import bound_policy
+
+    if bound_policy(epoch) is not None:
+        from apps.arena.economics import scoped_work
+
+        return [DrainBlocker(reason, 1) for reason in scoped_work(epoch)]
     from apps.base_tap.models import BaseTapDailyAccumulator
     from apps.clans.models import ClanActivity, ClanActivityWindow, ClanMissionSignal
     from apps.missions.models import PlayerMission
@@ -229,7 +234,7 @@ def _snapshot_budgets(epoch: EconomicEpoch, policy: DlxDistributionConfig) -> No
             base = epoch.base_budget - distributed
         distributed += base
         growth = epoch.growth_budget * weight // 10000
-        EpochCategoryBudget.objects.get_or_create(
+        budget, _ = EpochCategoryBudget.objects.get_or_create(
             epoch=epoch,
             category=category,
             defaults={
@@ -242,11 +247,37 @@ def _snapshot_budgets(epoch: EconomicEpoch, policy: DlxDistributionConfig) -> No
                 "config_version_id": epoch.config_version_id,
             },
         )
+        from apps.arena.models import CategoryCorrectionReserve
+        from apps.arena.recognition import bound_policy
+
+        selected = bound_policy(epoch)
+        if selected is not None:
+            binding, economic_policy = selected
+            if growth:
+                raise ValidationError("S1_GROWTH_MILESTONES_EMPTY")
+            CategoryCorrectionReserve.objects.get_or_create(
+                budget=budget,
+                defaults={
+                    "amount": base
+                    * economic_policy.number("correction_reserve_bps")
+                    // economic_policy.number("scale"),
+                    "policy": binding.policy,
+                },
+            )
 
 
 def _build_performance_snapshots(epoch: EconomicEpoch, policy: DlxDistributionConfig) -> None:
-    from apps.clans.models import ClanEconomicSettlement
-    from apps.rewards.models import RewardLedger
+    from apps.arena.recognition import CORE_FACT_SOURCES, bound_policy
+
+    if bound_policy(epoch) is not None:
+        from apps.arena.economics import build_finalized_snapshots
+
+        build_finalized_snapshots(epoch)
+        return
+    # Unbound history retains zero-score diagnostics and the Phase 1 fail-closed contract.
+    # No RewardLedger amount, passive share, claimed reward or derived Clan projection is Core.
+    from apps.clans.models import ClanContributionEntry
+    from apps.daily.models import DailyClaim
 
     predicate = policy.qualified_player_predicate
     qualified_ids = qualified_player_ids_at(
@@ -254,125 +285,65 @@ def _build_performance_snapshots(epoch: EconomicEpoch, policy: DlxDistributionCo
         policy_version=int(predicate["policy_version"]),
         at=epoch.ends_at,
     )
-    decisions = {
-        player_id: current_qualification_decision(
+    for player_id in qualified_ids:
+        decision = current_qualification_decision(
             Player(pk=player_id),
             policy_key=str(predicate["policy_key"]),
             policy_version=int(predicate["policy_version"]),
             at=epoch.ends_at,
         )
-        for player_id in qualified_ids
-    }
-    reward_rows = {
-        (row["player_id"], row["source_type"]): row
-        for row in RewardLedger.objects.filter(
-            season=epoch.season,
-            player_id__in=qualified_ids,
-            occurred_at__gte=epoch.starts_at,
-            occurred_at__lt=epoch.ends_at,
-        )
-        # Typing performance is represented once by its immutable source-time CREDIT fact.
-        # A later wallet claim is XP settlement, not a second weekly performance event.
-        # Base Tap likewise contributes once through immutable microbatch source-time facts.
-        .exclude(source_type__in=("TYPING_CLAIM", "BASE_TAP"))
-        # Its passive Referral Share is likewise represented at Typing CREDIT source time.
-        .exclude(
-            source_type="REFERRAL",
-            referral_share_source__source_reward__source_type="TYPING_CLAIM",
-        )
-        .values("player_id", "source_type")
-        .annotate(
-            amount=Sum("player_amount"), events=Count("id"), latest_source_at=Max("occurred_at")
-        )
-    }
-    durable_core_rows = list(
-        PerformanceSourceFact.objects.filter(
-            season=epoch.season,
-            player_id__in=qualified_ids,
+        assert decision is not None
+        sources = {}
+        facts = PerformanceSourceFact.objects.filter(
+            season_id=epoch.season_id,
+            player_id=player_id,
             source_time__gte=epoch.starts_at,
             source_time__lt=epoch.ends_at,
             category="CORE_GAMEPLAY",
+            source_type__in=CORE_FACT_SOURCES,
         )
-        .values("player_id", "source_type")
-        .annotate(amount=Sum("amount"), events=Count("id"), latest_source_at=Max("source_time"))
-    )
-    durable_core: dict[int, dict[str, object]] = {}
-    for source in durable_core_rows:
-        player_id = int(source["player_id"])
-        aggregate = durable_core.setdefault(
-            player_id, {"amount": 0, "events": 0, "by_source_type": {}}
+        for row in facts.values("source_type").annotate(amount=Sum("amount"), events=Count("pk")):
+            sources[row["source_type"]] = {"amount": row["amount"], "events": row["events"]}
+        daily = list(
+            DailyClaim.objects.filter(
+                season_id=epoch.season_id,
+                player_id=player_id,
+                claimed_at__gte=epoch.starts_at,
+                claimed_at__lt=epoch.ends_at,
+                reward_ledger__isnull=False,
+            ).values_list("claim_period", flat=True)
         )
-        amount = cast(int, source["amount"])
-        events = cast(int, source["events"])
-        aggregate["amount"] = cast(int, aggregate["amount"]) + amount
-        aggregate["events"] = cast(int, aggregate["events"]) + events
-        by_source_type = cast(dict[str, dict[str, int]], aggregate["by_source_type"])
-        by_source_type[str(source["source_type"])] = {
-            "amount": amount,
-            "events": events,
-        }
-    durable_referral_rows = list(
-        PerformanceSourceFact.objects.filter(
-            season=epoch.season,
-            player_id__in=qualified_ids,
-            source_time__gte=epoch.starts_at,
-            source_time__lt=epoch.ends_at,
-            category="VERIFIED_REFERRAL",
-        )
-        .values("player_id", "source_type")
-        .annotate(amount=Sum("amount"), events=Count("id"), latest_source_at=Max("source_time"))
-    )
-    durable_referral = {
-        int(row["player_id"]): {
-            "durable_source_amount": cast(int, row["amount"]),
-            "durable_source_events": cast(int, row["events"]),
-            "durable_source_type": str(row["source_type"]),
-        }
-        for row in durable_referral_rows
-    }
-    clan_rows = {
-        row["membership__player_id"]: row
-        for row in ClanEconomicSettlement.objects.filter(
-            clan_season__season=epoch.season,
-            membership__player_id__in=qualified_ids,
+        contribution = ClanContributionEntry.objects.filter(
+            membership__season_id=epoch.season_id,
+            membership__player_id=player_id,
             occurred_at__gte=epoch.starts_at,
             occurred_at__lt=epoch.ends_at,
+        ).aggregate(contribution=Sum("amount"), events=Count("pk"))
+        acquisitions = list(
+            PerformanceSourceFact.objects.filter(
+                season_id=epoch.season_id,
+                player_id=player_id,
+                source_type="REFERRAL_ACTIVATION",
+                category="VERIFIED_REFERRAL",
+                source_time__gte=epoch.starts_at,
+                source_time__lt=epoch.ends_at,
+            ).values_list("source_id", flat=True)
         )
-        .values("membership__player_id")
-        .annotate(
-            gross=Sum("gross_amount"),
-            contribution=Sum("contribution_amount"),
-            events=Count("id"),
-            latest_source_at=Max("occurred_at"),
-        )
-    }
-    for player_id in qualified_ids:
-        decision = decisions[player_id]
-        assert decision is not None
-        all_rewards = [value for (pid, _), value in reward_rows.items() if pid == player_id]
-        clan_raw = dict(clan_rows.get(player_id, {}))
-        if isinstance(clan_raw.get("latest_source_at"), datetime):
-            clan_raw["latest_source_at"] = cast(datetime, clan_raw["latest_source_at"]).isoformat()
-        raw_by_category: dict[str, dict[str, object]] = {
-            "CLAN_PERFORMANCE": clan_raw,
+        inputs = {
+            "CLAN_PERFORMANCE": contribution,
             "CORE_GAMEPLAY": {
-                **_combine_reward_rows(all_rewards),
-                "durable_source_amount": (durable_core.get(player_id) or {}).get("amount", 0),
-                "durable_source_events": (durable_core.get(player_id) or {}).get("events", 0),
-                "durable_sources": (durable_core.get(player_id) or {}).get("by_source_type", {}),
+                "durable_sources": sources,
+                "durable_source_amount": sum(v["amount"] for v in sources.values()),
+                "durable_source_events": sum(v["events"] for v in sources.values()),
+                "daily_periods": daily,
+                "player_amount": 0,
+                "reward_event_count": 0,
             },
-            "CREATOR_COMMUNITY_GROWTH": reward_rows.get((player_id, "CREATOR"), {}),
-            "VERIFIED_REFERRAL": {
-                **reward_rows.get((player_id, "REFERRAL"), {}),
-                **durable_referral.get(player_id, {}),
-            },
-            "LOYALTY_CONSISTENCY": {
-                "reward_event_count": sum(int(row["events"]) for row in all_rewards),
-                "source_window_start": epoch.starts_at.isoformat(),
-                "source_window_end": epoch.ends_at.isoformat(),
-            },
+            "CREATOR_COMMUNITY_GROWTH": {},
+            "VERIFIED_REFERRAL": {"activated_relations": acquisitions},
+            "LOYALTY_CONSISTENCY": {"policy_unconfigured": True},
         }
-        for category, raw in raw_by_category.items():
+        for category, raw in inputs.items():
             EpochPerformanceSnapshot.objects.create(
                 epoch=epoch,
                 category=category,
@@ -382,14 +353,6 @@ def _build_performance_snapshots(epoch: EconomicEpoch, policy: DlxDistributionCo
                 qualification_decision=decision,
                 config_version_id=epoch.config_version_id,
             )
-
-
-def _combine_reward_rows(rows: list[dict[str, object]]) -> dict[str, object]:
-    return {
-        "player_amount": sum(cast(int, row["amount"]) for row in rows),
-        "reward_event_count": sum(cast(int, row["events"]) for row in rows),
-        "source_types": sorted(str(row["source_type"]) for row in rows),
-    }
 
 
 def snapshot_player_input(
@@ -485,6 +448,40 @@ def settle_epoch(
     if now < gate_at:
         raise SettlementOrderBlocked("Settlement operational gate has not opened")
     budgets = list(row.category_budgets.select_for_update().order_by("category"))
+    from apps.arena.recognition import bound_policy
+
+    selected = bound_policy(row)
+    if selected is not None:
+        if strategies is not None:
+            raise ValidationError("BOUND_POLICY_FORBIDS_CUSTOM_ALLOCATION_STRATEGIES")
+        _, economic_policy = selected
+        from apps.arena.scoring import emission_limit, proportional_allocation
+
+        def allocate_bound(
+            budget: EpochCategoryBudget, snapshots: list[EpochPerformanceSnapshot]
+        ) -> dict[int, int]:
+            scores = {
+                s.player_id: s.performance_units
+                for s in snapshots
+                if s.performance_units >= economic_policy.number("minimum_category_score")
+            }
+            h = sum(int(s.raw_inputs.get("h_units", 0)) for s in snapshots if s.player_id in scores)
+            limit, _ = emission_limit(
+                budget.base_epoch_budget,
+                budget.carry_in,
+                budget.category,
+                scores,
+                h,
+                economic_policy,
+            )
+            cap = (
+                budget.base_epoch_budget
+                * economic_policy.number("player_cap_bps")
+                // economic_policy.number("scale")
+            )
+            return proportional_allocation(scores, limit, cap)
+
+        strategies = {budget.category: allocate_bound for budget in budgets}
     if not strategies or set(b.category for b in budgets) - set(strategies):
         raise ScoringPolicyUnconfigured("SCORING_POLICY_UNCONFIGURED")
     if season.settlement_started_at is None:
@@ -547,7 +544,8 @@ def settle_epoch(
         if actual != requested_total:
             raise ValidationError("Actual allocation ledger does not match strategy result")
         budget.allocated_amount = actual
-        budget.carry_out = budget.effective_budget - actual
+        reserve = budget.correction_reserve.amount if selected is not None else 0
+        budget.carry_out = budget.effective_budget - actual - reserve
         budget.residual_amount = 0
         budget.save(update_fields=("allocated_amount", "carry_out", "residual_amount"))
     batch.confirmed_at = now
@@ -569,7 +567,10 @@ def reconcile_epoch(epoch: EconomicEpoch) -> dict[str, bool]:
         budget.category: (
             budget.allocated_amount == actual.get(budget.category, 0)
             and budget.effective_budget
-            == actual.get(budget.category, 0) + budget.carry_out + budget.residual_amount
+            == actual.get(budget.category, 0)
+            + budget.carry_out
+            + budget.residual_amount
+            + (budget.correction_reserve.amount if hasattr(budget, "correction_reserve") else 0)
         )
         for budget in epoch.category_budgets.all()
     }
@@ -599,19 +600,29 @@ def evaluate_growth_unlocks(season: Season) -> list[GrowthUnlockEvent]:
 
 
 def player_dlx_balance(player: Player, season: Season) -> dict[str, int]:
-    from django.db.models import Q
+    from apps.arena.models import DlxCorrection
 
-    # One SQL snapshot: joining adjustments must never multiply confirmed allocation amounts.
-    rows = list(
+    annotations = {
+        "held_amount": Sum("adjustments__amount", filter=Q(adjustments__kind="HOLD")),
+        "release_amount": Sum("adjustments__amount", filter=Q(adjustments__kind="RELEASE_HOLD")),
+        "forfeited_amount": Sum("adjustments__amount", filter=Q(adjustments__kind="FORFEIT")),
+        "reversal_amount": Sum("adjustments__amount", filter=Q(adjustments__kind="REVERSAL")),
+    }
+    fields = ("amount", "held_amount", "release_amount", "forfeited_amount", "reversal_amount")
+    normal = (
         DlxAllocation.objects.filter(player=player, season=season)
-        .annotate(
-            held_amount=Sum("adjustments__amount", filter=Q(adjustments__kind="HOLD")),
-            release_amount=Sum("adjustments__amount", filter=Q(adjustments__kind="RELEASE_HOLD")),
-            forfeited_amount=Sum("adjustments__amount", filter=Q(adjustments__kind="FORFEIT")),
-            reversal_amount=Sum("adjustments__amount", filter=Q(adjustments__kind="REVERSAL")),
-        )
-        .values("amount", "held_amount", "release_amount", "forfeited_amount", "reversal_amount")
+        .annotate(**annotations)
+        .values(*fields)
     )
+    corrections = (
+        DlxCorrection.objects.filter(
+            entitlement__player=player, entitlement__deferral__epoch__season=season
+        )
+        .annotate(**annotations)
+        .values(*fields)
+    )
+    # UNION ALL is one SQL snapshot and retains equal amounts from distinct credits.
+    rows = list(normal.union(corrections, all=True))
     confirmed = sum(row["amount"] for row in rows)
     held = sum((row["held_amount"] or 0) - (row["release_amount"] or 0) for row in rows)
     forfeited = sum((row["forfeited_amount"] or 0) - (row["reversal_amount"] or 0) for row in rows)
