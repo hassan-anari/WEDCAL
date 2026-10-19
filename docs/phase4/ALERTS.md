@@ -1,194 +1,187 @@
-# Private Telegram economic alerts
+# Automatic private Telegram economic alerts
 
-Economic monitoring detects durable operational failures independently of economic authority.
-Notifications go only to database-registered administrators in their private Telegram chats.
-There is no economic email transport or fallback. Unrelated Django email functionality is unchanged.
-All notification text, error codes, command output, documentation and synthetic evidence are English.
+Normal deployed applications run economic monitoring and Telegram delivery automatically through
+existing Celery Beat and workers. No activation command, per-Season alert enablement, recipient
+configuration or additional permission is required. All active database-registered administrators
+receive every economic incident transition in private Telegram messages. There is no email
+transport or fallback. No deployment, live registration change or real message was performed here.
 
-## Detection and incident history
+## Recipient source and mandatory fan-out
 
-Existing detectors and stable fingerprints `(code, Season, Epoch)` remain unchanged:
-
-| Code | Meaning |
-| --- | --- |
-| EPOCH_FREEZE_OVERDUE | Mutable Epoch beyond cutoff/settlement gate plus configured grace |
-| DLX_SETTLEMENT_OVERDUE | Frozen/settling Epoch beyond its permitted deadline |
-| DLX_LIFECYCLE_BLOCKED | Latest compatible lifecycle attempt blocked or failed |
-| GROWTH_FINALIZATION_FAILED | Configured Growth finalization failed before Freeze |
-| ACCOUNTING_RECONCILIATION_MISMATCH | Canonical reconciliation failed or category set incomplete |
-| ECONOMIC_WORKER_STALE | Running durable attempt exceeded its configured age |
-| ECONOMIC_WORKER_REPEATED_FAILURE | Failures exceeded the configured count/window |
-| SEASON_CLOSE_BLOCKED | Failed Close or durable manual blocker |
-
-Pause and settlement-gate handling are preserved. A failed scan never resolves existing incidents.
-OPENED, REOPENED, SEVERITY_CHANGED and RESOLVED create immutable events. Their severity is pinned
-from the configured rule at that transition; notifications read that durable event, never current
-logs. Monitoring and delivery have independent default-off switches:
-`ECONOMIC_ALERTS_ENABLED=false` and `ECONOMIC_ALERT_DELIVERY_ENABLED=false`.
-
-## Exact recipient authorization
-
-`apps.arena.alert_delivery.authorized_operators()` implements:
+The exact recipient query is the existing administrator registry, without role/subscription filters:
 
 ```python
-permission = Permission.objects.filter(
-    content_type__app_label="arena",
-    content_type__model="economicalert",
-    codename="receive_economic_alert",
-)
 BotAdminOperator.objects.filter(
     enabled=True,
-    telegram_user_id__gt=0,
     user__is_active=True,
-    user__is_staff=True,
-).filter(
-    Q(user__is_superuser=True)
-    | Q(user__user_permissions__in=permission)
-    | Q(user__groups__permissions__in=permission)
-).distinct()
+).select_related("user").annotate(
+    private_contact=Exists(
+        Player.objects.filter(
+            telegram_user_id=OuterRef("telegram_user_id"),
+            first_private_contact_at__isnull=False,
+        )
+    )
+).order_by("pk")
 ```
 
-The exact receive permission is `arena.receive_economic_alert`. Django superusers have the normal
-implicit permission, but must still have an enabled operator mapping and active staff identity.
-The query also annotates an `Exists` against the existing Player with matching `telegram_user_id`
-and non-null `first_private_contact_at`. No Player is created. A missing private contact creates a
-DEAD per-operator delivery with `PRIVATE_CONTACT_REQUIRED`; no API call is made. A positive
-Telegram user ID is used as its private chat ID; group/channel IDs are never accepted.
+There is no staff, superuser, economic-auditor, broadcast-manager, additional permission,
+`TELEGRAM_ADMIN_IDS`, environment allowlist, subscription, opt-in or per-admin severity filter.
+An enabled BotAdminOperator linked to an active User defines an active registered administrator.
+Unmapped Django users are not registered bot administrators. Existing enrollment remains unchanged;
+no new receive/test permissions are introduced or assigned.
 
-There is no recipient environment list. `TELEGRAM_ADMIN_IDS` and
-`notifications.manage_broadcasts` govern existing broadcast controls and do not confer economic
-alert authority. Existing operator enrollment remains unchanged. Assign receive permission via
-the normal restricted Django user/group permission workflow; this PR assigns no live permissions,
-creates no live operators and does not activate delivery. A staff economic auditor requires this
-explicit receive permission to obtain messages. Read-only Admin inspection continues to require
-its existing economic view/auditor permissions separately.
+Private contact is a reachability annotation, not a recipient filter. Five active administrators
+create five independent records, including failures. Missing private contact becomes
+DEAD / PRIVATE_CONTACT_REQUIRED; invalid nonpositive identities become DEAD / INVALID_PRIVATE_TARGET.
+They never cause Player creation, group/channel sends or omission from reporting. A valid positive
+Telegram user ID is its private chat ID. Immediately before each send, a fresh query checks current
+registry enabled/active state, pinned identity and private reachability. No role is checked.
 
-Recipients are discovered when an event is materialized. Before every external send, a fresh
-query revalidates enabled state, staff/active status, permission, matching pinned Telegram identity
-and known private contact. Revocation after queueing causes DEAD / RECIPIENT_AUTHORITY_REVOKED.
-As with any remote API, a permission change after the final check cannot recall a request already
-in flight. New recipients receive subsequent events; no historical mass backfill runs automatically.
-If there are no authorized operators, an immutable ROUTING_FAILED event records
-NO_AUTHORIZED_OPERATOR. No fallback destination is invented. Missing/unreachable routes, DEAD
-and UNCERTAIN results are visible through Admin and `operational_snapshot.economic_alerts`.
-Use external application/Beat liveness monitoring as well: a stopped scanner cannot alert on itself.
+Every OPENED, REOPENED, SEVERITY_CHANGED and RESOLVED event fans out to all current active admins.
+Diagnostic test events use the same all-admin population. Per-event/operator and per-event/private-
+chat uniqueness preserve deduplication; a failed admin does not block delivery to other admins.
+Existing immutable recipient snapshots cannot be retargeted after identity changes. New admins
+receive subsequent events; completed historical fan-outs are not mass-broadcast again.
 
-## Transaction and retry architecture
+## Automatic operation and visible errors
 
-1. Scanner holds its existing PostgreSQL advisory transaction lock; creates incident transitions
-   and unique `(event, operator)` and `(event, private chat)` deliveries, with immutable operator/channel/private-ID snapshots.
-2. A separate scheduled worker locks one due PENDING delivery with `skip_locked`, checks earlier
-   PENDING/SENDING/UNCERTAIN events for the same incident/operator, persists a UUID lease and
-   DISPATCH_STARTED audit event, and **commits**.
-3. It revalidates authority, then uses `apps.telegram.bot_api.send_message` outside every database
-   transaction. The existing client applies the shared bot-wide send/method/chat admission budgets,
-   Redis outage fail-closed behavior and Telegram 429 global pause. No broadcast/Notification/
-   campaign or gameplay record is created.
-4. A short final transaction compares the lease token and persists the result and immutable
-   DELIVERY_RESULT. Alert failures cannot roll back or block economic workers; alert scanning and
-   dispatch are separate Celery tasks and do not run in Freeze/Growth/Settlement/Close transactions.
-5. Scheduled scans redispatch bounded due work after broker restarts. Duplicate tasks cannot claim
-   an active lease or resend a completed record. Expired SENDING leases become UNCERTAIN, never
-   PENDING. This also handles death before the external call conservatively.
+`apps.arena.tasks.monitor_economic_operations` is registered in CELERY_BEAT_SCHEDULE, using the
+existing broker and workers. Both ECONOMIC_ALERTS_ENABLED and ECONOMIC_ALERT_DELIVERY_ENABLED
+**default to true**, including the example environment. They are optional explicit maintenance
+pause controls; no operator needs to set them for ordinary deployment. Test settings explicitly
+pause external notification work unless a test opts into mocked transport.
 
-| Outcome | Durable result and recovery |
+Each Beat tick checks routing health, scans durable economic conditions, atomically persists
+incident/event/per-admin outbox records, repairs due pending fan-outs, and dispatches due deliveries.
+The scanner remains independent of economic activation. Actual expected deadlines still honor the
+approved settlement gate and existing economic automation/pause state; alert operation does not
+activate or alter economic authority.
+
+Missing existing Bot API credentials logs ERROR / TELEGRAM_BOT_CREDENTIALS_MISSING. An empty active
+registry logs ERROR / NO_ACTIVE_REGISTERED_ADMIN. Both appear in operational_snapshot.economic_alerts
+routing_health. The scanner keeps running; no fallback or silent disablement exists. A missing
+registry also creates immutable ROUTING_FAILED evidence and a durable PENDING EconomicAlertFanout.
+Bounded batches retry that fan-out with capped backoff; once admins exist, the original event is
+materialized and dispatched automatically. No manual repair command is required. Credentials missing
+during a send produce an explicit CONFIGURATION_ERROR with bounded retries and eventual DEAD state.
+
+The normal prerequisites are the application's existing Telegram bot credentials, active database
+administrator registrations, their private bot contacts, migrations and normal Beat/worker/broker
+operation. No extra alert recipient or permission configuration is needed. External application/Beat
+liveness monitoring remains necessary because a stopped process cannot execute its own scanner.
+
+## Detection and durable history
+
+| Code | Condition |
 | --- | --- |
-| Valid successful response with positive message ID | DELIVERED; Telegram acceptance, not proof of a human reading |
-| 429 / local rate limit / budget unavailable | Bounded PENDING retry; exponential backoff, never earlier than retry_after |
-| Retry count exhausted | DEAD; permissioned explicit retry after repair |
-| Forbidden / chat not found | DEAD with safe code; operator must start/unblock the bot privately before retry |
-| Missing bot configuration / revoked administrator | DEAD; repair configuration/authority through existing workflows |
-| Ambiguous timeout, connection loss, 5xx, malformed success or unexpected client exception | UNCERTAIN; no automatic retry |
-| Worker dies with active send claim | Lease expiration becomes UNCERTAIN; no blind replay |
-| Other explicit non-ambiguous rejection | DEAD / TRANSPORT_REJECTED |
+| EPOCH_FREEZE_OVERDUE | Mutable Epoch past its permitted cutoff/gate plus configured grace |
+| DLX_SETTLEMENT_OVERDUE | Frozen/settling Epoch past its permitted deadline |
+| DLX_LIFECYCLE_BLOCKED | Latest lifecycle attempt blocked/failed |
+| GROWTH_FINALIZATION_FAILED | Configured Growth finalization failed before Freeze |
+| ACCOUNTING_RECONCILIATION_MISMATCH | Canonical accounting/category reconciliation failed |
+| ECONOMIC_WORKER_STALE | Durable running worker exceeded configured age |
+| ECONOMIC_WORKER_REPEATED_FAILURE | Failures exceeded configured count/window |
+| SEASON_CLOSE_BLOCKED | Failed Close or durable manual blocker |
 
-Telegram has no alert idempotency key. Exactly-once external delivery is not claimed. If a request
-was accepted but its acknowledgement/database commit was lost, an operator must investigate the
-private chat and worker history. Stop/terminate the old worker and ensure no request remains in
-flight before reconciliation. Absence of a visible message alone is not proof it was never sent.
-Prefer ABANDON if the result cannot be established. The three explicit review decisions are
-CONFIRM_DELIVERED (positive message ID required), CONFIRM_NOT_SENT_AND_RETRY (requires documented
-positive evidence that sending did not occur), and ABANDON. A misleading human decision can cause
-a duplicate; every decision preserves actor/reference digest and original attempts/history.
-Uncertain opening events block later recovery messages until reviewed. DEAD events are terminal
-and do not indefinitely block recovery. Operator identity changes cannot retarget a historical delivery, and the same private chat cannot
-receive a duplicate event under a replacement operator mapping. Manual retries retain the pinned destination and do not
-reset attempt counts. The recipient is always reauthorized again at send time.
+Stable incident fingerprints, rule severity, deduplicated immutable transitions and safe evidence
+are preserved. A failed scan never resolves existing incidents. Alert tasks do not calculate or
+mutate Growth, Freeze, Settlement, corrections, Close or DLX balances. Delivery failures cannot
+roll back economic transactions.
 
-Operational bounds remain configurable: scan interval, batch size, failure count/window,
-max attempts, retry base/max and delivery lease seconds. Rule overrides control enabled/severity
-and supported deadline grace. Shared Telegram timeout/rate budgets use the existing Bot API client;
-there is no separate economic recipient list, token, SMTP configuration or transport timeout.
+## Delivery, automatic retries and accepted duplicates
 
-## Safe operator commands
+1. A short PostgreSQL transaction claims one due PENDING or UNCERTAIN delivery with skip_locked,
+   persists a UUID send lease, increments its cumulative attempt count and writes DISPATCH_STARTED.
+2. After commit, fresh registry/private-target checks run. The existing Bot API client sends plain
+   text outside database transactions, using shared bot-wide/method/chat budgets and 429 pauses.
+3. A short result transaction compares the lease token, persists status/message ID and immutable
+   DELIVERY_RESULT with a safe transport code. Exceptions never expose credentials or raw evidence.
+4. Future Beat ticks redispatch due PENDING/UNCERTAIN work after broker/worker restarts. Completed
+   deliveries are not automatically sent again. Uncertain retries write AUTOMATIC_RETRY audit events.
+5. Expired SENDING leases become UNCERTAIN with backoff, or DEAD when their attempt budget is
+   exhausted. They retry automatically without a human approving or deciding whether sending occurred.
 
-The management shell is restricted operational access. Actor accounts must be active staff;
-mutations/recovery require `arena.control_economic_automation`. Commands default to dry-run.
-References are required and hashed into durable audit provenance. IDs below are placeholders.
+| Outcome | Automatic behavior |
+| --- | --- |
+| Valid success with positive message ID | DELIVERED; accepted by Telegram, not proof a human read it |
+| 429 / local budget refusal / unavailable shared budget | Bounded automatic retry; honor retry_after as a minimum |
+| Temporary rejection / missing bot configuration | Bounded retry and clear error code, then DEAD if unresolved |
+| Ambiguous timeout, connection loss, 5xx, malformed acknowledgement, unknown client exception | Record UNCERTAIN; automatically retry with backoff within the same bound |
+| Worker dies with an active send lease | Record SEND_LEASE_EXPIRED; automatically retry within the bound |
+| Forbidden / chat not found / disabled or changed admin identity | DEAD with explicit safe code; continue other admins |
+| Retry limit reached | DEAD with final reason; visible in Admin and metrics |
+
+Telegram has no economic-alert idempotency key. The owner explicitly accepts rare duplicate
+administrative notifications in exchange for automatic recovery. An accepted send whose response or
+result commit was lost can be repeated. Internal incident/outbox identity remains unique, cumulative
+attempts and uncertainty are audited, and retries are bounded. No manual intervention is required
+before ordinary or ambiguous retries. Earlier unresolved events block only later events for the
+same incident/admin; retries eventually deliver or become terminal, while other admins progress.
+
+Operational defaults are configurable work bounds, not recipient settings: scan 60 seconds, batch
+100, max attempts 5, retry base 30 seconds, retry cap 3600 seconds and send lease 60 seconds. Server
+retry_after is never capped below Telegram's instruction. No arbitrary amounts or economic formulas
+are introduced. An explicit optional maintenance retry starts another bounded cycle while retaining
+the cumulative attempt count and recording its actor/reference digest.
+
+## Messages and inspection
+
+Messages are concise plain English, with no parse_mode or untrusted/user-entered labels. They
+contain severity, event name, transition, internal Season ID, Epoch number, event-time status,
+incident/event IDs, explicit UTC timestamp and an action to inspect Django Admin. Internal IDs
+avoid leaking owner-entered names, raw evidence or non-English text. No amount, access token,
+credential, private message or source proof is included.
+
+EconomicAlert, EconomicAlertEvent, EconomicAlertDelivery and EconomicAlertFanout remain read-only
+in Admin. Recipient snapshots are redacted; safe codes, attempts, channel, message IDs and lease/
+retry times support inspection. Operational snapshots report routing health, pending fan-outs and
+per-state delivery counts. Existing audit-view permissions govern inspection independently of
+mandatory receipt by every active registered admin.
+
+## Optional diagnostic and maintenance commands
+
+Normal operation requires none of these commands. Restricted management-shell actions use the
+existing arena.control_economic_automation permission and an active staff actor. This controls
+manual actions only, never receipt. Diagnostic preparation also identifies the requesting registered
+admin; diagnostics fan out to every active registered admin. No new alert-specific permission exists.
 
 ```bash
-# Read-only detection and authorized routing preview; never sends.
+# Read-only incident/routing preview.
 python manage.py monitor_economics
 
-# Persist monitoring transitions only; scheduled delivery is still independently gated.
-python manage.py monitor_economics --apply
-
-# Preview a private test using a durable event and authorized operator.
+# Preview an optional all-admin diagnostic using a durable source event.
 python manage.py monitor_economics --test-event EVENT_ID --actor OPERATOR --reference TICKET
 
-# Prepare a durable HELD test; no scheduled worker can send HELD records.
+# Prepare HELD diagnostic records; workers cannot send them yet.
 python manage.py monitor_economics --test-event EVENT_ID --actor OPERATOR --reference TICKET --apply
 
-# Only after separate owner authorization for a real test; NOT executed in this PR.
+# Optional real diagnostic requires separate owner authorization; NOT run in this PR.
 python manage.py monitor_economics --test-event EVENT_ID --actor OPERATOR --reference TICKET --apply --send-test
 
-# Preview repair, then append --apply after reviewing the exact record.
+# Optional exhausted-delivery maintenance preview; append --apply after deliberate review.
 python manage.py monitor_economics --retry-delivery DELIVERY_ID --actor OPERATOR --reference TICKET
-python manage.py monitor_economics --resolve-delivery DELIVERY_ID --resolution CONFIRM_DELIVERED --message-id MESSAGE_ID --actor OPERATOR --reference TICKET
-python manage.py monitor_economics --resolve-delivery DELIVERY_ID --resolution CONFIRM_NOT_SENT_AND_RETRY --actor OPERATOR --reference TICKET
-python manage.py monitor_economics --resolve-delivery DELIVERY_ID --resolution ABANDON --actor OPERATOR --reference TICKET
-
-# Preview routing again after an operator is enrolled/authorized; append --apply to materialize.
-python manage.py monitor_economics --route-event EVENT_ID --actor OPERATOR --reference TICKET
 ```
 
-Tests additionally require `arena.test_economic_alert`, receive permission, an enabled operator
-mapping belonging to the actor and an existing private contact. Tests target **only that actor**,
-not all previewed recipients. The report distinguishes the intended test operator from normal
-routing recipients. Repeating the same source-event/actor/reference reuses the same held/test
-record. Only `--apply --send-test` releases it, with an immutable TEST_AUTHORIZED event; scheduled
-workers never release HELD tests. A repaired test remains HELD until explicitly authorized again.
-The delivery switch must be enabled separately for any real send. Actual test release obeys event
-ordering barriers and can therefore remain pending behind earlier unresolved notifications.
+Optional HELD diagnostics require explicit send authorization because they are operator-requested
+messages. Ordinary incident deliveries and all automatic retries never enter HELD or require an
+approval. Preparing the same source-event/actor/reference reuses its records. Automatic retries
+preserve the original per-admin destination. Existing explicit review/abandon commands remain
+available for maintenance; they are not prerequisites for automatic uncertainty recovery.
 
-Messages are plain English text without parse_mode or user-entered labels/evidence. Internal
-Season IDs avoid disclosing names or introducing non-English/untrusted content. Each includes
-severity, event, transition, Season/Epoch, event-time status, incident/event IDs and explicit UTC
-time plus the Admin action. It never includes tokens, private messages, source evidence or amounts.
+## Migration and verification
 
-## Migration and activation prerequisites
+Applied migrations 0028–0030 remain unchanged. Unmerged 0031 introduces private delivery fields,
+retains all legacy routing/delivered history, retires pending old-channel work with immutable audit
+events and prevents old-channel requeue. No email fallback exists. It introduces no receive/test
+permissions. Invalid admin IDs may be represented only as DEAD, never queued private/group sends.
+0032 adds durable indexed fan-out recovery and retry-cycle accounting; routing provenance/deletion
+and populated downgrade guards preserve history. Empty disposable rollback/forward stays supported.
+Before a separately authorized rollout, stop old transport workers and apply migrations normally;
+normal economic monitoring then runs automatically through existing Beat. This PR performs no rollout.
 
-Migration 0031 is additive; migrations 0028–0030 are unchanged. Existing route snapshots, delivered
-states, timestamps and events remain intact as LEGACY history. Pending legacy work is retired to
-DEAD / LEGACY_TRANSPORT_DISABLED with an immutable CHANNEL_RETIRED event recording prior status.
-No legacy record can be queued/re-enabled, and no email fallback exists. PostgreSQL guards pin
-new operator identities, require positive private targets, prevent duplicate event/operator rows
-and prohibit deleting delivery history. Reverse migration refuses before any DDL once private
-Telegram history exists; empty disposable reverse/forward remains supported.
-
-Before an independently authorized rollout: pause old alert scanning/sending and drain/terminate
-old transport workers, back up normally, apply migrations, verify existing operator mapping and
-private contact, assign receive/test permissions through controlled Django IAM, configure the
-existing bot/shared budgets and workers, review dry-runs, and separately authorize a real private
-test and default-off switches. Do not run old application workers against the migrated schema.
-No live delivery, permissions, operator enrollment or real test was performed here.
-
-## Verification
-
-Real PostgreSQL tests exercise detection/recovery, exact permission population, direct/group
-permissions, multiple recipients, no recipients/contact, revocation, private-only IDs, English
-messages, 429 retry_after and shared budget admission, forbidden/chat-not-found, ambiguous sends,
-lease/crash recovery, concurrent dispatch, deduplication, DEAD/UNCERTAIN review, held tests, Admin
-redaction and immutable guards. Actual shared HTTP client paths use mocked HTTP responses or
-budget denial; no Telegram endpoint is contacted. Real legacy migration and populated-reverse
-refusal tests preserve historical snapshots. Final counts/SHA/CI links are recorded on Draft PR #38.
+PostgreSQL tests cover the exact five-admin acceptance case with varied/no roles, every transition,
+one failing admin with the others delivered, automatic Beat dispatch, default-on normal settings,
+empty-registry/credential errors and recovery, 429/backoff, automatic uncertain/crash retries,
+bounded exhaustion, broker restart, deduplication, private-only targets, English formatting,
+read-only Admin and real migration/history guards. Every test uses mocked Telegram delivery or
+mocked HTTP/budget responses. Final counts, exact SHA and CI evidence are recorded on Draft PR #38.

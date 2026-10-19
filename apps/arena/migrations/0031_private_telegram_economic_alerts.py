@@ -95,18 +95,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AlterModelOptions(
-            name="economicalert",
-            options={
-                "permissions": [
-                    ("receive_economic_alert", "Can receive private economic alerts"),
-                    (
-                        "test_economic_alert",
-                        "Can test economic alerts in own authorized private chat",
-                    ),
-                ]
-            },
-        ),
         migrations.AddField(
             model_name="economicalertdelivery",
             name="channel",
@@ -171,8 +159,11 @@ class Migration(migrations.Migration):
                     models.Q(
                         ("channel", "TELEGRAM_PRIVATE"),
                         ("operator__isnull", False),
-                        ("telegram_user_id__gt", 0),
                         ("telegram_user_id__isnull", False),
+                    )
+                    & (
+                        models.Q(telegram_user_id__gt=0)
+                        | models.Q(status="DEAD", telegram_user_id__lte=0)
                     ),
                     _connector="OR",
                 ),

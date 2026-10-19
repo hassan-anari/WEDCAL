@@ -4,19 +4,21 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import structlog
 from django.conf import settings
-from django.contrib.auth.models import Permission, User
+from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection, transaction
 from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
-from apps.arena.models import EconomicAlertDelivery, EconomicAlertEvent
+from apps.arena.models import EconomicAlertDelivery, EconomicAlertEvent, EconomicAlertFanout
 from apps.arena.policy import digest
 from apps.notifications.models import BotAdminOperator
 from apps.players.models import Player
 from apps.telegram import bot_api
 
+logger = structlog.get_logger(__name__)
 CHANNEL = "TELEGRAM_PRIVATE"
 TRANSITIONS = {"OPENED", "REOPENED", "SEVERITY_CHANGED", "RESOLVED", "TEST_REQUESTED"}
 TRANSPORT_CODES = {
@@ -37,35 +39,50 @@ TRANSPORT_CODES = {
 
 
 def authorized_operators() -> list[BotAdminOperator]:
-    """Broadcast allowlists/permissions confer no economic alert authority."""
+    """Every enabled database admin with an active User; no role or subscription filters."""
     contact = Player.objects.filter(
         telegram_user_id=OuterRef("telegram_user_id"), first_private_contact_at__isnull=False
     )
-    permission = Permission.objects.filter(
-        content_type__app_label="arena",
-        content_type__model="economicalert",
-        codename="receive_economic_alert",
-    )
     candidates = (
-        BotAdminOperator.objects.filter(
-            enabled=True, telegram_user_id__gt=0, user__is_active=True, user__is_staff=True
-        )
+        BotAdminOperator.objects.filter(enabled=True, user__is_active=True)
         .select_related("user")
-        .filter(
-            Q(user__is_superuser=True)
-            | Q(user__user_permissions__in=permission)
-            | Q(user__groups__permissions__in=permission)
-        )
-        .distinct()
         .annotate(private_contact=Exists(contact))
         .order_by("pk")
     )
     return list(candidates)
 
 
+def route_health(*, report_errors: bool = False) -> dict[str, Any]:
+    count = BotAdminOperator.objects.filter(enabled=True, user__is_active=True).count()
+    errors = []
+    if not settings.TELEGRAM_BOT_TOKEN:
+        errors.append("TELEGRAM_BOT_CREDENTIALS_MISSING")
+    if count == 0:
+        errors.append("NO_ACTIVE_REGISTERED_ADMIN")
+    if report_errors:
+        for code in errors:
+            logger.error("economic_alert_operational_error", error_code=code)
+    return {
+        "active_admins": count,
+        "bot_configured": bool(settings.TELEGRAM_BOT_TOKEN),
+        "error_codes": errors,
+        "monitoring_enabled": settings.ECONOMIC_ALERTS_ENABLED,
+        "delivery_enabled": settings.ECONOMIC_ALERT_DELIVERY_ENABLED,
+    }
+
+
+def _retry_at(now: datetime, attempts: int, retry_after: int = 0) -> datetime:
+    backoff = min(
+        settings.ECONOMIC_ALERT_RETRY_MAX_SECONDS,
+        settings.ECONOMIC_ALERT_RETRY_BASE_SECONDS
+        * 2 ** min(max(attempts - 1, 0), settings.ECONOMIC_ALERT_RETRY_MAX_SECONDS.bit_length()),
+    )
+    return now + timedelta(seconds=max(backoff, retry_after))
+
+
 def recipient_preview() -> list[dict[str, Any]]:
     return [
-        {"operator_id": op.pk, "reachable": bool(op.private_contact)}  # type: ignore[attr-defined]
+        {"operator_id": op.pk, "reachable": op.telegram_user_id > 0 and bool(op.private_contact)}  # type: ignore[attr-defined]
         for op in authorized_operators()
     ]
 
@@ -84,30 +101,32 @@ def materialize_event(
     event: EconomicAlertEvent,
     *,
     now: datetime | None = None,
-    only_operator: BotAdminOperator | None = None,
 ) -> list[int]:
     event = EconomicAlertEvent.objects.select_for_update().get(pk=event.pk)
     if event.outcome not in TRANSITIONS:
         raise ValidationError("ECONOMIC_ALERT_EVENT_NOT_DELIVERABLE")
-    if event.outcome == "TEST_REQUESTED" and (
-        only_operator is None or event.evidence.get("actor_id") != only_operator.user_id
-    ):
-        raise PermissionDenied("Test events require their original private operator")
     now = now or timezone.now()
+    fanout, _ = EconomicAlertFanout.objects.get_or_create(
+        event=event, defaults={"next_attempt_at": now}
+    )
     operators = authorized_operators()
-    if only_operator is not None:
-        operators = [op for op in operators if op.pk == only_operator.pk]
     if not operators:
-        EconomicAlertEvent.objects.create(
-            alert_id=event.alert_id,
-            outcome="ROUTING_FAILED",
-            severity=event.severity,
-            evidence={
-                "source_event_id": event.pk,
-                "reason": "NO_AUTHORIZED_OPERATOR",
-                "error_code": "NO_AUTHORIZED_OPERATOR",
-            },
-        )
+        if fanout.attempts == 0:
+            EconomicAlertEvent.objects.create(
+                alert_id=event.alert_id,
+                outcome="ROUTING_FAILED",
+                severity=event.severity,
+                evidence={
+                    "source_event_id": event.pk,
+                    "error_code": "NO_ACTIVE_REGISTERED_ADMIN",
+                    "reason": "NO_ACTIVE_REGISTERED_ADMIN",
+                },
+            )
+        fanout.attempts += 1
+        fanout.status, fanout.last_error_code = "PENDING", "NO_ACTIVE_REGISTERED_ADMIN"
+        fanout.next_attempt_at = _retry_at(now, fanout.attempts)
+        fanout.save()
+        return []
     ids = []
     for op in operators:
         # Operator identities can be corrected through existing enrollment controls. A historical
@@ -121,7 +140,15 @@ def materialize_event(
         if existing is not None:
             ids.append(existing.pk)
             continue
-        reachable = bool(op.private_contact)  # type: ignore[attr-defined]
+        valid_private_id = op.telegram_user_id > 0
+        reachable = valid_private_id and bool(op.private_contact)  # type: ignore[attr-defined]
+        error_code = (
+            ""
+            if reachable
+            else "PRIVATE_CONTACT_REQUIRED"
+            if valid_private_id
+            else "INVALID_PRIVATE_TARGET"
+        )
         row, created = EconomicAlertDelivery.objects.get_or_create(
             event=event,
             operator=op,
@@ -135,14 +162,34 @@ def materialize_event(
                     "telegram_user_id": op.telegram_user_id,
                 },
                 "next_attempt_at": now,
-                "status": "PENDING" if reachable else "DEAD",
-                "last_error_code": "" if reachable else "PRIVATE_CONTACT_REQUIRED",
+                "status": "HELD"
+                if reachable and event.outcome == "TEST_REQUESTED"
+                else "PENDING"
+                if reachable
+                else "DEAD",
+                "last_error_code": error_code,
             },
         )
         if created and not reachable:
-            _audit(row, "DELIVERY_RESULT", status="DEAD", error_code="PRIVATE_CONTACT_REQUIRED")
+            _audit(row, "DELIVERY_RESULT", status="DEAD", error_code=error_code)
         ids.append(row.pk)
-    return ids
+    if fanout.status != "COMPLETE":
+        fanout.attempts += 1
+        fanout.status, fanout.last_error_code, fanout.completed_at = "COMPLETE", "", now
+        fanout.save(update_fields=("attempts", "status", "last_error_code", "completed_at"))
+    return list(dict.fromkeys(ids))
+
+
+def retry_pending_fanouts(*, now: datetime | None = None) -> int:
+    now = now or timezone.now()
+    ids = list(
+        EconomicAlertFanout.objects.filter(status="PENDING", next_attempt_at__lte=now)
+        .order_by("pk")
+        .values_list("event_id", flat=True)[: settings.ECONOMIC_ALERT_BATCH_SIZE]
+    )
+    for event in EconomicAlertEvent.objects.filter(pk__in=ids).order_by("pk"):
+        materialize_event(event, now=now)
+    return len(ids)
 
 
 def format_message(event: EconomicAlertEvent, *, preview_test: bool = False) -> str:
@@ -174,7 +221,9 @@ def format_message(event: EconomicAlertEvent, *, preview_test: bool = False) -> 
 
 
 def _authorized(row: EconomicAlertDelivery) -> bool:
-    # Reload rather than trusting a cached User permission result or queued identity snapshot.
+    # Revalidate current registry membership and active state immediately before the private send.
+    if row.telegram_user_id is None or row.telegram_user_id <= 0:
+        return False
     return any(
         op.pk == row.operator_id
         and op.telegram_user_id == row.telegram_user_id
@@ -184,7 +233,7 @@ def _authorized(row: EconomicAlertDelivery) -> bool:
 
 
 def recover_expired_deliveries(*, now: datetime | None = None) -> int:
-    """Expired claims may have sent. Never put them back in the automatic send queue."""
+    """Record crashed-send uncertainty and schedule bounded automatic retries."""
     now = now or timezone.now()
     count = 0
     with transaction.atomic():
@@ -195,8 +244,14 @@ def recover_expired_deliveries(*, now: datetime | None = None) -> int:
             .order_by("pk")[: settings.ECONOMIC_ALERT_BATCH_SIZE]
         )
         for row in rows:
-            row.status, row.last_error_code = "UNCERTAIN", "SEND_LEASE_EXPIRED"
-            row.save(update_fields=("status", "last_error_code"))
+            row.status = (
+                "UNCERTAIN"
+                if row.attempts - row.retry_cycle_start < settings.ECONOMIC_ALERT_MAX_ATTEMPTS
+                else "DEAD"
+            )
+            row.last_error_code = "SEND_LEASE_EXPIRED"
+            row.next_attempt_at = _retry_at(now, row.attempts - row.retry_cycle_start)
+            row.save(update_fields=("status", "last_error_code", "next_attempt_at"))
             _audit(row, "DELIVERY_RESULT", status=row.status, error_code=row.last_error_code)
             count += 1
     return count
@@ -216,7 +271,12 @@ def deliver_alert(delivery_id: int, *, now: datetime | None = None) -> bool:
         row = (
             EconomicAlertDelivery.objects.select_for_update(of=("self",), skip_locked=True)
             .select_related("event__alert__epoch")
-            .filter(pk=delivery_id, channel=CHANNEL, status="PENDING", next_attempt_at__lte=now)
+            .filter(
+                pk=delivery_id,
+                channel=CHANNEL,
+                status__in=["PENDING", "UNCERTAIN"],
+                next_attempt_at__lte=now,
+            )
             .first()
         )
         if row is None:
@@ -228,6 +288,13 @@ def deliver_alert(delivery_id: int, *, now: datetime | None = None) -> bool:
             status__in=["PENDING", "SENDING", "UNCERTAIN"],
         ).exists():
             return False
+        if row.attempts - row.retry_cycle_start >= settings.ECONOMIC_ALERT_MAX_ATTEMPTS:
+            row.status, row.last_error_code = "DEAD", "AUTOMATIC_RETRY_EXHAUSTED"
+            row.save(update_fields=("status", "last_error_code"))
+            _audit(row, "DELIVERY_RESULT", status=row.status, error_code=row.last_error_code)
+            return False
+        if row.status == "UNCERTAIN":
+            _audit(row, "AUTOMATIC_RETRY", previous_status="UNCERTAIN", attempt=row.attempts + 1)
         row.status = "SENDING"
         row.lease_token = uuid.uuid4()
         row.lease_expires_at = now + timedelta(
@@ -264,38 +331,47 @@ def deliver_alert(delivery_id: int, *, now: datetime | None = None) -> bool:
             locked.status, locked.last_error_code = "DELIVERED", ""
             locked.telegram_message_id, locked.delivered_at = message_id, timezone.now()
         elif result.ambiguous or result.ok:
-            locked.status, locked.last_error_code = "UNCERTAIN", "AMBIGUOUS_SEND_OUTCOME"
+            locked.status = (
+                "UNCERTAIN"
+                if locked.attempts - locked.retry_cycle_start < settings.ECONOMIC_ALERT_MAX_ATTEMPTS
+                else "DEAD"
+            )
+            locked.last_error_code = (
+                "AMBIGUOUS_SEND_OUTCOME"
+                if locked.status == "UNCERTAIN"
+                else "AMBIGUOUS_RETRY_EXHAUSTED"
+            )
+            locked.next_attempt_at = _retry_at(
+                timezone.now(), locked.attempts - locked.retry_cycle_start, result.retry_after or 0
+            )
         elif result.category in {
             "forbidden",
             "chat_not_found",
             "recipient_authority_revoked",
-            "configuration_error",
         }:
             locked.status, locked.last_error_code = "DEAD", str(result.category).upper()
         else:
-            # Only explicit non-ambiguous rejections are retried. Unknown failures fail closed.
+            # Retry temporary/configuration failures within the same bounded outbox policy.
             safe_retry = result.category in {
                 "rate_limited",
                 "local_rate_limited",
                 "budget_unavailable",
+                "configuration_error",
+                "http_error",
+                "telegram_not_ok",
             }
             locked.status = (
                 "PENDING"
-                if safe_retry and locked.attempts < settings.ECONOMIC_ALERT_MAX_ATTEMPTS
+                if safe_retry
+                and locked.attempts - locked.retry_cycle_start
+                < settings.ECONOMIC_ALERT_MAX_ATTEMPTS
                 else "DEAD"
             )
             locked.last_error_code = (
                 str(result.category).upper() if safe_retry else "TRANSPORT_REJECTED"
             )
-            backoff = min(
-                settings.ECONOMIC_ALERT_RETRY_MAX_SECONDS,
-                settings.ECONOMIC_ALERT_RETRY_BASE_SECONDS
-                * 2
-                ** min(locked.attempts - 1, settings.ECONOMIC_ALERT_RETRY_MAX_SECONDS.bit_length()),
-            )
-            # Telegram retry_after is a minimum; never cap it below the server's instruction.
-            locked.next_attempt_at = timezone.now() + timedelta(
-                seconds=max(result.retry_after or 0, backoff)
+            locked.next_attempt_at = _retry_at(
+                timezone.now(), locked.attempts - locked.retry_cycle_start, result.retry_after or 0
             )
         locked.lease_token = locked.lease_expires_at = None
         locked.save()
@@ -362,9 +438,14 @@ def review_delivery(
         }[action]
     else:
         raise ValidationError("ECONOMIC_ALERT_REVIEW_STATE_OR_ACTION_INVALID")
+    if status == "PENDING" and (row.telegram_user_id is None or row.telegram_user_id <= 0):
+        raise ValidationError("PRIVATE_ALERT_TARGET_MUST_BE_POSITIVE")
     if row.event.outcome == "TEST_REQUESTED" and status == "PENDING":
         status = "HELD"  # A reviewed test still requires a separate explicit send authorization.
     if not dry_run:
+        previous_attempts = row.attempts
+        if status == "PENDING" or status == "HELD":
+            row.retry_cycle_start = row.attempts
         row.status, row.next_attempt_at = status, timezone.now()
         row.lease_token = row.lease_expires_at = None
         if action == "CONFIRM_DELIVERED":
@@ -376,6 +457,7 @@ def review_delivery(
             actor_id=actor.pk,
             reference_digest=digest(reference),
             action=action,
+            previous_attempts=previous_attempts,
             resulting_status=status,
         )
     return {
@@ -400,17 +482,14 @@ def prepare_test_delivery(
     event_id: int, *, actor: User, reference: str, dry_run: bool = True
 ) -> dict[str, Any]:
     _operator_authority(actor, reference)
-    fresh_actor = User.objects.get(pk=actor.pk)
-    if not fresh_actor.has_perm("arena.test_economic_alert"):
-        raise PermissionDenied("Economic alert test permission required")
     operators = [op for op in authorized_operators() if op.user_id == actor.pk]
-    if not operators or not operators[0].private_contact:  # type: ignore[attr-defined]
-        raise ValidationError("AUTHORIZED_OPERATOR_PRIVATE_CONTACT_REQUIRED")
+    if not operators:
+        raise ValidationError("ACTIVE_REGISTERED_ADMIN_REQUIRED")
     event = EconomicAlertEvent.objects.select_related("alert__epoch").get(pk=event_id)
     report: dict[str, Any] = {
         "dry_run": dry_run,
         "recipients": recipient_preview(),
-        "test_operator_id": operators[0].pk,
+        "requesting_operator_id": operators[0].pk,
         "message": format_message(event, preview_test=True),
     }
     if not dry_run:
@@ -427,7 +506,7 @@ def prepare_test_delivery(
             severity=event.severity,
             evidence=evidence,
         )
-        report["delivery_ids"] = materialize_event(test, only_operator=operators[0])
+        report["delivery_ids"] = materialize_event(test)
         EconomicAlertDelivery.objects.filter(
             pk__in=report["delivery_ids"], status="PENDING"
         ).update(status="HELD")
@@ -436,11 +515,8 @@ def prepare_test_delivery(
 
 
 def send_test_delivery(delivery_id: int, *, actor: User, reference: str) -> bool:
-    """Explicit release for one previously held test; never called by scheduled workers."""
+    """Release one held all-admin test recipient after explicit test authorization."""
     _operator_authority(actor, reference)
-    fresh = User.objects.get(pk=actor.pk)
-    if not fresh.has_perm("arena.test_economic_alert"):
-        raise PermissionDenied("Economic alert test permission required")
     if not settings.ECONOMIC_ALERT_DELIVERY_ENABLED:
         raise ValidationError("ECONOMIC_ALERT_DELIVERY_DISABLED")
     with transaction.atomic():
@@ -450,9 +526,13 @@ def send_test_delivery(delivery_id: int, *, actor: User, reference: str) -> bool
             .get(pk=delivery_id)
         )
         if row.event.outcome != "TEST_REQUESTED" or row.event.evidence.get("actor_id") != actor.pk:
-            raise PermissionDenied("Only the original operator may release a private test")
+            raise PermissionDenied("Only the original requester may release a test")
         if not _authorized(row):
-            raise PermissionDenied("Private operator authority required")
+            if row.status == "HELD":
+                row.status, row.last_error_code = "DEAD", "RECIPIENT_AUTHORITY_REVOKED"
+                row.save(update_fields=("status", "last_error_code"))
+                _audit(row, "DELIVERY_RESULT", status=row.status, error_code=row.last_error_code)
+            return False
         if row.status == "HELD":
             row.status = "PENDING"
             row.save(update_fields=("status",))

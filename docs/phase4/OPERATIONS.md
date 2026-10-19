@@ -46,9 +46,10 @@ Each attempt records stage, control authority, status, failure category and reco
 results. Structured `dlx_automation_stage_result` logs include Season/Epoch/stage/status/error.
 `operational_snapshot.dlx_automation` exposes status/error counts. The implemented
 [economic alert scanner/outbox](ALERTS.md) detects deadlines, blocked/failed stages, Growth,
-reconciliation, stale/repeated workers and failed/manual Close. Detection and delivery default off.
-No real destination or external message is configured/sent in this PR. Owner-authorized routing,
-credentials and an external application/Beat liveness monitor are activation prerequisites.
+reconciliation, stale/repeated workers and failed/manual Close. Economic alerts run automatically through existing Beat with detection/delivery enabled by default.
+No real destination or external message is configured/sent in this PR. Existing bot credentials, active database admin registrations/private contacts, normal workers and
+external application/Beat liveness monitoring support automatic notification operation. No separate
+alert recipient configuration, permission or activation command is required.
 
 A PostgreSQL session advisory lock prevents overlapping Season workers. A killed process releases
 it; the next owner marks abandoned RUNNING attempts INTERRUPTED and resumes idempotent stages.

@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
-from django.contrib.auth.models import Group, Permission, User
+from django.contrib.auth.models import Permission, User
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -47,35 +47,74 @@ def opening(configurable_world):
     return w, EconomicAlertDelivery.objects.get()
 
 
-def permission(code):
-    return Permission.objects.get(content_type__app_label="arena", codename=code)
+def test_all_five_active_database_admins_receive_every_transition(
+    configurable_world, alerts, player_factory, monkeypatch
+):
+    w = configurable_world()
+    alerts.TELEGRAM_ADMIN_IDS = []  # Existing broadcast allowlist cannot restrict economic alerts.
+    operators = [alerts.TEST_OPERATOR]
+    for number in range(4):
+        user = User.objects.create_user(f"registered-admin-{number}", is_staff=number != 0)
+        if number == 2:
+            user.user_permissions.add(Permission.objects.get(codename="manage_broadcasts"))
+        player = player_factory(772000 + number)
+        player.first_private_contact_at = player.first_seen_at
+        player.save(update_fields=("first_private_contact_at",))
+        operators.append(
+            BotAdminOperator.objects.create(
+                user=user, telegram_user_id=player.telegram_user_id, enabled=True
+            )
+        )
+    inactive = User.objects.create_user("inactive-registered-admin", is_active=False)
+    BotAdminOperator.objects.create(user=inactive, telegram_user_id=772010, enabled=True)
+    disabled = User.objects.create_user("disabled-registered-admin")
+    BotAdminOperator.objects.create(user=disabled, telegram_user_id=772011, enabled=False)
+    User.objects.create_superuser("unmapped-superuser")
+    assert {op.pk for op in authorized_operators()} == {op.pk for op in operators}
+    assert not Permission.objects.filter(
+        content_type__app_label="arena",
+        codename__in=["receive_economic_alert", "test_economic_alert"],
+    ).exists()
+    overdue(w)
+    scan_alerts()
+    opening_event = EconomicAlertEvent.objects.get(outcome="OPENED")
+    assert EconomicAlertDelivery.objects.filter(event=opening_event).count() == 5
+    failed_id = operators[1].telegram_user_id
+    attempted = []
 
+    def send(chat_id, text):
+        attempted.append(chat_id)
+        if chat_id == failed_id:
+            return bot_api.TelegramResult(False, category="forbidden")
+        return alerts.TEST_SEND(chat_id, text)
 
-def test_exact_database_permission_population_and_group_permission(configurable_world, alerts):
-    w, row = opening(configurable_world)
-    op = alerts.TEST_OPERATOR
-    user = op.user
-    user.is_superuser = False
-    user.save()
-    assert not authorized_operators()
-    user.user_permissions.add(Permission.objects.get(codename="manage_broadcasts"))
-    assert not authorized_operators()  # Broadcast authority is independent.
-    group = Group.objects.create(name="Economic alert recipients")
-    group.permissions.add(permission("receive_economic_alert"))
-    user.groups.add(group)
-    assert [x.pk for x in authorized_operators()] == [op.pk]
-    user.user_permissions.add(permission("receive_economic_alert"))
-    assert len(authorized_operators()) == 1  # Direct + group permission cannot duplicate.
-    User.objects.create_superuser("unmapped-staff")
-    assert len(authorized_operators()) == 1
-    assert deliver_alert(row.pk)
+    monkeypatch.setattr(bot_api, "send_message", send)
+    for outcome in ("OPENED", "REOPENED", "SEVERITY_CHANGED", "RESOLVED"):
+        event = (
+            opening_event
+            if outcome == "OPENED"
+            else EconomicAlertEvent.objects.create(
+                alert_id=opening_event.alert_id, outcome=outcome, severity="CRITICAL", evidence={}
+            )
+        )
+        ids = materialize_event(event)
+        assert len(ids) == 5 and ids == materialize_event(event)
+        results = [deliver_alert(pk) for pk in ids]
+        assert results.count(True) == 4
+        assert EconomicAlertDelivery.objects.filter(event=event, status="DEAD").count() == 1
+        assert EconomicAlertDelivery.objects.filter(event=event, status="DELIVERED").count() == 4
+        assert {row.operator_id for row in EconomicAlertDelivery.objects.filter(event=event)} == {
+            op.pk for op in operators
+        }
+    assert len(attempted) == 20 and all(
+        attempted.count(op.telegram_user_id) == 4 for op in operators
+    )
+    assert EconomicAlertDelivery.objects.count() == 20
     assert not BroadcastCampaign.objects.exists() and not Notification.objects.exists()
     assert not DlxAllocation.objects.exists()
 
 
-@pytest.mark.parametrize(
-    "revocation", ["disabled", "inactive", "nonstaff", "permission", "identity", "contact"]
-)
+@pytest.mark.parametrize("revocation", ["disabled", "inactive", "identity", "contact"])
 def test_dispatch_revalidates_revocation_without_any_send(configurable_world, alerts, revocation):
     _, row = opening(configurable_world)
     op = alerts.TEST_OPERATOR
@@ -83,10 +122,6 @@ def test_dispatch_revalidates_revocation_without_any_send(configurable_world, al
         BotAdminOperator.objects.filter(pk=op.pk).update(enabled=False)
     elif revocation == "inactive":
         User.objects.filter(pk=op.user_id).update(is_active=False)
-    elif revocation == "nonstaff":
-        User.objects.filter(pk=op.user_id).update(is_staff=False)
-    elif revocation == "permission":
-        User.objects.filter(pk=op.user_id).update(is_superuser=False)
     elif revocation == "identity":
         BotAdminOperator.objects.filter(pk=op.pk).update(telegram_user_id=771002)
     else:
@@ -111,7 +146,11 @@ def test_multiple_recipients_no_players_created_and_private_only(configurable_wo
     overdue(w)
     scan_alerts()
     assert Player.objects.count() == before
-    assert EconomicAlertDelivery.objects.count() == 2
+    assert EconomicAlertDelivery.objects.count() == 3
+    invalid = EconomicAlertDelivery.objects.get(telegram_user_id=-771004)
+    assert invalid.status == "DEAD" and invalid.last_error_code == "INVALID_PRIVATE_TARGET"
+    with pytest.raises(DatabaseError), transaction.atomic():
+        EconomicAlertDelivery.objects.filter(pk=invalid.pk).update(status="PENDING")
     dead = EconomicAlertDelivery.objects.get(operator=unreachable)
     assert dead.status == "DEAD" and dead.last_error_code == "PRIVATE_CONTACT_REQUIRED"
     assert {item["reachable"] for item in recipient_preview()} == {True, False}
@@ -128,7 +167,7 @@ def test_no_authorized_recipients_durable_failure_and_reroute(configurable_world
     scan_alerts()
     assert not EconomicAlertDelivery.objects.exists()
     failed = EconomicAlertEvent.objects.get(outcome="ROUTING_FAILED")
-    assert failed.evidence["reason"] == "NO_AUTHORIZED_OPERATOR"
+    assert failed.evidence["reason"] == "NO_ACTIVE_REGISTERED_ADMIN"
     event = EconomicAlertEvent.objects.get(outcome="OPENED")
     alerts.TEST_OPERATOR.enabled = True
     alerts.TEST_OPERATOR.save()
@@ -171,14 +210,14 @@ def test_unreachable_private_chats_fail_without_fallback(
     assert not alerts.CAPTURED_MESSAGES
 
 
-def test_timeout_uncertain_no_blind_retry_and_audited_reconciliation(
+def test_timeout_uncertain_history_and_optional_audited_reconciliation(
     configurable_world, alerts, monkeypatch
 ):
     w, row = opening(configurable_world)
     transport = Mock(return_value=bot_api.TelegramResult(False, category="timeout", ambiguous=True))
     monkeypatch.setattr(bot_api, "send_message", transport)
     assert not deliver_alert(row.pk)
-    assert not deliver_alert(row.pk, now=w.clock["at"] + timedelta(days=1))
+    assert not deliver_alert(row.pk, now=w.clock["at"] + timedelta(seconds=1))
     assert transport.call_count == 1
     row.refresh_from_db()
     assert row.status == "UNCERTAIN"
@@ -238,7 +277,7 @@ def test_explicit_uncertain_recovery_options(configurable_world, alerts, monkeyp
     assert row.status == ("PENDING" if action == "CONFIRM_NOT_SENT_AND_RETRY" else "DEAD")
 
 
-def test_worker_crash_after_send_is_uncertain_and_repeated_dispatch_cannot_resend(
+def test_worker_crash_after_send_is_audited_and_retried_automatically(
     configurable_world, alerts, monkeypatch
 ):
     w, row = opening(configurable_world)
@@ -254,10 +293,14 @@ def test_worker_crash_after_send_is_uncertain_and_repeated_dispatch_cannot_resen
     assert row.status == "SENDING"
     assert not deliver_alert(row.pk)
     assert recover_expired_deliveries(now=row.lease_expires_at + timedelta(seconds=1)) == 1
-    assert not deliver_alert(row.pk, now=w.clock["at"] + timedelta(days=1))
     row.refresh_from_db()
     assert row.status == "UNCERTAIN" and row.last_error_code == "SEND_LEASE_EXPIRED"
-    assert len(alerts.CAPTURED_MESSAGES) == 1
+    monkeypatch.setattr(bot_api, "send_message", alerts.TEST_SEND)
+    assert deliver_alert(row.pk, now=row.next_attempt_at)
+    row.refresh_from_db()
+    assert row.status == "DELIVERED" and row.attempts == 2
+    assert len(alerts.CAPTURED_MESSAGES) == 2  # A bounded duplicate is explicitly owner-authorized.
+    assert EconomicAlertEvent.objects.filter(outcome="AUTOMATIC_RETRY").exists()
 
 
 def test_private_message_format_is_english_redacted_and_durable(configurable_world, alerts):
@@ -296,7 +339,7 @@ def test_test_delivery_is_permissioned_held_and_explicit(configurable_world, ale
     actor = alerts.TEST_OPERATOR.user
     before = EconomicAlertEvent.objects.count()
     preview = prepare_test_delivery(row.event_id, actor=actor, reference="Authorized local test")
-    assert preview["dry_run"] and preview["test_operator_id"] == alerts.TEST_OPERATOR.pk
+    assert preview["dry_run"] and preview["requesting_operator_id"] == alerts.TEST_OPERATOR.pk
     assert "Transition: TEST_REQUESTED" in preview["message"]
     assert "Status: TEST" in preview["message"]
     assert EconomicAlertEvent.objects.count() == before and not alerts.CAPTURED_MESSAGES
@@ -339,13 +382,12 @@ def test_nonprivileged_test_and_transactional_send_fail_closed(configurable_worl
     actor = alerts.TEST_OPERATOR.user
     actor.is_superuser = False
     actor.save()
-    actor.user_permissions.add(
-        permission("receive_economic_alert"),
-        Permission.objects.get(codename="control_economic_automation"),
-    )
     with pytest.raises(PermissionDenied):
         prepare_test_delivery(
-            row.event_id, actor=actor, reference="Missing test permission", dry_run=False
+            row.event_id,
+            actor=actor,
+            reference="Missing existing economic operator control",
+            dry_run=False,
         )
     with transaction.atomic(), pytest.raises(RuntimeError, match="outside"):
         deliver_alert(row.pk)
@@ -534,7 +576,7 @@ def test_real_downgrade_refuses_private_history_before_any_ddl(configurable_worl
 
     _, row = opening(configurable_world)
     executor = MigrationExecutor(connection)
-    with pytest.raises(IrreversibleError, match="Private Telegram alert history"):
+    with pytest.raises(IrreversibleError, match="Automatic alert history"):
         executor.migrate([("arena", "0030_protect_feature_history_on_reverse")])
     row.refresh_from_db()
     assert row.channel == "TELEGRAM_PRIVATE"
@@ -561,3 +603,173 @@ def test_recipient_identity_correction_cannot_duplicate_same_private_event(
     assert EconomicAlertDelivery.objects.count() == 1
     assert not deliver_alert(row.pk)  # Original pinned authority no longer matches.
     assert not alerts.CAPTURED_MESSAGES
+
+
+def test_normal_deployment_defaults_start_monitoring_and_delivery(monkeypatch):
+    import runpy
+
+    for name in ("ECONOMIC_ALERTS_ENABLED", "ECONOMIC_ALERT_DELIVERY_ENABLED"):
+        monkeypatch.delenv(name, raising=False)
+    normal = runpy.run_path("dexo_land/settings/base.py")
+    assert normal["ECONOMIC_ALERTS_ENABLED"] is True
+    assert normal["ECONOMIC_ALERT_DELIVERY_ENABLED"] is True
+    assert (
+        normal["CELERY_BEAT_SCHEDULE"]["monitor-economic-operations"]["task"]
+        == "apps.arena.tasks.monitor_economic_operations"
+    )
+
+
+@pytest.mark.parametrize("one_fails", [False, True])
+def test_beat_automatically_fans_out_to_all_five_admins(
+    configurable_world, alerts, player_factory, monkeypatch, one_fails
+):
+    from apps.arena.tasks import deliver_economic_alert, monitor_economic_operations
+
+    w = configurable_world()
+    failed_id = None
+    for number in range(4):
+        user = User.objects.create_user(f"automatic-admin-{number}")
+        player = player_factory(773000 + number)
+        player.first_private_contact_at = player.first_seen_at
+        player.save(update_fields=("first_private_contact_at",))
+        BotAdminOperator.objects.create(
+            user=user, telegram_user_id=player.telegram_user_id, enabled=True
+        )
+        failed_id = player.telegram_user_id
+
+    def send(chat_id, text):
+        if one_fails and chat_id == failed_id:
+            return bot_api.TelegramResult(False, category="forbidden")
+        return alerts.TEST_SEND(chat_id, text)
+
+    monkeypatch.setattr(bot_api, "send_message", send)
+    monkeypatch.setattr(deliver_economic_alert, "delay", lambda pk: deliver_economic_alert.run(pk))
+    overdue(w)
+    assert monitor_economic_operations.run() == 1  # No management command or per-alert approval.
+    assert EconomicAlertDelivery.objects.count() == 5
+    assert EconomicAlertDelivery.objects.filter(status="DELIVERED").count() == (
+        4 if one_fails else 5
+    )
+    assert EconomicAlertDelivery.objects.filter(status="DEAD").count() == (1 if one_fails else 0)
+    assert monitor_economic_operations.run() == 1
+    assert EconomicAlertDelivery.objects.count() == 5
+    assert len(alerts.CAPTURED_MESSAGES) == (4 if one_fails else 5)
+    directory = Path("work/phase4-alert-reports")
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"automatic-five-{'one-failure' if one_fails else 'healthy'}.json").write_text(
+        __import__("json").dumps(
+            {
+                "synthetic": True,
+                "transport": "mocked Telegram API",
+                "active_database_admins": 5,
+                "automatic_beat_dispatch": True,
+                "deliveries": list(
+                    EconomicAlertDelivery.objects.order_by("pk").values(
+                        "operator_id", "status", "last_error_code", "attempts"
+                    )
+                ),
+                "captured_messages": alerts.CAPTURED_MESSAGES,
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+
+
+def test_ambiguous_delivery_automatically_retries_with_backoff_and_bound(
+    configurable_world, alerts, monkeypatch
+):
+    from apps.arena.tasks import deliver_economic_alert, monitor_economic_operations
+
+    w, row = opening(configurable_world)
+    alerts.ECONOMIC_ALERT_MAX_ATTEMPTS = 2
+    transport = Mock(return_value=bot_api.TelegramResult(False, category="timeout", ambiguous=True))
+    monkeypatch.setattr(bot_api, "send_message", transport)
+    monkeypatch.setattr(deliver_economic_alert, "delay", lambda pk: deliver_economic_alert.run(pk))
+    monitor_economic_operations.run()
+    row.refresh_from_db()
+    assert row.status == "UNCERTAIN" and row.next_attempt_at > w.clock["at"]
+    monitor_economic_operations.run()
+    assert transport.call_count == 1
+    w.clock["at"] = row.next_attempt_at
+    monitor_economic_operations.run()
+    row.refresh_from_db()
+    assert row.status == "DEAD" and row.attempts == 2
+    assert row.last_error_code == "AMBIGUOUS_RETRY_EXHAUSTED"
+    w.clock["at"] += timedelta(days=1)
+    monitor_economic_operations.run()
+    assert transport.call_count == 2
+    assert EconomicAlertEvent.objects.filter(outcome="AUTOMATIC_RETRY").count() == 1
+    assert not EconomicAlertEvent.objects.filter(outcome="UNCERTAIN_REVIEW").exists()
+
+
+def test_empty_registry_and_missing_credentials_are_visible_and_fanout_recovers_automatically(
+    configurable_world, alerts, monkeypatch, caplog
+):
+    from apps.arena.alert_delivery import route_health
+    from apps.arena.models import EconomicAlertFanout
+    from apps.arena.tasks import deliver_economic_alert, monitor_economic_operations
+
+    w = configurable_world()
+    alerts.TEST_OPERATOR.enabled = False
+    alerts.TEST_OPERATOR.save()
+    alerts.TELEGRAM_BOT_TOKEN = ""
+    monkeypatch.setattr(deliver_economic_alert, "delay", lambda pk: deliver_economic_alert.run(pk))
+    overdue(w)
+    monitor_economic_operations.run()
+    assert set(route_health()["error_codes"]) == {
+        "NO_ACTIVE_REGISTERED_ADMIN",
+        "TELEGRAM_BOT_CREDENTIALS_MISSING",
+    }
+    assert "economic_alert_operational_error" in caplog.text
+    fanout = EconomicAlertFanout.objects.get()
+    assert fanout.status == "PENDING" and fanout.last_error_code == "NO_ACTIVE_REGISTERED_ADMIN"
+    assert not EconomicAlertDelivery.objects.exists()
+    alerts.TEST_OPERATOR.enabled = True
+    alerts.TEST_OPERATOR.save()
+    alerts.TELEGRAM_BOT_TOKEN = "synthetic-test-token"
+    w.clock["at"] = fanout.next_attempt_at
+    monitor_economic_operations.run()
+    fanout.refresh_from_db()
+    assert fanout.status == "COMPLETE"
+    assert EconomicAlertDelivery.objects.get().status == "DELIVERED"
+    assert route_health()["error_codes"] == []
+
+
+def test_missing_credentials_retry_and_never_touch_external_http(
+    configurable_world, alerts, monkeypatch
+):
+    w, row = opening(configurable_world)
+    alerts.TELEGRAM_BOT_TOKEN = ""
+    alerts.ECONOMIC_ALERT_MAX_ATTEMPTS = 2
+    monkeypatch.setattr(bot_api, "send_message", ORIGINAL_SEND)
+    http = Mock(side_effect=AssertionError("No real Telegram message allowed"))
+    monkeypatch.setattr("urllib.request.urlopen", http)
+    assert not deliver_alert(row.pk)
+    row.refresh_from_db()
+    assert row.status == "PENDING" and row.last_error_code == "CONFIGURATION_ERROR"
+    assert not deliver_alert(row.pk, now=row.next_attempt_at)
+    row.refresh_from_db()
+    assert row.status == "DEAD" and row.last_error_code == "CONFIGURATION_ERROR"
+    http.assert_not_called()
+
+
+def test_broker_restart_redispatches_durable_outbox_without_approval(
+    configurable_world, alerts, monkeypatch
+):
+    from apps.arena.tasks import deliver_economic_alert, monitor_economic_operations
+
+    w = configurable_world()
+    overdue(w)
+    monkeypatch.setattr(
+        deliver_economic_alert,
+        "delay",
+        Mock(side_effect=ConnectionError("Synthetic broker outage")),
+    )
+    with pytest.raises(ConnectionError):
+        monitor_economic_operations.run()
+    assert EconomicAlertDelivery.objects.get().status == "PENDING"
+    monkeypatch.setattr(deliver_economic_alert, "delay", lambda pk: deliver_economic_alert.run(pk))
+    monitor_economic_operations.run()
+    assert EconomicAlertDelivery.objects.get().status == "DELIVERED"
+    assert len(alerts.CAPTURED_MESSAGES) == 1

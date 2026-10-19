@@ -56,3 +56,7 @@ GrowthUnlockEvent plus its immutable GrowthEpochFunding navigation answers where
 unit went. GrowthEvaluation rows preserve repeated evaluations, counts/digests, cutoff, outcome and
 config/policy identity. Zero-funded NO_ELIGIBLE_MUTABLE_EPOCH decisions remain distinct from FUNDED.
 Example reports are in the review artifacts; they contain synthetic identities only.
+
+Receiving notifications requires no audit/view/control role: every active database-registered admin
+is included. Existing Admin view and management-command permissions still govern inspection and
+operator actions independently. No receive/test economic-alert permissions are added.

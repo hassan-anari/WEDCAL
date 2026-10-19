@@ -14,24 +14,33 @@ apps/arena/adjustments.py,96,0,ARITHMETIC_OR_BOUND,"Identity, index, denominatio
 apps/arena/adjustments.py,96,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","forfeited = values.get(""FORFEIT"", 0) - values.get(""REVERSAL"", 0)"
 apps/arena/adjustments.py,106,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","values = {row[""kind""]: int(row[""v""] or 0) for row in rows}"
 apps/arena/adjustments.py,116,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","values[row[""kind""]] = values.get(row[""kind""], 0) + int(row[""v""])"
-apps/arena/admin.py,189,50,REVIEW_CONTEXT,Contextual non-reward literal; review with domain matrix,code/runtime; see context,list_per_page = 50
-apps/arena/admin.py,190,50,REVIEW_CONTEXT,Contextual non-reward literal; review with domain matrix,code/runtime; see context,list_max_show_all = 50
-apps/arena/admin.py,115,100,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","for pk, code in Season.objects.order_by(""-pk"").values_list(""pk"", ""code"")[:100]"
-apps/arena/admin.py,150,100,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",)[:100]
-apps/arena/admin.py,398,2,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","""report"": json.dumps(report, indent=2, default=str),"
-apps/arena/alert_delivery.py,189,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",count = 0
-apps/arena/alert_delivery.py,236,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",row.attempts += 1
-apps/arena/alert_delivery.py,201,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",count += 1
-apps/arena/alert_delivery.py,327,255,REVIEW_CONTEXT,Contextual non-reward literal; review with domain matrix,code/runtime; see context,if not reference.strip() or len(reference) > 255:
-apps/arena/alert_delivery.py,263,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",if result.ok and type(message_id) is int and message_id > 0:
-apps/arena/alert_delivery.py,413,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","""test_operator_id"": operators[0].pk,"
-apps/arena/alert_delivery.py,407,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",if not operators or not operators[0].private_contact:  # type: ignore[attr-defined]
-apps/arena/alert_delivery.py,430,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","report[""delivery_ids""] = materialize_event(test, only_operator=operators[0])"
-apps/arena/alert_delivery.py,356,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","if action == ""CONFIRM_DELIVERED"" and (type(message_id) is not int or message_id <= 0):"
-apps/arena/alert_delivery.py,293,2,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",* 2
-apps/arena/alert_delivery.py,294,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","** min(locked.attempts - 1, settings.ECONOMIC_ALERT_RETRY_MAX_SECONDS.bit_length()),"
-apps/arena/alert_delivery.py,298,0,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"seconds=max(result.retry_after or 0, backoff)"
-apps/arena/alert_delivery.py,51,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","enabled=True, telegram_user_id__gt=0, user__is_active=True, user__is_staff=True"
+apps/arena/admin.py,190,50,REVIEW_CONTEXT,Contextual non-reward literal; review with domain matrix,code/runtime; see context,list_per_page = 50
+apps/arena/admin.py,191,50,REVIEW_CONTEXT,Contextual non-reward literal; review with domain matrix,code/runtime; see context,list_max_show_all = 50
+apps/arena/admin.py,116,100,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","for pk, code in Season.objects.order_by(""-pk"").values_list(""pk"", ""code"")[:100]"
+apps/arena/admin.py,151,100,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",)[:100]
+apps/arena/admin.py,399,2,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","""report"": json.dumps(report, indent=2, default=str),"
+apps/arena/alert_delivery.py,74,0,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"def _retry_at(now: datetime, attempts: int, retry_after: int = 0) -> datetime:"
+apps/arena/alert_delivery.py,238,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",count = 0
+apps/arena/alert_delivery.py,60,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",if count == 0:
+apps/arena/alert_delivery.py,125,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",fanout.attempts += 1
+apps/arena/alert_delivery.py,177,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",fanout.attempts += 1
+apps/arena/alert_delivery.py,303,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",row.attempts += 1
+apps/arena/alert_delivery.py,114,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",if fanout.attempts == 0:
+apps/arena/alert_delivery.py,143,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",valid_private_id = op.telegram_user_id > 0
+apps/arena/alert_delivery.py,225,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",if row.telegram_user_id is None or row.telegram_user_id <= 0:
+apps/arena/alert_delivery.py,256,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",count += 1
+apps/arena/alert_delivery.py,403,255,REVIEW_CONTEXT,Contextual non-reward literal; review with domain matrix,code/runtime; see context,if not reference.strip() or len(reference) > 255:
+apps/arena/alert_delivery.py,78,2,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","* 2 ** min(max(attempts - 1, 0), settings.ECONOMIC_ALERT_RETRY_MAX_SECONDS.bit_length()),"
+apps/arena/alert_delivery.py,330,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",if result.ok and type(message_id) is int and message_id > 0:
+apps/arena/alert_delivery.py,441,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","if status == ""PENDING"" and (row.telegram_user_id is None or row.telegram_user_id <= 0):"
+apps/arena/alert_delivery.py,492,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","""requesting_operator_id"": operators[0].pk,"
+apps/arena/alert_delivery.py,85,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","{""operator_id"": op.pk, ""reachable"": op.telegram_user_id > 0 and bool(op.private_contact)}  # type: ignore[attr-defined]"
+apps/arena/alert_delivery.py,78,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","* 2 ** min(max(attempts - 1, 0), settings.ECONOMIC_ALERT_RETRY_MAX_SECONDS.bit_length()),"
+apps/arena/alert_delivery.py,297,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","_audit(row, ""AUTOMATIC_RETRY"", previous_status=""UNCERTAIN"", attempt=row.attempts + 1)"
+apps/arena/alert_delivery.py,345,0,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"timezone.now(), locked.attempts - locked.retry_cycle_start, result.retry_after or 0"
+apps/arena/alert_delivery.py,432,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","if action == ""CONFIRM_DELIVERED"" and (type(message_id) is not int or message_id <= 0):"
+apps/arena/alert_delivery.py,78,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","* 2 ** min(max(attempts - 1, 0), settings.ECONOMIC_ALERT_RETRY_MAX_SECONDS.bit_length()),"
+apps/arena/alert_delivery.py,374,0,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"timezone.now(), locked.attempts - locked.retry_cycle_start, result.retry_after or 0"
 apps/arena/alerts.py,197,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",return 0
 apps/arena/alerts.py,203,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",return 0
 apps/arena/alerts.py,41,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","if type(getattr(settings, name)) is not int or getattr(settings, name) <= 0:"
@@ -396,8 +405,13 @@ apps/arena/migrations/0028_policy_registration_operational_alerts.py,133,255,MIG
 apps/arena/migrations/0028_policy_registration_operational_alerts.py,108,64,SQL_SCHEMA_HISTORY,Database invariant or historical guard; review with migration matrix,database schema,"(""checksum"", models.CharField(max_length=64)),"
 apps/arena/migrations/0030_protect_feature_history_on_reverse.py,27,4,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,".filter(schema_version__gte=4, status=""PUBLISHED"")"
 apps/arena/migrations/0031_private_telegram_economic_alerts.py,63,100,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,for row in rows.iterator(chunk_size=100):
-apps/arena/migrations/0031_private_telegram_economic_alerts.py,113,24,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,"field=models.CharField(default=""LEGACY"", max_length=24),"
-apps/arena/migrations/0031_private_telegram_economic_alerts.py,174,0,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,"(""telegram_user_id__gt"", 0),"
+apps/arena/migrations/0031_private_telegram_economic_alerts.py,101,24,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,"field=models.CharField(default=""LEGACY"", max_length=24),"
+apps/arena/migrations/0031_private_telegram_economic_alerts.py,165,0,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,models.Q(telegram_user_id__gt=0)
+apps/arena/migrations/0031_private_telegram_economic_alerts.py,166,0,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,"| models.Q(status=""DEAD"", telegram_user_id__lte=0)"
+apps/arena/migrations/0032_automatic_alert_fanout.py,44,0,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,"field=models.PositiveIntegerField(default=0),"
+apps/arena/migrations/0032_automatic_alert_fanout.py,55,16,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,"(""status"", models.CharField(default=""PENDING"", max_length=16)),"
+apps/arena/migrations/0032_automatic_alert_fanout.py,56,0,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,"(""attempts"", models.PositiveIntegerField(default=0)),"
+apps/arena/migrations/0032_automatic_alert_fanout.py,58,48,MIGRATION_HISTORY,Applied schema/history must not be edited; see audit exceptions,database schema,"(""last_error_code"", models.CharField(blank=True, max_length=48)),"
 apps/arena/models.py,18,8,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,"entity_type = models.CharField(max_length=8, choices=Entity.choices)"
 apps/arena/models.py,22,8,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,"operation = models.CharField(max_length=8, choices=Operation.choices)"
 apps/arena/models.py,23,200,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,source_id = models.CharField(max_length=200)
@@ -501,13 +515,17 @@ apps/arena/models.py,784,64,STRUCTURAL_BOUND,"Storage, protocol, shape or valida
 apps/arena/models.py,787,48,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,code = models.CharField(max_length=48)
 apps/arena/models.py,788,16,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,severity = models.CharField(max_length=16)
 apps/arena/models.py,789,16,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,"status = models.CharField(max_length=16, default=""OPEN"")"
-apps/arena/models.py,805,16,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,outcome = models.CharField(max_length=16)
-apps/arena/models.py,806,16,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,severity = models.CharField(max_length=16)
-apps/arena/models.py,813,24,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,"channel = models.CharField(max_length=24, default=""LEGACY"")"
-apps/arena/models.py,822,64,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,route_key = models.CharField(max_length=64)
-apps/arena/models.py,824,16,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,"status = models.CharField(max_length=16, default=""PENDING"")"
-apps/arena/models.py,825,0,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,attempts = models.PositiveIntegerField(default=0)
-apps/arena/models.py,828,48,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,"last_error_code = models.CharField(max_length=48, blank=True)"
+apps/arena/models.py,801,16,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,outcome = models.CharField(max_length=16)
+apps/arena/models.py,802,16,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,severity = models.CharField(max_length=16)
+apps/arena/models.py,809,16,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,"status = models.CharField(max_length=16, default=""PENDING"")"
+apps/arena/models.py,810,0,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,attempts = models.PositiveIntegerField(default=0)
+apps/arena/models.py,812,48,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,"last_error_code = models.CharField(max_length=48, blank=True)"
+apps/arena/models.py,823,24,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,"channel = models.CharField(max_length=24, default=""LEGACY"")"
+apps/arena/models.py,832,64,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,route_key = models.CharField(max_length=64)
+apps/arena/models.py,834,16,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,"status = models.CharField(max_length=16, default=""PENDING"")"
+apps/arena/models.py,835,0,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,attempts = models.PositiveIntegerField(default=0)
+apps/arena/models.py,836,0,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,retry_cycle_start = models.PositiveIntegerField(default=0)
+apps/arena/models.py,839,48,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,"last_error_code = models.CharField(max_length=48, blank=True)"
 apps/arena/models.py,111,1,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,"models.CheckConstraint(condition=Q(epoch_number__gte=1), name=""arena_epoch_range""),"
 apps/arena/models.py,295,0,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,"models.CheckConstraint(condition=Q(amount__gt=0), name=""arena_allocation_positive""),"
 apps/arena/models.py,329,0,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,"models.CheckConstraint(condition=Q(amount__gt=0), name=""arena_adjustment_positive"")"
@@ -515,7 +533,8 @@ apps/arena/models.py,573,0,STRUCTURAL_BOUND,"Storage, protocol, shape or validat
 apps/arena/models.py,590,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","condition=Q(amount__gt=0), name=""arena_correction_payment_positive"""
 apps/arena/models.py,667,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","condition=Q(amount__gt=0), name=""arena_correction_adjustment_positive"""
 apps/arena/models.py,700,0,STRUCTURAL_BOUND,"Storage, protocol, shape or validation boundary",code/schema,"models.CheckConstraint(condition=Q(amount__gt=0), name=""arena_growth_funding_positive""),"
-apps/arena/models.py,845,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","telegram_user_id__gt=0,"
+apps/arena/models.py,858,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",models.Q(telegram_user_id__gt=0)
+apps/arena/models.py,859,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","| models.Q(status=""DEAD"", telegram_user_id__lte=0)"
 apps/arena/policy.py,47,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",if type(value) is not int or value <= 0:
 apps/arena/policy.py,53,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",if type(value) is not int or value <= 0:
 apps/arena/policy.py,99,10000,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions",s != 10000
@@ -1272,7 +1291,7 @@ apps/core/metrics.py,22,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or 
 apps/core/metrics.py,24,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","max(int((timezone.now() - oldest).total_seconds()), 0) if oldest else 0"
 apps/core/metrics.py,24,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","max(int((timezone.now() - oldest).total_seconds()), 0) if oldest else 0"
 apps/core/metrics.py,26,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","""retries"": RewardSettlementOutbox.objects.filter(attempts__gt=1).count(),"
-apps/core/metrics.py,72,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","""base_tap_pending"": BaseTapDailyAccumulator.objects.filter(pending_points__gt=0).count(),"
+apps/core/metrics.py,76,0,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","""base_tap_pending"": BaseTapDailyAccumulator.objects.filter(pending_points__gt=0).count(),"
 apps/core/middleware.py,114,1,ARITHMETIC_OR_BOUND,"Identity, index, denomination or unit conversion; inspect context","code, unless listed in audit exceptions","bucket = int(__import__(""time"").time()) // policy[1]"
 apps/core/middleware.py,117,1,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"count = 1 if cache.add(key, 1, timeout=policy[1] + 1) else cache.incr(key)"
 apps/core/middleware.py,117,1,OPERATIONAL_BOUND,"Workload/timeout control, not an earning amount",runtime/service argument,"count = 1 if cache.add(key, 1, timeout=policy[1] + 1) else cache.incr(key)"

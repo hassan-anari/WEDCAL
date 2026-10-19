@@ -1,0 +1,60 @@
+{
+  "synthetic": true,
+  "transport": "mocked Telegram API",
+  "active_database_admins": 5,
+  "automatic_beat_dispatch": true,
+  "deliveries": [
+    {
+      "operator_id": 1,
+      "status": "DELIVERED",
+      "last_error_code": "",
+      "attempts": 1
+    },
+    {
+      "operator_id": 2,
+      "status": "DELIVERED",
+      "last_error_code": "",
+      "attempts": 1
+    },
+    {
+      "operator_id": 3,
+      "status": "DELIVERED",
+      "last_error_code": "",
+      "attempts": 1
+    },
+    {
+      "operator_id": 4,
+      "status": "DELIVERED",
+      "last_error_code": "",
+      "attempts": 1
+    },
+    {
+      "operator_id": 5,
+      "status": "DELIVERED",
+      "last_error_code": "",
+      "attempts": 1
+    }
+  ],
+  "captured_messages": [
+    {
+      "chat_id": 771001,
+      "text": "Dexo Land \u2014 Economic Alert\n\nSeverity: ERROR\nEvent: Epoch Freeze Overdue\nTransition: OPENED\nSeason: 1\nEpoch: 1\nStatus: OPEN\nIncident ID: 1\nEvent ID: 1\nTime: 2026-10-28 00:33:06 UTC\n\nAction: Review the economic incident in Django Admin."
+    },
+    {
+      "chat_id": 773000,
+      "text": "Dexo Land \u2014 Economic Alert\n\nSeverity: ERROR\nEvent: Epoch Freeze Overdue\nTransition: OPENED\nSeason: 1\nEpoch: 1\nStatus: OPEN\nIncident ID: 1\nEvent ID: 1\nTime: 2026-10-28 00:33:06 UTC\n\nAction: Review the economic incident in Django Admin."
+    },
+    {
+      "chat_id": 773001,
+      "text": "Dexo Land \u2014 Economic Alert\n\nSeverity: ERROR\nEvent: Epoch Freeze Overdue\nTransition: OPENED\nSeason: 1\nEpoch: 1\nStatus: OPEN\nIncident ID: 1\nEvent ID: 1\nTime: 2026-10-28 00:33:06 UTC\n\nAction: Review the economic incident in Django Admin."
+    },
+    {
+      "chat_id": 773002,
+      "text": "Dexo Land \u2014 Economic Alert\n\nSeverity: ERROR\nEvent: Epoch Freeze Overdue\nTransition: OPENED\nSeason: 1\nEpoch: 1\nStatus: OPEN\nIncident ID: 1\nEvent ID: 1\nTime: 2026-10-28 00:33:06 UTC\n\nAction: Review the economic incident in Django Admin."
+    },
+    {
+      "chat_id": 773003,
+      "text": "Dexo Land \u2014 Economic Alert\n\nSeverity: ERROR\nEvent: Epoch Freeze Overdue\nTransition: OPENED\nSeason: 1\nEpoch: 1\nStatus: OPEN\nIncident ID: 1\nEvent ID: 1\nTime: 2026-10-28 00:33:06 UTC\n\nAction: Review the economic incident in Django Admin."
+    }
+  ]
+}

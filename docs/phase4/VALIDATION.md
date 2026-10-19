@@ -5,17 +5,21 @@ original Phase 4 scope. The owner explicitly deferred larger realistic performan
 independent review and an authorized merge. Functional implementation and Production-capacity
 certification are separate. Required final-head CI results and exact SHA are reported on Draft PR #38.
 
-## Private Telegram channel correction
+## Automatic mandatory all-admin Telegram correction
 
 The owner replaced economic alert email with private Telegram delivery after reviewed head
 `cdd0aa372889956868708ba2c02bd29db5c1e1b7`. Detection and economic formulas remain unchanged.
-Database operator authorization, immediate revalidation, private-contact checks, shared Bot API
-budgets, durable per-recipient leases, bounded safe retries, UNCERTAIN reconciliation and held
-permissioned tests are implemented. The targeted real-PostgreSQL suite passed **46 tests in 118.19s on a fresh isolated database**,
+Mandatory all-active-database-admin fan-out, immediate revalidation, private-contact checks, shared Bot API
+budgets, durable per-recipient leases, bounded automatic retries including UNCERTAIN outcomes and optional held
+permissioned tests are implemented. The targeted real-PostgreSQL suite passed **51 tests in 54.36s on a fresh isolated database**,
 including actual old-history migration preservation and refusal of a populated private-history
 reverse. All transport calls were mocked; no external messages or live operator changes occurred.
-The broader policy/configuration/Growth/Admin/alert subset passed **101 tests in 126.31s**.
-Final SHA/full regression and migration-cycle results are recorded on Draft PR #38.
+The preceding broader policy/configuration/Growth/Admin/alert subset passed **101 tests in 126.31s**;
+the final automatic-delivery head is covered by the complete CI suite. The latest isolated migration
+cycle passed **1 test in 31.08s**.
+Latest owner corrections require default-on Beat monitoring/delivery and bounded automatic uncertain
+retries; every active database admin is included without new permissions. Current exact SHA/full
+regression and migration-cycle results are recorded on Draft PR #38.
 
 ## PostgreSQL evidence
 
@@ -90,15 +94,15 @@ synthetic boundary evidence, with the capacity limitations recorded separately.
 | 9 Safe mid-Season tuning | Implemented/verified Daily/Typing in-flight cutovers and historical ledger attribution; active setup mutation rejected | existing gameplay-specific publication restrictions retained |
 | 10 Capacity up to 1M registered | **Larger realistic validation explicitly deferred by owner**; historical normalized 1M/100k-active evidence retained | full producers, concurrent traffic/SLA, parallel throughput, large Close/corrections, WAL/backlog belong to separately authorized post-merge performance phase |
 | 11 End-to-end PostgreSQL matrix | Functional matrix implemented/verified, actual registered-policy 15/45-day full Close, process death/retry/pause, races, late correction and migration cycle | large correction cohorts and sustained history/traffic testing deferred; no capacity certificate |
-| 12 Production boundaries | Preserved; disposable databases only, default-off workers, no live config/Season/policy writes | deployment/activation/reset/live settlement/merge prohibited |
+| 12 Production boundaries | Preserved; disposable databases only, default-off economic settlement authority; default-on alert code, no live config/Season/policy writes | deployment/activation/reset/live settlement/merge prohibited |
 | 13 Review package | Architecture, semantic audit, schemas, registration/alerts, Growth proof, runbooks, migration review, simulations, FROCAL handoff, regressions and historical performance evidence | exact SHA/CI links in Draft PR; independent owner/reviewer review pending |
 | Growth addendum 1.1–1.6 | Implemented/PG verified generic pre-Freeze recognition, STD distinct count, final-Epoch funding, A–E, atomic exact placement | no additional unapproved economic recognition rule introduced |
 | Admin addendum 2.1–2.4 | Implemented/PG verified all listed models plus facts/readiness/workflow/alert records, protected summaries, redaction, no mutation | history-heavy Admin load testing explicitly deferred |
 | Addendum testing/delivery | Growth/Admin tests, worked examples, locking/conservation, sample reports and required CI included | deployment/merge/activation remain prohibited |
-| Private Telegram delivery correction | Implemented/PG verified database receive/test permissions, private-only targeting, shared budget/429, ambiguous/crash outcomes, safe review, held tests and history-preserving migration | real bot reachability and delivery remain separately authorized activation checks; no email fallback |
+| Private Telegram delivery correction | Implemented/PG verified every active registered admin without additional permissions/roles, private-only targeting, shared budget/429, ambiguous/crash outcomes, safe review, held tests and history-preserving migration | normal monitoring/delivery automatic; real test messages/deployment not executed; no email fallback |
 | Additional owner clarification | Official gate/history/no-milestone zero behavior preserved; full original scope retained | no competing PR or Demo-only engine |
 | Final request 1: policy workflow | Implemented/PG verified two actors, strict shape/checksum, dry-run, permission checks, atomic idempotent approval, readonly Admin | actual live documents/approvals are not created |
-| Final request 2: operational alerts | Implemented/PG verified all required conditions, routing/severity/dedup, retry, recovery, durable evidence and metrics | authorized private Telegram destination/bot configuration, liveness monitoring and activation need owner authorization |
+| Final request 2: operational alerts | Implemented/PG verified all required conditions, routing/severity/dedup, retry, recovery, durable evidence and metrics | uses existing bot and all active DB admins automatically; deployment/real tests not performed |
 | Final request 3: frontend compatibility | Exact pinned read-only FROCAL audit and unchanged-parser harness; authoritative backend timing and fixtures provided | frontend implementation/browser/device acceptance require separate authorization |
 | Final request 4–6: tests/audit/report | Targeted real-PG lifecycle, registration, alerts, semantic bands and migration evidence; final full CI and updated package | performance certification remains deferred, not implied by green tests |
 
@@ -107,9 +111,9 @@ synthetic boundary evidence, with the capacity limitations recorded separately.
 The revised generic Growth rule is specified by the owner's addendum; the old proposal is superseded,
 not awaiting approval as the active implementation. No further economic rule was invented. Before
 any live use, the owner must approve actual Season/config/policy documents and separately authorize
-deployment/automation; all are outside this PR. Backend alert integration is implemented; actual
-destinations, credentials, permissions and external application/Beat liveness checks remain
-operational activation requirements. Larger performance acceptance is explicitly post-merge work,
+deployment/automation; all are outside this PR. Backend alerts run automatically with the existing bot and every active DB admin; no extra
+recipient permission/configuration or alert activation is required. Real deployments/messages were
+not executed. Normal application/Beat liveness monitoring remains an infrastructure responsibility. Larger performance acceptance is explicitly post-merge work,
 not an implementation-completion claim. No historical real-user data, frozen budget or confirmed allocation was
 modified. This Draft PR can be reviewed while those limits remain explicit; it is not a readiness
 certificate or a request to merge/deploy.

@@ -794,10 +794,6 @@ class EconomicAlert(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=("status", "season"), name="arena_alert_open")]
-        permissions = [
-            ("receive_economic_alert", "Can receive private economic alerts"),
-            ("test_economic_alert", "Can test economic alerts in own authorized private chat"),
-        ]
 
 
 class EconomicAlertEvent(models.Model):
@@ -806,6 +802,20 @@ class EconomicAlertEvent(models.Model):
     severity = models.CharField(max_length=16)
     evidence = models.JSONField()
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class EconomicAlertFanout(models.Model):
+    event = models.OneToOneField(EconomicAlertEvent, on_delete=models.PROTECT)
+    status = models.CharField(max_length=16, default="PENDING")
+    attempts = models.PositiveIntegerField(default=0)
+    next_attempt_at = models.DateTimeField(db_index=True)
+    last_error_code = models.CharField(max_length=48, blank=True)
+    completed_at = models.DateTimeField(null=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=("status", "next_attempt_at"), name="arena_alert_fanout_due")
+        ]
 
 
 class EconomicAlertDelivery(models.Model):
@@ -823,6 +833,7 @@ class EconomicAlertDelivery(models.Model):
     route_config = models.JSONField()
     status = models.CharField(max_length=16, default="PENDING")
     attempts = models.PositiveIntegerField(default=0)
+    retry_cycle_start = models.PositiveIntegerField(default=0)
     next_attempt_at = models.DateTimeField()
     delivered_at = models.DateTimeField(null=True)
     last_error_code = models.CharField(max_length=48, blank=True)
@@ -842,7 +853,10 @@ class EconomicAlertDelivery(models.Model):
                     channel="TELEGRAM_PRIVATE",
                     operator__isnull=False,
                     telegram_user_id__isnull=False,
-                    telegram_user_id__gt=0,
+                )
+                & (
+                    models.Q(telegram_user_id__gt=0)
+                    | models.Q(status="DEAD", telegram_user_id__lte=0)
                 ),
                 name="arena_alert_private_target",
             ),

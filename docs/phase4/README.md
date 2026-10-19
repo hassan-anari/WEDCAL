@@ -5,7 +5,8 @@ operational completion request. Policy registration, backend alerts, semantic co
 and the read-only frontend handoff are included. Final SHA/CI evidence is recorded on PR #38.
 Large realistic performance work is explicitly deferred until independent review and an authorized
 merge. Functional implementation completeness is separate from Production-capacity certification.
-All live economic activation and external alert delivery stay off.
+Live economics remain unactivated. Operational alerts default to automatic delivery in normal
+deployments; tests use mocked Telegram transport and no deployment or real send is performed here.
 
 * [Configuration ownership and binding](ARCHITECTURE.md)
 * [Generic Growth rule, examples and conservation](GROWTH_POLICY.md)

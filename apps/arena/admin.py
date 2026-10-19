@@ -64,6 +64,7 @@ SCOPES = {
     "economicpolicyapproval": (None, None),
     "economicalert": ("season_id", "epoch_id"),
     "economicalertevent": ("alert__season_id", "alert__epoch_id"),
+    "economicalertfanout": ("event__alert__season_id", "event__alert__epoch_id"),
     "economicalertdelivery": ("event__alert__season_id", "event__alert__epoch_id"),
 }
 
@@ -441,6 +442,7 @@ for model in (
     models.EconomicAlert,
     models.EconomicAlertEvent,
     models.EconomicAlertDelivery,
+    models.EconomicAlertFanout,
 ):
     names = {field.name for field in model._meta.fields}
     display = ["id"] + [

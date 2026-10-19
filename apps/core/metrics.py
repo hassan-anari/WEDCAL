@@ -34,9 +34,11 @@ def outbox_metrics() -> dict[str, Any]:
 
 
 def operational_snapshot() -> dict[str, Any]:
+    from apps.arena.alert_delivery import route_health
     from apps.arena.models import (
         EconomicAlert,
         EconomicAlertDelivery,
+        EconomicAlertFanout,
         EconomicAutomationAttempt,
         RankingProjectionEvent,
     )
@@ -58,6 +60,8 @@ def operational_snapshot() -> dict[str, Any]:
             .order_by("status", "error_code")
         ),
         "economic_alerts": {
+            "routing_health": route_health(),
+            "pending_fanouts": EconomicAlertFanout.objects.filter(status="PENDING").count(),
             "open": list(
                 EconomicAlert.objects.filter(status="OPEN")
                 .values("code", "severity")

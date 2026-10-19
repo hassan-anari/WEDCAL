@@ -24,6 +24,7 @@ from apps.arena.models import (
     EconomicAlert,
     EconomicAlertDelivery,
     EconomicAlertEvent,
+    EconomicAlertFanout,
     EconomicAutomationAttempt,
     EconomicPolicyApproval,
     EconomicPolicyProposal,
@@ -37,6 +38,7 @@ from .test_phase4_configurable import configurable_world, milestone  # noqa: F40
 
 @pytest.fixture
 def alerts(settings, player_factory, monkeypatch):
+    settings.TELEGRAM_BOT_TOKEN = "synthetic-test-token"
     settings.ECONOMIC_ALERTS_ENABLED = True
     settings.ECONOMIC_ALERT_DELIVERY_ENABLED = True
     settings.ECONOMIC_ALERT_RULES = copy.deepcopy(settings.ECONOMIC_ALERT_RULES)
@@ -364,6 +366,7 @@ def test_new_audit_admins_are_read_only_and_route_details_redacted(
     for model in (
         EconomicAlert,
         EconomicAlertEvent,
+        EconomicAlertFanout,
         EconomicAlertDelivery,
         EconomicPolicyProposal,
         EconomicPolicyApproval,
