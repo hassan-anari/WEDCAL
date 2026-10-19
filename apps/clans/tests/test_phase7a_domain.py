@@ -1011,8 +1011,8 @@ def test_interactive_actions_fail_closed_after_season_end(
     now, config, season, resolved, player, clan = clan_world
     soldier, cs = player(ClanRole.SOLDIER), clan()
     req = request_join(soldier, cs, resolved)
-    season.ends_at = now - timedelta(seconds=1)
-    season.save(update_fields=("ends_at",))
+    # Activated dates are immutable: advance the clock across the real boundary.
+    monkeypatch.setattr(timezone, "now", lambda: season.ends_at + timedelta(seconds=1))
     with pytest.raises(ClanConflict):
         decide_request(cs.captain, req.pk, accept=True)
     req.state = ClanJoinRequest.State.ACCEPTED

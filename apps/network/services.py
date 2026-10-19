@@ -577,12 +577,17 @@ def _settle_window_locked(
     return settlement
 
 
-def settle_completed_windows(*, limit: int = 200, now: datetime | None = None) -> int:
+def settle_completed_windows(
+    *, limit: int = 200, now: datetime | None = None, season_id: int | None = None
+) -> int:
     now = now or timezone.now()
+    source = NetworkActivity.objects.filter(window_processed=False, observed_at__lt=now)
+    if season_id is not None:
+        source = source.filter(season_id=season_id)
     candidates = list(
-        NetworkActivity.objects.filter(window_processed=False, observed_at__lt=now)
-        .order_by("observed_at", "id")
-        .values("registration_id", "season_id", "config_version_id", "observed_at")[:limit]
+        source.order_by("observed_at", "id").values(
+            "registration_id", "season_id", "config_version_id", "observed_at"
+        )[:limit]
     )
     processed = 0
     seen: set[tuple[int, int, int, datetime]] = set()

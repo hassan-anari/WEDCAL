@@ -1,0 +1,52 @@
+{
+  "implementation": "CONFIGURABLE_V1",
+  "recognition": "FINALIZED_ONCE_V1",
+  "scale": 10000,
+  "days": 7,
+  "min_age_hours": 24,
+  "meaningful_days": 2,
+  "daily_only_periods": 3,
+  "community_messages_per_day": 2,
+  "tap_weight": 2500,
+  "tap_saturation": 500,
+  "typing_weight": 6000,
+  "typing_runs_per_day": 3,
+  "typing_wpm_ceiling": 100,
+  "daily_weight": 1000,
+  "mission_weight": 500,
+  "mission_limit": 4,
+  "independent_mission_keys": [
+    "visit-dalexio",
+    "view-x-update",
+    "join-telegram",
+    "read-season-brief"
+  ],
+  "clan_work_weight": 8000,
+  "clan_consistency_weight": 2000,
+  "clan_saturation": 100,
+  "clan_meaningful_contribution": 10,
+  "creator_h_weight": 8000,
+  "creator_w_weight": 2000,
+  "creator_h_saturation": 20,
+  "creator_window_speakers": 3,
+  "creator_window_characters": 600,
+  "creator_windows_per_day": 4,
+  "creator_speaker_span_seconds": 1800,
+  "creator_window_seconds": 900,
+  "creator_distinct_messages": 2,
+  "referral_saturation": 5,
+  "minimum_category_score": 100,
+  "participation_targets": {
+    "CLAN_PERFORMANCE": 1000,
+    "CORE_GAMEPLAY": 1000,
+    "CREATOR_COMMUNITY_GROWTH": 500,
+    "VERIFIED_REFERRAL": 1000,
+    "LOYALTY_CONSISTENCY": 1000
+  },
+  "player_cap_bps": 100,
+  "carry_release_bps": 2500,
+  "correction_reserve_bps": 500,
+  "growth": {
+    "rule": "DISABLED"
+  }
+}

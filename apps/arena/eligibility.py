@@ -1,12 +1,13 @@
 """Participation eligibility without an Epoch-decision dependency for referral activation."""
 
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any
 
 from apps.players.models import Player
 
 
-def trusted_observations(players: list[Player]) -> dict[int, datetime]:
+def trusted_observations(players: Sequence[Player]) -> dict[int, datetime]:
     from apps.clans.models import ClanActivity
     from apps.network.models import NetworkActivity
     from apps.telegram.models import TelegramInboundUpdate

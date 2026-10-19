@@ -234,17 +234,9 @@ CELERY_BEAT_SCHEDULE.update(
             "task": "apps.arena.tasks.reconcile_rankings",
             "schedule": ARENA_RECONCILIATION_INTERVAL_SECONDS,
         },
-        "drain-freeze-dlx-epochs": {
-            "task": "apps.arena.tasks.drain_and_freeze_epochs",
-            "schedule": 60,
-        },
-        "evaluate-dlx-growth": {
-            "task": "apps.arena.tasks.evaluate_growth_unlocks",
-            "schedule": 300,
-        },
         "settle-dlx-epochs": {
             "task": "apps.arena.tasks.settle_epochs",
-            "schedule": 60,
+            "schedule": int(os.getenv("DLX_AUTOMATION_SCAN_SECONDS", "60")),
         },
         "materialize-broadcasts": {
             "task": "apps.notifications.tasks.materialize_broadcasts",
@@ -444,3 +436,9 @@ CELERY_BEAT_SCHEDULE["process-clan-mission-signals"] = {
 CLAN_MISSION_SIGNAL_MAX_ATTEMPTS = int(os.getenv("CLAN_MISSION_SIGNAL_MAX_ATTEMPTS", "5"))
 
 CLAN_AUTHORITY_RECHECK_SECONDS = int(os.getenv("CLAN_AUTHORITY_RECHECK_SECONDS", "60"))
+
+# Operational work bound; never an earning or authorization parameter.
+DLX_AUTOMATION_SOURCE_BATCH_SIZE = int(os.getenv("DLX_AUTOMATION_SOURCE_BATCH_SIZE", "100"))
+# Large Epochs use separate operational limits from request workers.
+DLX_AUTOMATION_SOFT_TIME_LIMIT = int(os.getenv("DLX_AUTOMATION_SOFT_TIME_LIMIT", "3600"))
+DLX_AUTOMATION_TIME_LIMIT = int(os.getenv("DLX_AUTOMATION_TIME_LIMIT", "3660"))

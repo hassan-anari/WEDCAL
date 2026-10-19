@@ -1,0 +1,133 @@
+{
+  "registered": 50000,
+  "active": 12500,
+  "qualified": 12500,
+  "normalized_receipts": 63959,
+  "profile": "mixed",
+  "source_producer_throughput_measured": false,
+  "mix": "25% active, Clan/Creator/acquisition receipts",
+  "source_mix": [
+    {
+      "source_type": "TYPING_CREDIT",
+      "count": 25000
+    },
+    {
+      "source_type": "REFERRAL_ACTIVATION",
+      "count": 625
+    },
+    {
+      "source_type": "CLAN_CONTRIBUTION",
+      "count": 8334
+    },
+    {
+      "source_type": "CREATOR_ACTIVITY",
+      "count": 30000
+    }
+  ],
+  "postgres": "PostgreSQL 17.11 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+  "seed_players_seconds": 5.221531488999972,
+  "wall_seconds_including_seed": 73.11484937000023,
+  "economic_seconds": 53.21234071299932,
+  "stages": {
+    "prepare_qualification_manifest": {
+      "seconds": 18.731183640999916,
+      "queries": 4922
+    },
+    "readiness": {
+      "seconds": 5.811857839999902,
+      "queries": 50
+    },
+    "freeze_snapshots": {
+      "seconds": 21.311238156999934,
+      "queries": 172
+    },
+    "settlement": {
+      "seconds": 7.336176825999701,
+      "queries": 65
+    },
+    "reconciliation": {
+      "seconds": 0.02188424899986785,
+      "queries": 7
+    }
+  },
+  "python_cpu_seconds": 46.22967388000001,
+  "peak_rss_kib": 388100,
+  "before": {
+    "database_counters": [
+      865367,
+      729237,
+      68419,
+      2005,
+      0,
+      24657920
+    ],
+    "wal_lsn": "1/1337548",
+    "database_bytes": 19797683
+  },
+  "after": {
+    "database_counters": [
+      3654629,
+      3158646,
+      315756,
+      2151,
+      0,
+      79765504
+    ],
+    "wal_lsn": "1/157A2958",
+    "database_bytes": 141853199
+  },
+  "recognition_query_plan": [
+    {
+      "Plan": {
+        "Node Type": "Index Scan",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Scan Direction": "Forward",
+        "Index Name": "arena_economicrecognition_pkey",
+        "Relation Name": "arena_economicrecognition",
+        "Alias": "arena_economicrecognition",
+        "Startup Cost": 0.29,
+        "Total Cost": 4702.57,
+        "Plan Rows": 63959,
+        "Plan Width": 324,
+        "Actual Startup Time": 0.017,
+        "Actual Total Time": 19.329,
+        "Actual Rows": 63959,
+        "Actual Loops": 1,
+        "Filter": "(epoch_id = 3)",
+        "Rows Removed by Filter": 0,
+        "Shared Hit Blocks": 3203,
+        "Shared Read Blocks": 53,
+        "Shared Dirtied Blocks": 0,
+        "Shared Written Blocks": 0,
+        "Local Hit Blocks": 0,
+        "Local Read Blocks": 0,
+        "Local Dirtied Blocks": 0,
+        "Local Written Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0
+      },
+      "Planning": {
+        "Shared Hit Blocks": 197,
+        "Shared Read Blocks": 5,
+        "Shared Dirtied Blocks": 2,
+        "Shared Written Blocks": 0,
+        "Local Hit Blocks": 0,
+        "Local Read Blocks": 0,
+        "Local Dirtied Blocks": 0,
+        "Local Written Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0
+      },
+      "Planning Time": 0.845,
+      "Triggers": [],
+      "Execution Time": 21.439
+    }
+  ],
+  "limitations": [
+    "not a gameplay traffic benchmark",
+    "not Creator/Clan/referral aggregation capacity",
+    "no external Telegram calls",
+    "one economic worker, no concurrent gameplay load"
+  ]
+}

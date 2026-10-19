@@ -1,0 +1,14 @@
+{
+  "synthetic": true,
+  "base_budget": 3000000,
+  "maximum_budget": 5000000,
+  "events": [],
+  "evaluations": [
+    {
+      "outcome": "THRESHOLD_NOT_REACHED",
+      "qualified_player_count": 19,
+      "cutoff_at": "2026-10-27 22:33:06.352397+00:00",
+      "cohort_digest": "7ab760bfe68ba00b774098654a065e637e8876a15f2133b9540941474eff6991"
+    }
+  ]
+}

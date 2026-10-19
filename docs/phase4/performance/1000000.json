@@ -1,0 +1,133 @@
+{
+  "application_hashes": {
+    "apps/arena/economics.py": "f00fe12c6e2f486c126fc88e91623f2748f384f388fe98080b80607da55a3d06",
+    "apps/arena/epochs.py": "22489a5bb74b090fe5245c36dae3274dc1b977f69c4ee0ed4c17376e082791c5",
+    "apps/arena/scoring.py": "283fe798cf4a3226478b4748940f48f2bf3776e77dbe6cf575e10798ec2ebae8",
+    "apps/arena/policy.py": "3d267fbb915163b1a0b706df8e12d78824b99c774de75aa79164dbb5eb2a5dbd",
+    "apps/arena/recognition.py": "8475941446d286558ac5bf864e3680078baa84fe8ecc577c27091b9431bebe9a",
+    "apps/arena/growth.py": "57642e3f0910ddc12f3049e85ca413018410e4fb7f62b96e5cf4095a3856a109",
+    "apps/arena/qualification.py": "25a75be8e7df7036cae5079c0cb3442c441f0d196fa121ed58c0862666cc4038",
+    "apps/game_config/services.py": "3fb31ba3018e7c634d82068d98dddc736f69dc4a60479f663277e4617eadbf38",
+    "apps/seasons/close.py": "cf431c298a6775c8b1303c2c24643448807d3b48845ba95d5523f674aed3ec22"
+  },
+  "registered": 1000000,
+  "concurrent_gameplay": null,
+  "active": 100000,
+  "qualified": 100000,
+  "normalized_receipts": 200000,
+  "profile": "core_sparse",
+  "source_producer_throughput_measured": false,
+  "mix": "90% inactive, 10% typing",
+  "source_mix": [
+    {
+      "source_type": "TYPING_CREDIT",
+      "count": 200000
+    }
+  ],
+  "postgres": "PostgreSQL 17.11 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+  "seed_players_seconds": 87.900881733,
+  "wall_seconds_including_seed": 669.3010922080002,
+  "economic_seconds": 544.7351832939999,
+  "stages": {
+    "prepare_qualification_manifest": {
+      "seconds": 284.0597272529999,
+      "queries": 97072
+    },
+    "readiness": {
+      "seconds": 60.93611218099977,
+      "queries": 50
+    },
+    "freeze_snapshots": {
+      "seconds": 178.43736037899998,
+      "queries": 609
+    },
+    "settlement": {
+      "seconds": 21.29148227099995,
+      "queries": 57
+    },
+    "reconciliation": {
+      "seconds": 0.010501210000256833,
+      "queries": 7
+    }
+  },
+  "python_cpu_seconds": 515.539335283,
+  "peak_rss_kib": 2463240,
+  "before": {
+    "database_counters": [
+      183234,
+      173308,
+      16061,
+      949,
+      0,
+      0
+    ],
+    "wal_lsn": "1/3E9B58E0",
+    "database_bytes": 19464719
+  },
+  "after": {
+    "database_counters": [
+      20676990,
+      17009246,
+      2740416,
+      1155,
+      0,
+      198664192
+    ],
+    "wal_lsn": "1/F5096050",
+    "database_bytes": 1423423155
+  },
+  "recognition_query_plan": [
+    {
+      "Plan": {
+        "Node Type": "Index Scan",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Scan Direction": "Forward",
+        "Index Name": "arena_economicrecognition_pkey",
+        "Relation Name": "arena_economicrecognition",
+        "Alias": "arena_economicrecognition",
+        "Startup Cost": 0.42,
+        "Total Cost": 13400.42,
+        "Plan Rows": 200000,
+        "Plan Width": 276,
+        "Actual Startup Time": 0.025,
+        "Actual Total Time": 76.055,
+        "Actual Rows": 200000,
+        "Actual Loops": 1,
+        "Filter": "(epoch_id = 1)",
+        "Rows Removed by Filter": 0,
+        "Shared Hit Blocks": 0,
+        "Shared Read Blocks": 8242,
+        "Shared Dirtied Blocks": 0,
+        "Shared Written Blocks": 8060,
+        "Local Hit Blocks": 0,
+        "Local Read Blocks": 0,
+        "Local Dirtied Blocks": 0,
+        "Local Written Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0
+      },
+      "Planning": {
+        "Shared Hit Blocks": 179,
+        "Shared Read Blocks": 15,
+        "Shared Dirtied Blocks": 1,
+        "Shared Written Blocks": 0,
+        "Local Hit Blocks": 0,
+        "Local Read Blocks": 0,
+        "Local Dirtied Blocks": 0,
+        "Local Written Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0
+      },
+      "Planning Time": 0.74,
+      "Triggers": [],
+      "Execution Time": 82.987
+    }
+  ],
+  "limitations": [
+    "not a gameplay traffic benchmark",
+    "raw Creator/Clan/referral producer throughput excluded",
+    "no external Telegram calls",
+    "one economic worker, no concurrent gameplay load"
+  ]
+}

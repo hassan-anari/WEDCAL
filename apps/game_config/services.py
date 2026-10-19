@@ -1,7 +1,7 @@
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -58,13 +58,13 @@ def preview_safe_cutover(config: GameConfigVersion) -> tuple[str, ...]:
     if old.get("dlx_distribution") != new.get("dlx_distribution"):
         from apps.seasons.models import Season
 
-        seasons = Season.objects.filter(status=Season.Status.ACTIVE)
-        if any(
-            at < season.starts_at
-            or (at - season.starts_at).total_seconds() % timedelta(days=7).total_seconds()
-            for season in seasons
+        for season in Season.objects.filter(status=Season.Status.ACTIVE).select_related(
+            "baseline_config"
         ):
-            issues.append("DLX policy changes require an active Season economic-epoch boundary")
+            if at < season.ends_at and new.get(
+                "dlx_distribution"
+            ) != season.baseline_config.payload.get("dlx_distribution"):
+                issues.append("Active Season structural and economic commitments are pinned")
     return tuple(issues)
 
 
@@ -972,10 +972,11 @@ def parse_economy_sync(payload: dict[str, Any]) -> tuple[BaseTapConfig, DlxDistr
         if (meta["schema_version"], meta["economy_contract_version"]) not in (
             (2, "2.0.0"),
             (3, "3.0.0"),
+            (4, "4.0.0"),
         ):
             raise TypeError
         tap = payload["base_tap"]
-        v2 = meta["schema_version"] == 3
+        v2 = meta["schema_version"] >= 3
         if v2 and (
             tap.get("protocol_version") != 2
             or "rewarded_taps_per_utc_day" in tap
@@ -1011,6 +1012,12 @@ def parse_economy_sync(payload: dict[str, Any]) -> tuple[BaseTapConfig, DlxDistr
         parsed_weights = tuple(
             (str(key), _integer(value, "DLX category weight")) for key, value in weights.items()
         )
+        if meta["schema_version"] >= 4:
+            from apps.arena.policy import CATEGORIES
+
+            parsed_weights = tuple((key, dict(parsed_weights).get(key, 0)) for key in CATEGORIES)
+            if set(weights) != set(CATEGORIES):
+                raise ValidationError("Canonical category identities required")
         growth = pool["growth_unlock"]
         predicate = growth["qualified_player_predicate"]
         if not isinstance(predicate, dict) or not predicate:
@@ -1048,14 +1055,32 @@ def parse_economy_sync(payload: dict[str, Any]) -> tuple[BaseTapConfig, DlxDistr
         raise ValidationError("Tap v2 authorization/retention exceeds protocol safety bounds")
     if not v2 and base_tap.max_taps_per_batch > base_tap.rewarded_taps_per_day:
         raise ValidationError("Base Tap batch cap cannot exceed its daily cap")
-    if result.epoch_count != 6 or result.epoch_days != 7:
+    if meta["schema_version"] < 4 and (result.epoch_count != 6 or result.epoch_days != 7):
         raise ValidationError("Season 1 requires exactly six seven-day economic epochs")
     if result.product_period_days != result.epoch_count * result.epoch_days + result.closing_days:
         raise ValidationError("Product period must equal economic epochs plus closing days")
-    if result.product_period_days != 45 or result.closing_days != 3:
+    if meta["schema_version"] < 4 and (
+        result.product_period_days != 45 or result.closing_days != 3
+    ):
         raise ValidationError("Season 1 requires a 45-day period and three closing days")
     if result.default_settlement_start_epoch > result.epoch_count:
         raise ValidationError("Settlement start epoch is outside the economic epoch range")
+    # PostgreSQL signed bigint and PositiveSmallInteger storage bounds are invariants.
+    if result.epoch_count > 32767 or result.max_pool_dlx_amount > 2**63 - 1:
+        raise ValidationError("Season configuration exceeds platform accounting bounds")
+    if meta["schema_version"] >= 4:
+        reference = distribution.get("economic_policy")
+        if (
+            not isinstance(reference, dict)
+            or set(reference) != {"key", "version", "checksum"}
+            or not isinstance(reference["key"], str)
+            or not reference["key"].strip()
+            or type(reference["version"]) is not int
+            or reference["version"] < 1
+            or not isinstance(reference["checksum"], str)
+            or len(reference["checksum"]) != 64
+        ):
+            raise ValidationError("Explicit immutable economic policy reference required")
     if result.max_pool_dlx_amount < result.base_pool_dlx_amount:
         raise ValidationError("Maximum DLX pool cannot be below the base pool")
     expected_categories = {
@@ -1071,6 +1096,8 @@ def parse_economy_sync(payload: dict[str, Any]) -> tuple[BaseTapConfig, DlxDistr
         raise ValidationError(
             "DLX category weights must contain the canonical categories and total 10000 bps"
         )
+    if any(not item.key.strip() or len(item.key) > 64 for item in milestones):
+        raise ValidationError("Growth identity must contain 1..64 characters")
     if len({item.key for item in milestones}) != len(milestones) or len(
         {item.qualified_player_count for item in milestones}
     ) != len(milestones):
@@ -1397,6 +1424,10 @@ def publish_game_config(
             parse_typing(config.payload)
         else:
             parse_progression(config.payload)
+        if config.payload.get("meta", {}).get("schema_version", 0) >= 4:
+            from apps.arena.configuration import selected_economic_policy
+
+            selected_economic_policy(config)
         publication_time = published_at or timezone.now()
         published_configs = GameConfigVersion.objects.select_for_update().filter(
             status=GameConfigVersion.Status.PUBLISHED

@@ -1,0 +1,881 @@
+{
+  "meta": {
+    "schema_version": 4,
+    "economy_contract_version": "4.0.0",
+    "season": "S1",
+    "status": "APPROVED_BASELINE",
+    "canonical_point_unit": "POINT",
+    "nominal_season_duration_days": 45,
+    "percentage_unit": "BASIS_POINTS",
+    "notes": "Season 1 is 45 days: six seven-day economic epochs followed by a three-day closing/reconciliation window. Season model dates remain authoritative."
+  },
+  "economy_safety": {
+    "integer_points_only": true,
+    "float_economy_forbidden": true,
+    "published_config_immutable": true,
+    "retroactive_effective_config_forbidden": true,
+    "historical_reward_recalculation_forbidden": true,
+    "redis_is_economic_source_of_truth": false,
+    "negative_player_projection_forbidden": true,
+    "reward_idempotency_required": true
+  },
+  "progression": {
+    "levels": [
+      {
+        "level": 1,
+        "min_lifetime_points": 0
+      },
+      {
+        "level": 2,
+        "min_lifetime_points": 300
+      },
+      {
+        "level": 3,
+        "min_lifetime_points": 800
+      },
+      {
+        "level": 4,
+        "min_lifetime_points": 1500
+      },
+      {
+        "level": 5,
+        "min_lifetime_points": 2500
+      },
+      {
+        "level": 6,
+        "min_lifetime_points": 3800
+      },
+      {
+        "level": 7,
+        "min_lifetime_points": 5400
+      },
+      {
+        "level": 8,
+        "min_lifetime_points": 7300
+      },
+      {
+        "level": 9,
+        "min_lifetime_points": 9500
+      },
+      {
+        "level": 10,
+        "min_lifetime_points": 12000
+      },
+      {
+        "level": 11,
+        "min_lifetime_points": 14800
+      },
+      {
+        "level": 12,
+        "min_lifetime_points": 18000
+      },
+      {
+        "level": 13,
+        "min_lifetime_points": 21600
+      },
+      {
+        "level": 14,
+        "min_lifetime_points": 25600
+      },
+      {
+        "level": 15,
+        "min_lifetime_points": 30000
+      },
+      {
+        "level": 16,
+        "min_lifetime_points": 34900
+      },
+      {
+        "level": 17,
+        "min_lifetime_points": 40300
+      },
+      {
+        "level": 18,
+        "min_lifetime_points": 46200
+      },
+      {
+        "level": 19,
+        "min_lifetime_points": 52700
+      },
+      {
+        "level": 20,
+        "min_lifetime_points": 59800
+      },
+      {
+        "level": 21,
+        "min_lifetime_points": 67600
+      },
+      {
+        "level": 22,
+        "min_lifetime_points": 76200
+      },
+      {
+        "level": 23,
+        "min_lifetime_points": 85700
+      },
+      {
+        "level": 24,
+        "min_lifetime_points": 96200
+      },
+      {
+        "level": 25,
+        "min_lifetime_points": 108000
+      },
+      {
+        "level": 26,
+        "min_lifetime_points": 121500
+      },
+      {
+        "level": 27,
+        "min_lifetime_points": 137000
+      },
+      {
+        "level": 28,
+        "min_lifetime_points": 155000
+      },
+      {
+        "level": 29,
+        "min_lifetime_points": 176000
+      },
+      {
+        "level": 30,
+        "min_lifetime_points": 200000
+      }
+    ],
+    "dexo_stages": [
+      {
+        "key": "newborn",
+        "min_level": 1
+      },
+      {
+        "key": "explorer",
+        "min_level": 5
+      },
+      {
+        "key": "connector",
+        "min_level": 10
+      },
+      {
+        "key": "specialist",
+        "min_level": 15
+      },
+      {
+        "key": "vanguard",
+        "min_level": 20
+      },
+      {
+        "key": "legend",
+        "min_level": 30
+      }
+    ]
+  },
+  "daily": {
+    "enabled": true,
+    "reset_timezone": "UTC",
+    "reset_hour": 0,
+    "reset_minute": 0,
+    "reward_cycle_points": [
+      80,
+      90,
+      100,
+      110,
+      120,
+      140,
+      180
+    ],
+    "missed_full_period_resets_streak": true,
+    "catch_up_claims_enabled": false,
+    "cycle_restarts_after_day_7": true,
+    "streak_counter_continues_after_day_7": true
+  },
+  "missions": {
+    "enabled": true,
+    "verification_families": [
+      "INTERNAL",
+      "TELEGRAM",
+      "TIMED_EXTERNAL"
+    ],
+    "timed_external_min_dwell_seconds": 6,
+    "reward_bands": {
+      "MICRO": 40,
+      "SMALL": 80,
+      "MEDIUM": 120,
+      "LARGE": 200,
+      "PREMIUM": 300
+    },
+    "economy_review_required_above_points": 500,
+    "initial_definitions": [
+      {
+        "id": "visit-dalexio",
+        "verification": "TIMED_EXTERNAL",
+        "reward_points": 120,
+        "repeat": "ONCE_PER_DEFINITION_VERSION"
+      },
+      {
+        "id": "view-x-update",
+        "verification": "TIMED_EXTERNAL",
+        "reward_points": 80,
+        "repeat": "ONCE_PER_DEFINITION_VERSION"
+      },
+      {
+        "id": "join-telegram",
+        "verification": "TELEGRAM",
+        "reward_points": 200,
+        "repeat": "ONCE_PER_DEFINITION_VERSION"
+      },
+      {
+        "id": "typing-session",
+        "verification": "INTERNAL",
+        "reward_points": 40,
+        "repeat": "DAILY"
+      },
+      {
+        "id": "complete-profile",
+        "verification": "INTERNAL",
+        "reward_points": 200,
+        "repeat": "ONCE_PER_DEFINITION_VERSION"
+      },
+      {
+        "id": "read-season-brief",
+        "verification": "INTERNAL",
+        "reward_points": 120,
+        "repeat": "ONCE_PER_DEFINITION_VERSION"
+      }
+    ]
+  },
+  "typing": {
+    "enabled": true,
+    "attempts_per_day": 5,
+    "reset_timezone": "UTC",
+    "challenge_seconds": 30,
+    "require_full_phrase_completion": true,
+    "min_accuracy_bps": 8500,
+    "min_wpm": 10,
+    "accuracy_reward_brackets": [
+      {
+        "min_accuracy_bps": 8500,
+        "points": 10
+      },
+      {
+        "min_accuracy_bps": 9000,
+        "points": 20
+      },
+      {
+        "min_accuracy_bps": 9500,
+        "points": 30
+      },
+      {
+        "min_accuracy_bps": 9800,
+        "points": 40
+      },
+      {
+        "min_accuracy_bps": 10000,
+        "points": 50
+      }
+    ],
+    "wpm_reward_brackets": [
+      {
+        "min_wpm": 10,
+        "points": 5
+      },
+      {
+        "min_wpm": 30,
+        "points": 10
+      },
+      {
+        "min_wpm": 45,
+        "points": 20
+      },
+      {
+        "min_wpm": 60,
+        "points": 30
+      },
+      {
+        "min_wpm": 75,
+        "points": 35
+      },
+      {
+        "min_wpm": 100,
+        "points": 40
+      }
+    ],
+    "max_reward_per_attempt": 90,
+    "completed_invalid_attempt_consumes_quota": true,
+    "technical_failure_consumes_quota": false,
+    "claimable_wallet_enabled": true,
+    "claim_anytime": true,
+    "auto_settle_at_season_close": true,
+    "claim_preserves_source_season": true,
+    "anti_cheat": {
+      "suspicious_wpm": 160,
+      "reject_wpm": 220,
+      "replayed_attempt_rejected": true,
+      "impossible_timing_rejected": true,
+      "suspicious_is_auto_ban": false
+    }
+  },
+  "referral": {
+    "enabled": true,
+    "first_touch_immutable": true,
+    "self_referral_allowed": false,
+    "activation": {
+      "min_level": 5,
+      "min_account_age_hours": 24,
+      "anti_sybil_pass_required": true,
+      "blocked_moderation_states": [
+        "SUSPENDED",
+        "BANNED"
+      ]
+    },
+    "activation_bonus": {
+      "inviter_points": 100,
+      "invitee_points": 50
+    },
+    "tiers": [
+      {
+        "key": "BRONZE",
+        "min_verified_referrals": 1,
+        "share_bps": 300
+      },
+      {
+        "key": "SILVER",
+        "min_verified_referrals": 5,
+        "share_bps": 500
+      },
+      {
+        "key": "GOLD",
+        "min_verified_referrals": 15,
+        "share_bps": 700
+      }
+    ],
+    "share_base": "PLAYER_AMOUNT",
+    "share_is_deducted_from_invitee": false,
+    "eligible_reward_sources": [
+      "DAILY",
+      "MISSION",
+      "TYPING_CLAIM",
+      "CLAN_ACTIVITY",
+      "CLAN_MISSION"
+    ],
+    "ineligible_reward_sources": [
+      "REFERRAL",
+      "CREATOR",
+      "CAPTAIN_BONUS",
+      "ACHIEVEMENT",
+      "MEDAL",
+      "ADMIN_ADJUSTMENT",
+      "TREASURY",
+      "BASE_TAP"
+    ],
+    "recursive_referral_rewards_forbidden": true
+  },
+  "network_activity": {
+    "enabled": true,
+    "context": "NETWORK_GROUP",
+    "qualification": {
+      "min_message_chars": 20,
+      "max_rewardable_chars_per_message": 200,
+      "max_messages_per_minute": 5
+    },
+    "speaker_reward": {
+      "enabled": false,
+      "points_per_unit": 0
+    },
+    "creator_reward": {
+      "enabled": true,
+      "creator_self_activity_eligible": false,
+      "aggregation_window_seconds": 900,
+      "qualified_chars_per_point": 600,
+      "min_unique_speakers_per_window": 2,
+      "max_points_per_window_per_group": 20,
+      "max_points_per_creator_per_day": 1500,
+      "max_active_groups_per_creator": 3
+    }
+  },
+  "anti_fraud": {
+    "network": {
+      "exact_duplicate_window_seconds": 600,
+      "near_duplicate_window_seconds": 300,
+      "same_fingerprint_suspicious_count": 2,
+      "same_fingerprint_reject_count": 4,
+      "suspicious_is_auto_ban": false
+    },
+    "clan": {
+      "exact_duplicate_window_seconds": 600,
+      "near_duplicate_window_seconds": 300,
+      "same_fingerprint_suspicious_count": 2,
+      "same_fingerprint_reject_count": 4,
+      "suspicious_is_auto_ban": false
+    }
+  },
+  "clan": {
+    "enabled": true,
+    "unlock": {
+      "min_level": 5
+    },
+    "capacity": {
+      "max_capacity_including_items": 65,
+      "hq_curve": [
+        {
+          "hq_level": 1,
+          "min_cumulative_hq_xp": 0,
+          "base_capacity": 20
+        },
+        {
+          "hq_level": 2,
+          "min_cumulative_hq_xp": 1000,
+          "base_capacity": 25
+        },
+        {
+          "hq_level": 3,
+          "min_cumulative_hq_xp": 3000,
+          "base_capacity": 30
+        },
+        {
+          "hq_level": 4,
+          "min_cumulative_hq_xp": 7000,
+          "base_capacity": 40
+        },
+        {
+          "hq_level": 5,
+          "min_cumulative_hq_xp": 15000,
+          "base_capacity": 50
+        }
+      ]
+    },
+    "activity": {
+      "context": "CLAN_HOME",
+      "min_message_chars": 20,
+      "max_rewardable_chars_per_message": 200,
+      "max_messages_per_minute": 5,
+      "qualified_chars_per_gross_point": 150,
+      "settlement_window_seconds": 900,
+      "max_gross_points_per_player_per_window": 15,
+      "daily_conversation_cap_enabled": false
+    },
+    "treasury": {
+      "split_bps": 1000,
+      "rounding": "FLOOR_ON_AGGREGATED_SETTLEMENT",
+      "player_amount_is_gross_minus_treasury": true,
+      "spending_mints_player_points": false
+    },
+    "contribution": {
+      "gross_points_to_contribution_numerator": 1,
+      "gross_points_to_contribution_denominator": 1,
+      "calculated_before_treasury_split": true,
+      "contribution_units_per_hq_xp": 5,
+      "contribution_units_to_clan_score_numerator": 1,
+      "contribution_units_to_clan_score_denominator": 1
+    },
+    "captain_bonus": {
+      "enabled": true,
+      "share_bps": 200,
+      "base": "OTHER_MEMBERS_ELIGIBLE_GROSS",
+      "max_points_per_day": 500,
+      "generates_contribution": false,
+      "eligible_for_referral_share": false
+    },
+    "missions": {
+      "reward_bands": {
+        "SMALL": {
+          "participant_gross_points": 80,
+          "direct_hq_xp": 15
+        },
+        "MEDIUM": {
+          "participant_gross_points": 150,
+          "direct_hq_xp": 30
+        },
+        "LARGE": {
+          "participant_gross_points": 250,
+          "direct_hq_xp": 60
+        },
+        "GROUP": {
+          "participant_gross_points": 100,
+          "direct_hq_xp": 200
+        }
+      }
+    },
+    "inactivity": {
+      "soldier_warning_after_days": 3,
+      "soldier_removal_eligible_after_days": 5,
+      "captain_warning_after_days": 3,
+      "captain_recovery_after_days": 7
+    },
+    "leave": {
+      "cooldown_hours": 48,
+      "max_voluntary_leaves_per_season": 3
+    },
+    "governance": {
+      "vote_duration_hours": 24,
+      "quorum_bps": 4000,
+      "approval_threshold_bps": 6000,
+      "minimum_eligible_voters": 3
+    },
+    "telegram_recovery": {
+      "access_rejoin_grace_hours": 48,
+      "bot_admin_restore_grace_hours": 72
+    },
+    "inventory": {
+      "stacking_rule": "HIGHEST_BONUS_PER_EFFECT_CATEGORY",
+      "items": [
+        {
+          "id": "rally-beacon",
+          "name": "Clan XP Booster",
+          "available_s1": true,
+          "price_treasury": 2400,
+          "activation": "TIMED",
+          "duration_minutes": 120,
+          "effects": [
+            {
+              "type": "HQ_XP_RATE_BONUS_BPS",
+              "value": 2000
+            }
+          ]
+        },
+        {
+          "id": "contribution-booster",
+          "name": "Contribution Booster",
+          "available_s1": true,
+          "price_treasury": 2800,
+          "activation": "TIMED",
+          "duration_minutes": 120,
+          "effects": [
+            {
+              "type": "CONTRIBUTION_RATE_BONUS_BPS",
+              "value": 1500
+            }
+          ]
+        },
+        {
+          "id": "mission-progress-booster",
+          "name": "Mission Progress Booster",
+          "available_s1": true,
+          "price_treasury": 3100,
+          "activation": "TIMED",
+          "duration_minutes": 90,
+          "effects": [
+            {
+              "type": "CLAN_MISSION_PROGRESS_BONUS_BPS",
+              "value": 2000
+            }
+          ]
+        },
+        {
+          "id": "coordination-booster",
+          "name": "Coordination Booster",
+          "available_s1": true,
+          "price_treasury": 3300,
+          "activation": "TIMED",
+          "duration_minutes": 90,
+          "effects": [
+            {
+              "type": "HQ_XP_RATE_BONUS_BPS",
+              "value": 1000
+            },
+            {
+              "type": "CLAN_MISSION_PROGRESS_BONUS_BPS",
+              "value": 1000
+            }
+          ]
+        },
+        {
+          "id": "early-warning-beacon",
+          "name": "Early Warning Beacon",
+          "available_s1": false,
+          "price_treasury": 1500,
+          "reason": "DEFENCE_FUTURE"
+        },
+        {
+          "id": "supply-cache",
+          "name": "Emergency Repair Kit",
+          "available_s1": false,
+          "price_treasury": 1800,
+          "reason": "DEFENCE_FUTURE"
+        },
+        {
+          "id": "fortification-grid",
+          "name": "Firewall Shield",
+          "available_s1": false,
+          "price_treasury": 3600,
+          "reason": "DEFENCE_FUTURE"
+        },
+        {
+          "id": "protection-dome",
+          "name": "Protection Dome",
+          "available_s1": false,
+          "price_treasury": 5400,
+          "reason": "DEFENCE_FUTURE"
+        },
+        {
+          "id": "alliance-permit",
+          "name": "Alliance Permit",
+          "available_s1": false,
+          "price_treasury": 3400,
+          "reason": "ALLIANCE_FUTURE"
+        },
+        {
+          "id": "capacity-expansion-module",
+          "name": "Capacity Expansion Module",
+          "available_s1": true,
+          "price_treasury": 4100,
+          "activation": "CONTEXT",
+          "effects": [
+            {
+              "type": "SEASON_CAPACITY_ADD",
+              "value": 5
+            }
+          ],
+          "max_uses_per_season": 2
+        },
+        {
+          "id": "roster-slot-module",
+          "name": "Roster Slot Module",
+          "available_s1": true,
+          "price_treasury": 3800,
+          "activation": "CONTEXT",
+          "effects": [
+            {
+              "type": "SEASON_CAPACITY_ADD",
+              "value": 1
+            }
+          ],
+          "max_uses_per_season": 5
+        },
+        {
+          "id": "event-entry-pass",
+          "name": "Event Entry Pass",
+          "available_s1": false,
+          "price_treasury": 2200,
+          "reason": "WORLD_EVENT_FUTURE"
+        },
+        {
+          "id": "command-relay",
+          "name": "HQ Upgrade Kit",
+          "available_s1": true,
+          "price_treasury": 5200,
+          "activation": "CONTEXT",
+          "effects": [
+            {
+              "type": "HQ_XP_GRANT",
+              "value": 2000
+            }
+          ],
+          "max_uses_per_season": 2
+        }
+      ]
+    },
+    "achievements": {
+      "banner-raised": {
+        "point_reward": 0,
+        "rule": "CLAN_CREATED_AND_FIRST_SHARED_MILESTONE"
+      },
+      "united-front": {
+        "point_reward": 0,
+        "min_season_contribution": 25000
+      },
+      "treasury-keeper": {
+        "point_reward": 0,
+        "min_lifetime_treasury_earned_in_season": 20000
+      }
+    }
+  },
+  "profile_collection": {
+    "achievement_point_rewards_enabled": false,
+    "achievements": {
+      "first-mission": {
+        "target": 1,
+        "point_reward": 0
+      },
+      "first-referral": {
+        "target": 1,
+        "point_reward": 0
+      },
+      "seven-day-streak": {
+        "target": 7,
+        "point_reward": 0
+      },
+      "thirty-day-streak": {
+        "target": 30,
+        "point_reward": 0
+      },
+      "first-verified-activity": {
+        "target": 1,
+        "point_reward": 0
+      },
+      "clan-ready": {
+        "min_level": 5,
+        "point_reward": 0
+      },
+      "first-clan": {
+        "target": 1,
+        "point_reward": 0
+      },
+      "first-contribution": {
+        "min_contribution": 1,
+        "point_reward": 0
+      },
+      "first-war": {
+        "available_s1": false
+      },
+      "first-victory": {
+        "available_s1": false
+      }
+    },
+    "titles": {
+      "explorer": {
+        "unlock": "DEFAULT"
+      },
+      "early-pioneer": {
+        "unlock": "MEDAL:season-founding"
+      },
+      "mission-runner": {
+        "unlock": "ACHIEVEMENT:first-mission"
+      },
+      "network-builder": {
+        "unlock": "ACHIEVEMENT:first-referral"
+      },
+      "community-voice": {
+        "unlock": "ACHIEVEMENT:first-verified-activity"
+      },
+      "season-veteran": {
+        "unlock": "MEDAL:season-veteran"
+      }
+    },
+    "frames": {
+      "standard": {
+        "unlock": "DEFAULT"
+      },
+      "premium": {
+        "unlock": "LEVEL:20"
+      },
+      "seasonal": {
+        "unlock": "MEDAL:season-participant"
+      },
+      "founder": {
+        "unlock": "MEDAL:season-founding"
+      },
+      "clan": {
+        "unlock": "ACTIVE_CLAN_MEMBERSHIP"
+      },
+      "captain": {
+        "unlock": "ACTIVE_CLAN_CAPTAIN"
+      }
+    }
+  },
+  "season_honors": {
+    "point_rewards_enabled": false,
+    "medals": {
+      "season-founding": {
+        "rule": "PARTICIPATED_IN_FOUNDING_SEASON"
+      },
+      "season-participant": {
+        "min_season_points": 5000
+      },
+      "season-veteran": {
+        "min_season_points": 30000
+      },
+      "season-top-10": {
+        "max_rank_percentile_bps": 1000
+      },
+      "season-top-1": {
+        "max_rank_percentile_bps": 100
+      },
+      "season-champion": {
+        "max_rank": 1
+      },
+      "activity-veteran": {
+        "min_verified_activity_events": 1000
+      },
+      "clan-loyalty": {
+        "min_active_days_same_clan": 30
+      },
+      "leadership": {
+        "rule": "CAPTAIN_AND_CLAN_HQ_LEVEL_5"
+      },
+      "mission-master": {
+        "min_claimed_missions": 50
+      }
+    }
+  },
+  "rankings": {
+    "default_page_size": 50,
+    "max_page_size": 100,
+    "minimum_points_to_rank": 1,
+    "player_tie_break": [
+      "SEASON_POINTS_DESC",
+      "SCORE_REACHED_AT_ASC",
+      "PLAYER_ID_ASC"
+    ],
+    "clan_tie_break": [
+      "CLAN_SCORE_DESC",
+      "SCORE_REACHED_AT_ASC",
+      "CLAN_ID_ASC"
+    ]
+  },
+  "retention": {
+    "message_content_days": 14,
+    "message_fingerprint_metadata_days": 90,
+    "moderation_case_evidence_after_close_days": 180
+  },
+  "dlx": {
+    "season1_off_chain_weekly_allocation_enabled": true,
+    "confirmed_allocation_claimable_transferable_or_tradable": false,
+    "wallet_withdrawal_or_on_chain_claim_enabled": false,
+    "fixed_point_to_dlx_ratio_defined": false,
+    "price_status": "UNAVAILABLE"
+  },
+  "base_tap": {
+    "enabled": true,
+    "protocol_version": 2,
+    "points_per_rewarded_tap": 1,
+    "rewarded_taps_per_burst": 50,
+    "cooldown_seconds": 10,
+    "lease_seconds": 120,
+    "max_taps_per_batch": 50,
+    "min_batch_interval_ms": 50,
+    "receipt_retention_days": 7,
+    "grants_direct_dlx": false,
+    "passive_referral_share_eligible": false
+  },
+  "dlx_distribution": {
+    "accounting_unit": "OFF_CHAIN_DLX_ALLOCATION_AMOUNT",
+    "native_chain_decimal_precision": null,
+    "timing": {
+      "product_period_days": 23,
+      "epoch_count": 3,
+      "epoch_days": 7,
+      "closing_days": 2
+    },
+    "default_settlement_start_epoch": 2,
+    "settlement_start_is_season_operational_control": true,
+    "performance_basis": "CURRENT_EPOCH_QUALIFIED_PERFORMANCE",
+    "pool": {
+      "growth_unlock": {
+        "counter": "QUALIFIED_PLAYERS",
+        "qualified_player_predicate": {
+          "policy_key": "QUALIFIED_PLAYER",
+          "policy_version": 1
+        },
+        "milestones": []
+      },
+      "base_dlx_amount": 7777777,
+      "max_dlx_amount": 12345678
+    },
+    "category_weights_bps": {
+      "CLAN_PERFORMANCE": 3500,
+      "CORE_GAMEPLAY": 2000,
+      "CREATOR_COMMUNITY_GROWTH": 2000,
+      "VERIFIED_REFERRAL": 1500,
+      "LOYALTY_CONSISTENCY": 1000
+    },
+    "unused_category_budget": "CARRY_FORWARD_SAME_CATEGORY",
+    "final_residual_policy": "EXPLICIT_AUDITED_SEASON_CLOSE_DECISION",
+    "confirmed_allocation_is_claimable_or_transferable": false,
+    "reward_ledger_is_dlx_ledger": false,
+    "economic_policy": {
+      "key": "CONFIGURABLE_EXAMPLE",
+      "version": 1,
+      "checksum": "80d5ac1260d403392356de48213f365fc0376897ccb24dc1a25814bf605596a9"
+    }
+  }
+}

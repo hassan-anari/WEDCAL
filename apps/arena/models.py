@@ -1,5 +1,6 @@
 import uuid
 
+from django.conf import settings
 from django.db import models
 from django.db.models import Q
 
@@ -107,9 +108,7 @@ class EconomicEpoch(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=("season", "epoch_number"), name="arena_epoch_number"),
-            models.CheckConstraint(
-                condition=Q(epoch_number__gte=1, epoch_number__lte=6), name="arena_epoch_range"
-            ),
+            models.CheckConstraint(condition=Q(epoch_number__gte=1), name="arena_epoch_range"),
             models.CheckConstraint(
                 condition=Q(ends_at__gt=models.F("starts_at")), name="arena_epoch_time"
             ),
@@ -684,3 +683,69 @@ class EconomicDeferralEvidence(models.Model):
                 fields=("deferral", "evidence_digest"), name="arena_deferral_proof_unique"
             )
         ]
+
+
+class GrowthEpochFunding(models.Model):
+    """Immutable placement of newly authorized funding; never an allocation."""
+
+    event = models.ForeignKey(GrowthUnlockEvent, on_delete=models.PROTECT, related_name="funding")
+    epoch = models.ForeignKey(
+        EconomicEpoch, on_delete=models.PROTECT, related_name="growth_funding"
+    )
+    amount = models.PositiveBigIntegerField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("event", "epoch"), name="arena_growth_placement"),
+            models.CheckConstraint(condition=Q(amount__gt=0), name="arena_growth_funding_positive"),
+        ]
+
+
+class EconomicAutomationControl(models.Model):
+    """Append-only activation/pause authority. No scheduler may create this record."""
+
+    season = models.ForeignKey("seasons.Season", on_delete=models.PROTECT)
+    enabled = models.BooleanField()
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    policy = models.ForeignKey("EconomicPolicyVersion", on_delete=models.PROTECT)
+    config_checksum = models.CharField(max_length=64)
+    capability = models.CharField(max_length=64)
+    reason = models.CharField(max_length=1000)
+    evidence_reference = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        permissions = [("control_economic_automation", "Can activate or pause DLX automation")]
+        indexes = [models.Index(fields=("season", "-id"), name="arena_automation_latest")]
+
+
+class EconomicAutomationAttempt(models.Model):
+    epoch = models.ForeignKey(EconomicEpoch, on_delete=models.PROTECT)
+    control = models.ForeignKey(EconomicAutomationControl, on_delete=models.PROTECT)
+    stage = models.CharField(max_length=32)
+    status = models.CharField(max_length=16, default="RUNNING")
+    error_code = models.CharField(max_length=128, blank=True)
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True)
+    evidence = models.JSONField(default=dict)
+
+    class Meta:
+        indexes = [models.Index(fields=("status", "started_at"), name="arena_automation_status")]
+
+
+class GrowthEvaluation(models.Model):
+    """Append-only evaluation/retry evidence, separate from monetary milestone authorization."""
+
+    season = models.ForeignKey("seasons.Season", on_delete=models.PROTECT)
+    epoch = models.ForeignKey(EconomicEpoch, on_delete=models.PROTECT)
+    policy = models.ForeignKey(EconomicPolicyVersion, on_delete=models.PROTECT)
+    cutoff_at = models.DateTimeField()
+    qualified_player_count = models.PositiveBigIntegerField()
+    cohort_digest = models.CharField(max_length=64)
+    config_checksum = models.CharField(max_length=64)
+    outcome = models.CharField(max_length=40)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=("season", "epoch", "-id"), name="arena_growth_evaluation")]
+        permissions = [("view_economic_overview", "Can inspect read-only economic overviews")]

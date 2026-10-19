@@ -1,0 +1,97 @@
+{
+  "epoch_id": 2379,
+  "season": "configurable-1",
+  "number": 1,
+  "state": "SETTLED",
+  "starts_at": "2026-10-20 22:33:06.352397+00:00",
+  "ends_at": "2026-10-27 22:33:06.352397+00:00",
+  "config_id": 1890,
+  "policy_id": 317,
+  "policy_checksum": "c36c3109fcce0a276bda0d363c665051edc327990022f8c094fcdf2187fd8962",
+  "manifest_id": 611,
+  "manifest_digest": "e363d7f9acb711f66671b1ebbaf9f967522190e3f39714da329998971d2a3027",
+  "readiness": "COMPLETE",
+  "readiness_blockers": [],
+  "base_budget": 50002,
+  "growth": 5001,
+  "categories": [
+    {
+      "category": "CLAN_PERFORMANCE",
+      "base_epoch_budget": 17500,
+      "growth_contribution": 1750,
+      "carry_in": 0,
+      "carry_out": 18288,
+      "effective_budget": 19250,
+      "allocated_amount": 0,
+      "residual_amount": 0
+    },
+    {
+      "category": "CORE_GAMEPLAY",
+      "base_epoch_budget": 10000,
+      "growth_contribution": 1000,
+      "carry_in": 0,
+      "carry_out": 10440,
+      "effective_budget": 11000,
+      "allocated_amount": 10,
+      "residual_amount": 0
+    },
+    {
+      "category": "CREATOR_COMMUNITY_GROWTH",
+      "base_epoch_budget": 10000,
+      "growth_contribution": 1000,
+      "carry_in": 0,
+      "carry_out": 10450,
+      "effective_budget": 11000,
+      "allocated_amount": 0,
+      "residual_amount": 0
+    },
+    {
+      "category": "LOYALTY_CONSISTENCY",
+      "base_epoch_budget": 5002,
+      "growth_contribution": 501,
+      "carry_in": 0,
+      "carry_out": 5223,
+      "effective_budget": 5503,
+      "allocated_amount": 5,
+      "residual_amount": 0
+    },
+    {
+      "category": "VERIFIED_REFERRAL",
+      "base_epoch_budget": 7500,
+      "growth_contribution": 750,
+      "carry_in": 0,
+      "carry_out": 7838,
+      "effective_budget": 8250,
+      "allocated_amount": 0,
+      "residual_amount": 0
+    }
+  ],
+  "frozen_at": "2026-10-27 22:33:06.352397+00:00",
+  "snapshots_completed_at": "2026-10-27 22:33:06.352397+00:00",
+  "settlement_started_at": "2026-10-27 22:33:06.352397+00:00",
+  "settlement_completed_at": "2026-10-27 22:33:06.352397+00:00",
+  "confirmed_allocations": 15,
+  "correction_reserve_funding": 2749,
+  "correction_payments": 0,
+  "outstanding_corrections": [],
+  "reconciliation": {
+    "CLAN_PERFORMANCE": true,
+    "CORE_GAMEPLAY": true,
+    "CREATOR_COMMUNITY_GROWTH": true,
+    "VERIFIED_REFERRAL": true,
+    "LOYALTY_CONSISTENCY": true
+  },
+  "growth_events": [
+    {
+      "event_id": 86,
+      "amount": 5001
+    }
+  ],
+  "categories_expected": [
+    "CLAN_PERFORMANCE",
+    "CORE_GAMEPLAY",
+    "CREATOR_COMMUNITY_GROWTH",
+    "VERIFIED_REFERRAL",
+    "LOYALTY_CONSISTENCY"
+  ]
+}

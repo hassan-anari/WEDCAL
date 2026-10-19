@@ -1,12 +1,15 @@
 """Explicit Gate B preparation. No task, migration, setting or policy document activates it."""
 
+import json
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 from typing import Any, cast
 
 from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
-from django.db.models import Q, Sum
+from django.db.models import Exists, OuterRef, Q, Subquery, Sum
 from django.utils import timezone
 
 from apps.arena.eligibility import activity_route, trusted_observations
@@ -23,7 +26,7 @@ from apps.arena.models import (
     QualificationDecision,
 )
 from apps.arena.policy import CATEGORIES, EconomicPolicy, digest, parse_policy
-from apps.arena.qualification import record_qualification_decision
+from apps.arena.qualification import record_prepared_decisions
 from apps.arena.recognition import (
     CORE_FACT_SOURCES,
     bound_policy,
@@ -35,7 +38,6 @@ from apps.arena.recognition import (
     record_recognition,
 )
 from apps.arena.scoring import aggregate_recognitions, creator_scores, empty_inputs, player_scores
-from apps.moderation.services import moderation_state_at
 from apps.players.models import Player
 from apps.seasons.barrier import acquire_close_barrier
 from apps.seasons.models import Season
@@ -54,7 +56,10 @@ def bind_season_policy(
     require_permission(actor, "arena.bind_economic_policy")
     if not evidence_reference.strip() or not policy.approval_reference.strip():
         raise ValidationError("Independent approval and historical evidence references required")
-    parse_policy(policy.payload)
+    parsed = parse_policy(policy.payload)
+    from apps.arena.configuration import validate_policy_compatibility
+
+    validate_policy_compatibility(season.baseline_config, policy, parsed)
     if policy.checksum != digest(policy.payload):
         raise ValidationError("ECONOMIC_POLICY_CHECKSUM_MISMATCH")
     acquire_close_barrier(season.pk)
@@ -118,8 +123,21 @@ def qualification_outcomes(
         )
     )
     # Include accounts materialized after cutoff if authoritative source identities refer to them.
+    from apps.moderation.models import ModerationAction
+
+    actions = ModerationAction.objects.filter(target_id=OuterRef("pk"))
     players = list(
-        Player.objects.filter(Q(created_at__lt=epoch.ends_at) | Q(pk__in=referenced)).order_by("pk")
+        Player.objects.filter(Q(created_at__lt=epoch.ends_at) | Q(pk__in=referenced))
+        .annotate(
+            cutoff_moderation=Subquery(
+                actions.filter(created_at__lte=epoch.ends_at)
+                .order_by("-created_at", "-pk")
+                .values("resulting_state")[:1]
+            ),
+            has_moderation_audit=Exists(actions),
+        )
+        .only("id", "first_authenticated_at", "first_mini_app_at", "moderation_state")
+        .order_by("pk")
     )
     observed = trusted_observations(players)
     reviews = {r.player_id: r.outcome for r in EconomicReviewDecision.objects.filter(epoch=epoch)}
@@ -136,9 +154,17 @@ def qualification_outcomes(
         .distinct("player_id")
     }
     outcomes = {}
+    inactive_inputs = empty_inputs(policy)
     for player in players:
-        raw = people.setdefault(player.pk, empty_inputs(policy))
-        state = moderation_state_at(player, epoch.ends_at)
+        raw = people.get(player.pk, inactive_inputs)
+        action = player.cutoff_moderation
+        state = (
+            action.get("moderation_state", "ACTIVE")
+            if action is not None
+            else "ACTIVE"
+            if player.has_moderation_audit
+            else player.moderation_state
+        )
         external = prior.get(player.pk)
         if (
             state in {"BANNED", "SUSPENDED"}
@@ -183,7 +209,7 @@ def _relevant_ingress(epoch: EconomicEpoch) -> list[Any]:
     return rows
 
 
-def _inventory(epoch: EconomicEpoch) -> dict[str, Any]:
+def _inventory(epoch: EconomicEpoch, *, compact: bool = False) -> dict[str, Any]:
     """A content-free source census. Claim and purge fields cannot change earned performance."""
     from apps.base_tap.models import BaseTapDailyAccumulator
     from apps.clans.models import ClanActivity, ClanContributionEntry, ClanMissionSignal
@@ -192,13 +218,16 @@ def _inventory(epoch: EconomicEpoch) -> dict[str, Any]:
     from apps.network.models import CreatorWindowSettlement, NetworkActivity
     from apps.referrals.models import ReferralRelation
 
+    def inventory(rows: Iterable[Any]) -> Any:
+        return _seal_rows(rows) if compact else list(rows)
+
     return {
-        "legacy_tap_pending": list(
+        "legacy_tap_pending": inventory(
             BaseTapDailyAccumulator.objects.filter(season_id=epoch.season_id, pending_points__gt=0)
             .order_by("pk")
             .values_list("pk", "player_id", "first_accepted_at", "pending_points")
         ),
-        "facts": list(
+        "facts": inventory(
             PerformanceSourceFact.objects.filter(
                 season_id=epoch.season_id,
                 source_time__lt=epoch.ends_at,
@@ -207,38 +236,38 @@ def _inventory(epoch: EconomicEpoch) -> dict[str, Any]:
             .order_by("pk")
             .values_list("pk", "source_type", "source_id", "amount", "config_version_id")
         ),
-        "daily": list(
+        "daily": inventory(
             DailyClaim.objects.filter(season_id=epoch.season_id, claimed_at__lt=epoch.ends_at)
             .order_by("pk")
             .values_list("pk", "claim_period", "reward_ledger_id")
         ),
-        "missions": list(
+        "missions": inventory(
             PlayerMission.objects.filter(season_id=epoch.season_id, verified_at__lt=epoch.ends_at)
             .order_by("pk")
             .values_list("pk", "definition_id", "config_version_id", "reward_amount")
         ),
-        "clan": list(
+        "clan": inventory(
             ClanContributionEntry.objects.filter(
                 membership__season_id=epoch.season_id, occurred_at__lt=epoch.ends_at
             )
             .order_by("pk")
             .values_list("pk", "settlement_id", "amount", "gross_basis")
         ),
-        "clan_activity": list(
+        "clan_activity": inventory(
             ClanActivity.objects.filter(season_id=epoch.season_id, observed_at__lt=epoch.ends_at)
             .order_by("pk")
             .values_list(
                 "pk", "sender_id", "window_processed", "classification", "rewardable_chars"
             )
         ),
-        "creator": list(
+        "creator": inventory(
             CreatorWindowSettlement.objects.filter(
                 season_id=epoch.season_id, window_start__lt=epoch.ends_at
             )
             .order_by("pk")
             .values_list("pk", "owner_id", "state", "finalized_at")
         ),
-        "network_activity": list(
+        "network_activity": inventory(
             NetworkActivity.objects.filter(season_id=epoch.season_id, observed_at__lt=epoch.ends_at)
             .order_by("pk")
             .values_list(
@@ -250,7 +279,7 @@ def _inventory(epoch: EconomicEpoch) -> dict[str, Any]:
                 "program_active",
             )
         ),
-        "referrals": list(
+        "referrals": inventory(
             ReferralRelation.objects.filter(
                 verified_at__gte=epoch.starts_at, verified_at__lt=epoch.ends_at, status="VERIFIED"
             )
@@ -261,7 +290,7 @@ def _inventory(epoch: EconomicEpoch) -> dict[str, Any]:
             (row.pk, row.update_id, row.state, row.webhook_authenticated_at)
             for row in _relevant_ingress(epoch)
         ],
-        "pending_clan_signals": list(
+        "pending_clan_signals": inventory(
             ClanMissionSignal.objects.filter(
                 membership__season_id=epoch.season_id,
                 occurred_at__lt=epoch.ends_at,
@@ -489,7 +518,7 @@ def resolve_nonperformance_case(
 
 @transaction.atomic
 def refresh_deferred_sources(epoch: EconomicEpoch, *, actor: User) -> None:
-    """Finalize known source evidence after Freeze, including the Week 6 closing period."""
+    """Finalize known source evidence after Freeze, including the final Epoch closing period."""
     require_permission(actor, "arena.resolve_economic_deferral")
     acquire_close_barrier(epoch.season_id)
     synchronize_finalized_sources(epoch)
@@ -542,9 +571,18 @@ def synchronize_finalized_sources(epoch: EconomicEpoch) -> None:
                 category=CATEGORIES[1],
                 evidence={"reward_id": reward.pk},
             )
-    for fact in PerformanceSourceFact.objects.filter(
-        season_id=epoch.season_id, source_time__lt=epoch.ends_at, source_type__in=CORE_FACT_SOURCES
-    ).iterator(chunk_size=1000):
+    recognized = EconomicRecognition.objects.filter(
+        source_type=OuterRef("source_type"), source_id=OuterRef("source_id")
+    )
+    for fact in (
+        PerformanceSourceFact.objects.filter(
+            season_id=epoch.season_id,
+            source_time__lt=epoch.ends_at,
+            source_type__in=CORE_FACT_SOURCES,
+        )
+        .filter(~Exists(recognized))
+        .iterator(chunk_size=1000)
+    ):
         if (
             fact.source_type in {"BASE_TAP_BATCH", "BASE_TAP_V2_BATCH"}
             and type(fact.metadata.get("accepted_taps")) is not int
@@ -657,30 +695,48 @@ def synchronize_finalized_sources(epoch: EconomicEpoch) -> None:
     _resolve_finished_work(epoch)
 
 
+def _seal_rows(rows: Iterable[Any]) -> dict[str, Any]:
+    """Ordered, length-framed digest avoids materializing a complete source inventory."""
+    checksum = sha256()
+    count = 0
+    iterator = rows.iterator(chunk_size=1000) if hasattr(rows, "iterator") else iter(rows)
+    for row in iterator:
+        encoded = json.dumps(_json_safe(row), sort_keys=True, separators=(",", ":")).encode()
+        checksum.update(len(encoded).to_bytes(8, "big"))
+        checksum.update(encoded)
+        count += 1
+    return {"rows": count, "digest": checksum.hexdigest(), "encoding": "LENGTH_FRAMED_JSON_V1"}
+
+
 def manifest_evidence(epoch: EconomicEpoch, policy: EconomicPolicy) -> dict[str, Any]:
     outcomes, _, _ = qualification_outcomes(epoch, policy)
-    return cast(
-        dict[str, Any],
-        _json_safe(
-            {
-                "implementation": "S1_FINALIZED_V1",
-                "source_universe": "FINALIZED_RECOGNITIONS_PLUS_EXPLICIT_DEFERRALS",
-                "inventory": _inventory(epoch),
-                "recognitions": list(
-                    EconomicRecognition.objects.filter(epoch=epoch)
-                    .order_by("pk")
-                    .values_list("pk", "evidence_digest")
-                ),
-                "outcomes": outcomes,
-                "deferrals": list(
-                    EconomicDeferral.objects.filter(epoch=epoch)
-                    .order_by("pk")
-                    .values_list("pk", "provider", "source_id", "reason")
-                ),
-                "global_reasons": scoped_work(epoch),
-            }
-        ),
+    compact = policy.values["implementation"] == "CONFIGURABLE_V1"
+    recognitions = (
+        EconomicRecognition.objects.filter(epoch=epoch)
+        .order_by("pk")
+        .values_list("pk", "evidence_digest")
     )
+    deferrals = (
+        EconomicDeferral.objects.filter(epoch=epoch)
+        .order_by("pk")
+        .values_list("pk", "provider", "source_id", "reason")
+    )
+    evidence = {
+        "implementation": policy.values["implementation"],
+        "source_universe": "FINALIZED_RECOGNITIONS_PLUS_EXPLICIT_DEFERRALS",
+        "inventory": _inventory(epoch, compact=compact),
+        "recognitions": _seal_rows(recognitions) if compact else list(recognitions),
+        "outcomes": _seal_rows(sorted(outcomes.items())) if compact else outcomes,
+        "deferrals": _seal_rows(deferrals) if compact else list(deferrals),
+        "global_reasons": scoped_work(epoch),
+    }
+    if compact:
+        evidence["outcome_counts"] = {
+            state: sum(value[0] == state for value in outcomes.values())
+            for state in QualificationDecision.Decision.values
+        }
+        evidence["scope_count"] = len(outcomes)
+    return cast(dict[str, Any], _json_safe(evidence))
 
 
 @transaction.atomic
@@ -699,6 +755,7 @@ def prepare_epoch(epoch: EconomicEpoch) -> EpochSourceManifest:
     from apps.arena.readiness import policy_identity
 
     key, version = policy_identity(epoch)
+    prepared = []
     for player_id, (decision, reason) in outcomes.items():
         evidence = {
             "epoch_id": epoch.pk,
@@ -707,19 +764,25 @@ def prepare_epoch(epoch: EconomicEpoch) -> EpochSourceManifest:
             "outcome": decision,
             "reason": reason,
         }
-        record_qualification_decision(
-            player=Player(pk=player_id),
-            policy_key=key,
-            policy_version=version,
-            decision=decision,
-            effective_at=epoch.ends_at,
-            reason_code=reason,
-            source="S1_FINALIZED_V1",
-            source_id=f"{epoch.pk}:{player_id}:{digest(evidence)}",
-            evidence=evidence,
+        prepared.append(
+            QualificationDecision(
+                player_id=player_id,
+                policy_key=key,
+                policy_version=version,
+                decision=decision,
+                effective_at=epoch.ends_at,
+                reason_code=reason,
+                source="S1_FINALIZED_V1",
+                source_id=f"{epoch.pk}:{player_id}:{digest(evidence)}",
+                evidence=evidence,
+            )
         )
+        if len(prepared) >= 1000:
+            record_prepared_decisions(epoch, policy_key=key, policy_version=version, rows=prepared)
+            prepared.clear()
         if decision == "PENDING":
             defer_source(epoch, "PLAYER_REVIEW", str(player_id), reason=reason, player_id=player_id)
+    record_prepared_decisions(epoch, policy_key=key, policy_version=version, rows=prepared)
     evidence = manifest_evidence(epoch, policy)
     manifest, _ = EpochSourceManifest.objects.get_or_create(
         epoch=epoch,
@@ -744,13 +807,14 @@ def inspect_finalized_epoch(epoch: EconomicEpoch) -> Any:
     reasons = list(evidence["global_reasons"])
     if manifest is None:
         reasons.append("FINALIZED_SOURCE_MANIFEST_MISSING_OR_STALE")
-    counts = {
+    counts = evidence.get("outcome_counts") or {
         state: sum(value[0] == state for value in outcomes.values())
         for state in QualificationDecision.Decision.values
     }
+    scope_count = int(evidence.get("scope_count", len(outcomes)))
     return EvaluationEvidence(
-        scope_count=len(outcomes),
-        evaluated_count=len(outcomes),
+        scope_count=scope_count,
+        evaluated_count=scope_count,
         unresolved_count=0,
         scoped_pending_count=counts["PENDING"],
         source_completion={
@@ -771,7 +835,6 @@ def inspect_finalized_epoch(epoch: EconomicEpoch) -> Any:
 
 def build_finalized_snapshots(epoch: EconomicEpoch) -> None:
     from apps.arena.models import EpochPerformanceSnapshot
-    from apps.arena.qualification import current_qualification_decision
     from apps.arena.readiness import policy_identity
 
     selected = bound_policy(epoch)
@@ -782,24 +845,40 @@ def build_finalized_snapshots(epoch: EconomicEpoch) -> None:
     anchored = {pid for pid, raw in people.items() if raw["anchor_days"]}
     creators = creator_scores(events, qualified, anchored, policy)
     key, version = policy_identity(epoch)
-    for pid in sorted(qualified):
-        decision = current_qualification_decision(
-            Player(pk=pid), policy_key=key, policy_version=version, at=epoch.ends_at
+    decisions = {
+        row.player_id: row
+        for row in QualificationDecision.objects.filter(
+            player_id__in=qualified,
+            policy_key=key,
+            policy_version=version,
+            effective_at__lte=epoch.ends_at,
         )
+        .order_by("player_id", "-effective_at", "-pk")
+        .distinct("player_id")
+    }
+    pending = []
+    for pid in sorted(qualified):
+        decision = decisions.get(pid)
         if decision is None or decision.decision != "QUALIFIED":
             raise ValidationError("QUALIFICATION_PREPARATION_STALE")
         for category, (units, raw) in player_scores(
             people[pid], creators.get(pid, {}), policy
         ).items():
-            EpochPerformanceSnapshot.objects.create(
-                epoch=epoch,
-                category=category,
-                player_id=pid,
-                raw_inputs=raw,
-                performance_units=units,
-                qualification_decision=decision,
-                config_version_id=epoch.config_version_id,
+            pending.append(
+                EpochPerformanceSnapshot(
+                    epoch=epoch,
+                    category=category,
+                    player_id=pid,
+                    raw_inputs=raw,
+                    performance_units=units,
+                    qualification_decision=decision,
+                    config_version_id=epoch.config_version_id,
+                )
             )
+            if len(pending) >= 1000:
+                EpochPerformanceSnapshot.objects.bulk_create(pending, batch_size=1000)
+                pending.clear()
+    EpochPerformanceSnapshot.objects.bulk_create(pending, batch_size=1000)
 
 
 @transaction.atomic

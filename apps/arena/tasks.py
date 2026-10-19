@@ -1,14 +1,9 @@
 import structlog
 from celery import shared_task
-from django.utils import timezone
+from django.conf import settings
+from django.db import OperationalError
 
-from apps.arena.epochs import (
-    EpochBlocked,
-    ScoringPolicyUnconfigured,
-    evaluate_growth_unlocks,
-    freeze_epoch,
-)
-from apps.arena.models import EconomicEpoch, RankingProjectionEvent
+from apps.arena.models import RankingProjectionEvent
 from apps.arena.services import apply_projection_event, consume_pending_events, rebuild_ranking
 from apps.seasons.models import Season
 
@@ -46,36 +41,47 @@ def rebuild_one_ranking(season_id: int, entity_type: str) -> bool:
 
 @shared_task(name="apps.arena.tasks.drain_and_freeze_epochs")  # type: ignore[untyped-decorator]
 def drain_and_freeze_epochs() -> int:
-    count = 0
-    for epoch in EconomicEpoch.objects.filter(
-        state__in=["OPEN", "DRAINING"], ends_at__lte=timezone.now()
-    ).order_by("season_id", "epoch_number"):
-        try:
-            freeze_epoch(epoch)
-            count += 1
-        except EpochBlocked as exc:
-            logger.info(
-                "epoch_freeze_blocked",
-                epoch_id=epoch.pk,
-                season_id=epoch.season_id,
-                reason_codes=str(exc),
-            )
-            continue
-    return count
+    # Compatibility entry point. All scheduled mutations require per-Season authority.
+    return int(settle_epochs())
 
 
 @shared_task(name="apps.arena.tasks.evaluate_growth_unlocks")  # type: ignore[untyped-decorator]
 def evaluate_growth_unlocks_task() -> int:
-    total = 0
-    for season in Season.objects.filter(status=Season.Status.ACTIVE):
-        try:
-            total += len(evaluate_growth_unlocks(season))
-        except ScoringPolicyUnconfigured:
-            continue
-    return total
+    # Growth runs under the same activation/pause and worker lock as weekly settlement.
+    return int(settle_epochs())
+
+
+@shared_task(  # type: ignore[untyped-decorator]
+    name="apps.arena.tasks.run_one_season_economics",
+    autoretry_for=(OperationalError, ConnectionError),
+    retry_backoff=True,
+    retry_jitter=True,
+    max_retries=5,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    soft_time_limit=settings.DLX_AUTOMATION_SOFT_TIME_LIMIT,
+    time_limit=settings.DLX_AUTOMATION_TIME_LIMIT,
+)
+def run_one_season_economics(season_id: int) -> int:
+    from apps.arena.automation import run_weekly_lifecycle
+
+    return run_weekly_lifecycle(Season.objects.get(pk=season_id))
 
 
 @shared_task(name="apps.arena.tasks.settle_epochs")  # type: ignore[untyped-decorator]
 def settle_epochs() -> int:
-    # Canonical config intentionally has no scoring strategies; fail closed without allocations.
-    return 0
+    from django.db.models import OuterRef, Subquery
+
+    from apps.arena.models import EconomicAutomationControl
+
+    latest = EconomicAutomationControl.objects.filter(season_id=OuterRef("pk")).order_by("-pk")
+    seasons = (
+        Season.objects.filter(status="ACTIVE")
+        .annotate(automation_enabled=Subquery(latest.values("enabled")[:1]))
+        .filter(automation_enabled=True)
+    )
+    count = 0
+    for season_id in seasons.values_list("pk", flat=True):
+        run_one_season_economics.delay(season_id)
+        count += 1
+    return count

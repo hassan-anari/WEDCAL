@@ -34,6 +34,15 @@ class CanonicalState(Schema):
     season_points: int
 
 
+class BootstrapSeasonTiming(Schema):
+    product_period_days: int
+    epoch_count: int
+    epoch_days: int
+    closing_days: int
+    economic_ends_at: datetime
+    settlement_start_epoch: int
+
+
 class BootstrapSeason(Schema):
     code: str
     title: str
@@ -41,6 +50,7 @@ class BootstrapSeason(Schema):
     starts_at: datetime
     ends_at: datetime
     season_points: int
+    timing: BootstrapSeasonTiming | None = None
 
 
 class LevelRuleOutput(Schema):

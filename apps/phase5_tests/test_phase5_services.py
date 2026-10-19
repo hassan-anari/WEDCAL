@@ -47,7 +47,7 @@ BASE = json.loads(Path("config/examples/season1.game-config.v1.json").read_text(
 
 
 @pytest.fixture
-def world(db, monkeypatch):  # type: ignore[no-untyped-def]
+def world(db, monkeypatch, request):  # type: ignore[no-untyped-def]
     monkeypatch.setattr("apps.rewards.services.dispatch_reward_outbox_safely", lambda _pk: None)
     config = GameConfigVersion.objects.create(
         schema_version=BASE["meta"]["schema_version"],
@@ -56,12 +56,13 @@ def world(db, monkeypatch):  # type: ignore[no-untyped-def]
         payload=copy.deepcopy(BASE),
     )
     publish_game_config(config, published_at=AT - timedelta(days=2))
+    offset = getattr(request, "param", timedelta())
     season = activate_season(
         Season.objects.create(
             code="p5",
             title="Phase 5",
-            starts_at=AT - timedelta(days=1),
-            ends_at=AT + timedelta(days=44),
+            starts_at=AT - timedelta(days=1) + offset,
+            ends_at=AT + timedelta(days=44) + offset,
             baseline_config=config,
         )
     )
@@ -457,13 +458,9 @@ def test_final_creator_window_uses_pre_cutoff_provenance(world) -> None:  # type
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("world", [timedelta(minutes=7)], indirect=True)
 def test_straddling_creator_window_counts_only_pre_cutoff_activity(world) -> None:  # type: ignore[no-untyped-def]
     config, season, player = world
-    shifted_start = season.starts_at + timedelta(minutes=7)
-    Season.objects.filter(pk=season.pk).update(
-        starts_at=shifted_start, ends_at=shifted_start + timedelta(days=45)
-    )
-    season.refresh_from_db()
     cutoff = economic_window_end(season)
     start = window_start_for(
         cutoff, config.payload["network_activity"]["creator_reward"]["aggregation_window_seconds"]

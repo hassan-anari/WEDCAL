@@ -34,7 +34,7 @@ def outbox_metrics() -> dict[str, Any]:
 
 
 def operational_snapshot() -> dict[str, Any]:
-    from apps.arena.models import RankingProjectionEvent
+    from apps.arena.models import EconomicAutomationAttempt, RankingProjectionEvent
     from apps.base_tap.models import BaseTapDailyAccumulator
     from apps.network.models import CreatorWindowSettlement
     from apps.notifications.models import BroadcastRecipient, TelegramDelivery
@@ -47,6 +47,11 @@ def operational_snapshot() -> dict[str, Any]:
             state__in=("PROCESSED", "IGNORED")
         ).count(),
         "reward_outbox": outbox_metrics(),
+        "dlx_automation": list(
+            EconomicAutomationAttempt.objects.values("status", "error_code")
+            .annotate(count=Count("pk"))
+            .order_by("status", "error_code")
+        ),
         "base_tap_pending": BaseTapDailyAccumulator.objects.filter(pending_points__gt=0).count(),
         "creator_windows_pending": CreatorWindowSettlement.objects.filter(
             finalized_at__isnull=True

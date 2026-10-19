@@ -1,0 +1,190 @@
+{
+  "type": "object",
+  "properties": {
+    "timing": {
+      "type": "object",
+      "properties": {
+        "product_period_days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "epoch_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32767
+        },
+        "epoch_days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "closing_days": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        }
+      },
+      "required": [
+        "product_period_days",
+        "epoch_count",
+        "epoch_days",
+        "closing_days"
+      ]
+    },
+    "default_settlement_start_epoch": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 32767
+    },
+    "economic_policy": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "checksum": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "key",
+        "version",
+        "checksum"
+      ]
+    },
+    "pool": {
+      "type": "object",
+      "properties": {
+        "base_dlx_amount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "max_dlx_amount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "growth_unlock": {
+          "type": "object",
+          "properties": {
+            "counter": {
+              "const": "QUALIFIED_PLAYERS"
+            },
+            "qualified_player_predicate": {
+              "type": "object",
+              "properties": {
+                "policy_key": {
+                  "const": "QUALIFIED_PLAYER"
+                },
+                "policy_version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9223372036854775807
+                }
+              },
+              "required": [
+                "policy_key",
+                "policy_version"
+              ]
+            },
+            "milestones": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "qualified_player_count": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9223372036854775807
+                  },
+                  "unlock_dlx_amount": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9223372036854775807
+                  }
+                },
+                "required": [
+                  "key",
+                  "qualified_player_count",
+                  "unlock_dlx_amount"
+                ]
+              }
+            }
+          },
+          "required": [
+            "counter",
+            "qualified_player_predicate",
+            "milestones"
+          ]
+        }
+      },
+      "required": [
+        "base_dlx_amount",
+        "max_dlx_amount",
+        "growth_unlock"
+      ]
+    },
+    "category_weights_bps": {
+      "type": "object",
+      "properties": {
+        "CLAN_PERFORMANCE": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "CORE_GAMEPLAY": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "CREATOR_COMMUNITY_GROWTH": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "VERIFIED_REFERRAL": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "LOYALTY_CONSISTENCY": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        }
+      },
+      "required": [
+        "CLAN_PERFORMANCE",
+        "CORE_GAMEPLAY",
+        "CREATOR_COMMUNITY_GROWTH",
+        "VERIFIED_REFERRAL",
+        "LOYALTY_CONSISTENCY"
+      ]
+    }
+  },
+  "required": [
+    "timing",
+    "default_settlement_start_epoch",
+    "economic_policy",
+    "pool",
+    "category_weights_bps"
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GameConfig schema 4 dlx_distribution setup fields",
+  "description": "Subset of dlx_distribution; existing off-chain safety fields are also required by parse_economy_sync. Cross-field equations, ordered policy compatibility, weight sum, unique milestones and aggregate authorization are validated by the Python publication/activation services. No seed grants approval."
+}

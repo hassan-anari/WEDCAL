@@ -119,7 +119,7 @@ def record_recognition(
         season_id=season_id, starts_at__lte=source_time, ends_at__gt=source_time
     ).first()
     if source_epoch is None:
-        raise ValidationError("SOURCE_OUTSIDE_SIX_EPOCHS")
+        raise ValidationError("SOURCE_OUTSIDE_CONFIGURED_EPOCHS")
     recognized_at = source_time
     target: EconomicEpoch | None = source_epoch
     if delayed and finalized_at >= source_epoch.ends_at:

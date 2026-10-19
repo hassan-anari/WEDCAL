@@ -78,24 +78,28 @@ def test_daily_reset_change_must_be_safe_under_old_and_new_boundaries():
         )
 
 
-def test_active_season_dlx_policy_requires_epoch_boundary(phase4_config_factory, season_factory):
+def test_active_season_dlx_policy_requires_pinned_setup(phase4_config_factory, season_factory):
     starts = datetime(2026, 4, 1, tzinfo=UTC)
     config = phase4_config_factory(
         effective_at=starts - timedelta(days=1), version="dlx-boundary-v1"
     )
-    season_factory(config, starts_at=starts)
+    season = season_factory(config, starts_at=starts)
 
     def change_settlement_default(payload):
         payload["dlx_distribution"]["default_settlement_start_epoch"] = 2
 
-    with pytest.raises(ValidationError, match="economic-epoch boundary"):
+    with pytest.raises(ValidationError, match="commitments are pinned"):
         phase4_config_factory(
             effective_at=starts + timedelta(days=1),
             mutate=change_settlement_default,
             version="dlx-boundary-unsafe",
         )
-    phase4_config_factory(
-        effective_at=starts + timedelta(days=7),
-        mutate=change_settlement_default,
-        version="dlx-boundary-safe",
-    )
+    with pytest.raises(ValidationError, match="commitments are pinned"):
+        phase4_config_factory(
+            effective_at=starts + timedelta(days=7),
+            mutate=change_settlement_default,
+            version="dlx-boundary-pinned",
+        )
+    from apps.seasons.services import set_settlement_start_epoch
+
+    assert set_settlement_start_epoch(season, 2).settlement_start_epoch == 2

@@ -353,7 +353,7 @@ def test_worker_crash_rolls_back_all_allocations_then_replays(economic_world):
     w.clock["at"] = START + timedelta(days=14)
     with (
         patch(
-            "apps.arena.epochs.DlxAllocation.objects.get_or_create",
+            "apps.arena.epochs.DlxAllocation.objects.bulk_create",
             side_effect=RuntimeError("worker crash"),
         ),
         pytest.raises(RuntimeError, match="worker crash"),
