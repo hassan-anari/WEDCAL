@@ -192,7 +192,11 @@ def approve_policy(
         "checksum": checksum,
         "policy_id": document.pk if document else None,
         **(
-            {"validated_payload": proposal.payload, "submitted_by_id": proposal.submitted_by_id}
+            {
+                "validated_payload": proposal.payload,
+                "submitted_by_id": proposal.submitted_by_id,
+                "submission_reference": proposal.submission_reference,
+            }
             if dry_run
             else {}
         ),

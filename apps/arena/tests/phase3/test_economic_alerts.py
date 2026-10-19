@@ -20,6 +20,7 @@ from django.urls import reverse
 from apps.arena.alerts import deliver_alert, detect_conditions, retry_dead_delivery, scan_alerts
 from apps.arena.automation import run_weekly_lifecycle
 from apps.arena.models import (
+    DlxCorrection,
     EconomicAlert,
     EconomicAlertDelivery,
     EconomicAlertEvent,
@@ -176,7 +177,7 @@ def test_incompatible_worker_is_durably_visible_before_economic_work(configurabl
     incident = EconomicAlert.objects.get()
     assert incident.code == "DLX_LIFECYCLE_BLOCKED"
     assert incident.evidence["error_code"] == "AUTOMATION_WORKER_OR_POLICY_INCOMPATIBLE"
-    assert all(e.state == "OPEN" for e in w.epochs)
+    assert not w.season.economic_epochs.exclude(state="OPEN").exists()
 
 
 @pytest.mark.django_db
@@ -360,6 +361,16 @@ def test_new_audit_admins_are_read_only_and_route_details_redacted(
     row = EconomicAlertDelivery.objects.get()
     page = client.get(reverse("admin:arena_economicalertdelivery_change", args=(row.pk,)))
     assert page.status_code == 200 and b"operator@example.invalid" not in page.content
+    assert not admin.site._registry[EconomicAlertDelivery].lookup_allowed(
+        "route_config__recipients", "operator@example.invalid", request
+    )
+    assert not admin.site._registry[DlxCorrection].lookup_allowed(
+        "entitlement__calculation__proof", "x", request
+    )
+    assert client.get(
+        reverse("admin:arena_economicalertdelivery_changelist"),
+        {"route_config__recipients__contains": "operator@example.invalid"},
+    ).status_code in {302, 400}
     assert (
         client.post(
             reverse("admin:arena_economicalertdelivery_change", args=(row.pk,)), {}

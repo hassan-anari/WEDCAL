@@ -4,6 +4,7 @@ import json
 from typing import Any, ClassVar
 
 from django.contrib import admin
+from django.core.exceptions import FieldDoesNotExist
 from django.db import models as db_models
 from django.db.models import Q
 from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed
@@ -197,11 +198,28 @@ class ReadOnlyEconomicAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
             for field in self.model._meta.fields
             if isinstance(field, (db_models.JSONField, db_models.TextField))
             or field.name
-            in {"fingerprint", "source_id", "evidence_reference", "approval_reference"}
+            in {
+                "fingerprint",
+                "source_id",
+                "evidence_reference",
+                "approval_reference",
+                "submission_reference",
+            }
         ]
         return super().get_queryset(request).defer(*hidden)
 
     def lookup_allowed(self, lookup: str, value: str, request: HttpRequest | None = None) -> bool:
+        model: Any = self.model
+        for part in lookup.split("__"):
+            try:
+                field = model._meta.get_field(part)
+            except FieldDoesNotExist:
+                break
+            if isinstance(field, db_models.JSONField):
+                return False
+            if not field.is_relation or field.related_model is None:
+                break
+            model = field.related_model
         if any(
             part
             in {
@@ -215,6 +233,8 @@ class ReadOnlyEconomicAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
                 "source_id",
                 "evidence_reference",
                 "approval_reference",
+                "submission_reference",
+                "route_config",
                 "reason",
                 "note",
                 "telegram_user_id",
@@ -242,6 +262,7 @@ class ReadOnlyEconomicAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
             "text",
             "evidence_reference",
             "approval_reference",
+            "submission_reference",
         }
         fields = []
         for field in self.model._meta.fields:

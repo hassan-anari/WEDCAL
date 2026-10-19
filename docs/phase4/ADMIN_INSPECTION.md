@@ -10,6 +10,8 @@ GrowthEvaluation and automation control/attempt records. Existing registrations 
 The final continuation also registers EconomicPolicyProposal, EconomicPolicyApproval, EconomicAlert,
 EconomicAlertEvent and EconomicAlertDelivery with the same read-only restrictions. Recipient routing
 JSON is redacted/deferred. Proposal/approval and alert events have database immutability guards;
+URL filters cannot probe JSON through either direct or related fields, private routing or submission
+references. The explicit approver command can inspect the submitted reference during its dry-run.
 delivery routing is pinned. Policy registration and manual DEAD-delivery retry use permissioned
 services/commands, never an editable Admin audit model.
 
