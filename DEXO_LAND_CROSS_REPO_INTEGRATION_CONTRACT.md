@@ -449,3 +449,22 @@ The final successor SHA/CI evidence will be published on #33 and FROCAL #8 befor
 pairing; 07876b3 is no longer the complete requested delivery. No production
 exception was granted, no merge/deploy is authorized, and no consumer acceptance
 is assumed.
+
+### Season 1 completion Phase 2 — owner-finalized gameplay rules
+
+Separate completion phase on WEDCAL base `e11bdb3` (protective Freeze PR #35),
+branch `ai/season1-phase2-gameplay-completion`. P-05/P-08/P-12 completion/audit:
+[operator and acquisition handoff](docs/SEASON1_PHASE2_GAMEPLAY_HANDOFF.md).
+Owner approved `read-season-brief` as the official TIMED_EXTERNAL website interaction,
+with immutable config/definition version cutover and no production activation in this task.
+Missing Clan Loyalty/Leadership acquisition uses canonical historical evidence in Profile
+reconciliation. Owner confirmed cumulative complete ACTIVE elapsed days in the same ClanSeason,
+excluding access loss and merging overlaps. Clan equipment/Trophy Hall acceptance is isolated QA.
+
+Owner supersession: Season Top 10% remains 1000 bps, Top 1% remains 100 bps, Champion rank #1.
+No absolute Top 10 player rule, ranking rebalance/config migration, FROCAL copy or asset change.
+Read-only consumer reviewed at `eb76307615322016bc39509c467f64be0268423a`; unchanged API/controller
+and browser checks do not establish final-pin paired staging/device acceptance. No frontend
+repository modification, issue/comment, live economic QA, automatic backfill, merge or deployment.
+Dedicated Draft PR/CI and independent owner review remain required. Phase 1 safeguards stay intact;
+Phase 3 qualification/scoring/source closure and DLX activation remain unauthorized.

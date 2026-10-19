@@ -44,6 +44,7 @@ class PlayerMedalAward(models.Model):
     awarded_at = models.DateTimeField()
     config_version = models.ForeignKey("game_config.GameConfigVersion", on_delete=models.PROTECT)
     reason = models.CharField(max_length=100)
+    evidence_metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

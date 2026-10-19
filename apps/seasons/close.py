@@ -687,12 +687,12 @@ def award_season_honors(season: Season, *, limit: int = 1000) -> dict[str, int]:
     if config.season_honors is None:
         raise ValidationError("Season honors configuration is unavailable")
     thresholds = {rule.key: rule.threshold for rule in config.season_honors.medals}
+    completed_players = PlayerMedalAward.objects.filter(
+        source_season=season, medal_key="season-founding"
+    ).values("player_id")
     rows = (
         PlayerSeasonFinalStanding.objects.filter(season=season)
-        .exclude(
-            player__medal_awards__source_season=season,
-            player__medal_awards__medal_key="season-founding",
-        )
+        .exclude(player_id__in=completed_players)
         .order_by("final_rank")[:limit]
     )
     created = 0
@@ -723,10 +723,7 @@ def award_season_honors(season: Season, *, limit: int = 1000) -> dict[str, int]:
             created += int(was_created)
     remaining = (
         PlayerSeasonFinalStanding.objects.filter(season=season)
-        .exclude(
-            player__medal_awards__source_season=season,
-            player__medal_awards__medal_key="season-founding",
-        )
+        .exclude(player_id__in=completed_players)
         .count()
     )
     return {"created": created, "remaining": remaining}
