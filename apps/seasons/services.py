@@ -76,8 +76,13 @@ def resolve_historical_season(*, at: datetime, required: bool = True) -> Season 
     return seasons[0]
 
 
-def activate_season(season: Season) -> Season:
+def activate_season(
+    season: Season, *, actor: User | None = None, evidence_reference: str = ""
+) -> Season:
     with transaction.atomic():
+        from apps.seasons.barrier import acquire_close_barrier
+
+        acquire_close_barrier(season.pk)
         season = (
             Season.objects.select_for_update().select_related("baseline_config").get(pk=season.pk)
         )
@@ -103,6 +108,14 @@ def activate_season(season: Season) -> Season:
             .exists()
         ):
             raise ValidationError("An active season already exists")
+        if season.baseline_config.payload.get("meta", {}).get("schema_version", 0) >= 4:
+            from apps.arena.configuration import selected_economic_policy
+            from apps.arena.economics import bind_season_policy
+
+            if actor is None:
+                raise PermissionDenied("Explicit policy binding authority required")
+            document = selected_economic_policy(season.baseline_config)
+            bind_season_policy(season, document, actor=actor, evidence_reference=evidence_reference)
         season.status = Season.Status.ACTIVE
         with connection.cursor() as cursor:
             cursor.execute("SELECT set_config('dexo.settlement_control', 'on', true)")

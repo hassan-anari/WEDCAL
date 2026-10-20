@@ -3424,6 +3424,16 @@
           "season_points": {
             "title": "Season Points",
             "type": "integer"
+          },
+          "timing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BootstrapSeasonTiming"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -3435,6 +3445,45 @@
           "season_points"
         ],
         "title": "BootstrapSeason",
+        "type": "object"
+      },
+      "BootstrapSeasonTiming": {
+        "properties": {
+          "product_period_days": {
+            "title": "Product Period Days",
+            "type": "integer"
+          },
+          "epoch_count": {
+            "title": "Epoch Count",
+            "type": "integer"
+          },
+          "epoch_days": {
+            "title": "Epoch Days",
+            "type": "integer"
+          },
+          "closing_days": {
+            "title": "Closing Days",
+            "type": "integer"
+          },
+          "economic_ends_at": {
+            "format": "date-time",
+            "title": "Economic Ends At",
+            "type": "string"
+          },
+          "settlement_start_epoch": {
+            "title": "Settlement Start Epoch",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "product_period_days",
+          "epoch_count",
+          "epoch_days",
+          "closing_days",
+          "economic_ends_at",
+          "settlement_start_epoch"
+        ],
+        "title": "BootstrapSeasonTiming",
         "type": "object"
       },
       "BootstrapTyping": {

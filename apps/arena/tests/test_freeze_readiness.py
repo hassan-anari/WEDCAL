@@ -438,6 +438,10 @@ def test_expected_worker_blockers_are_safe_and_repeatable(epoch):
     for _ in range(2):
         assert drain_and_freeze_epochs() == 0
     assert_no_final_outputs(epoch)
+    assert epoch.freeze_watermark == {}  # No activation authority: no scheduled mutation.
+    with pytest.raises(EpochBlocked, match="QUALIFICATION_NOT_EVALUATED"):
+        freeze_epoch(epoch, at=epoch.ends_at)
+    epoch.refresh_from_db()
     assert "QUALIFICATION_NOT_EVALUATED" in epoch.freeze_watermark["blockers"]
     assert settle_epochs() == 0
     assert not epoch.evaluations.exists()

@@ -1,0 +1,15 @@
+{
+  "synthetic": true,
+  "checksum": "80d5ac1260d403392356de48213f365fc0376897ccb24dc1a25814bf605596a9",
+  "key": "REGISTERED_TEST",
+  "version": 1,
+  "proposal_id": 19,
+  "policy_id": 479,
+  "submitted_by_id": 1001,
+  "approved_by_id": 1002,
+  "independent_actors": true,
+  "dry_runs_created_no_rows": true,
+  "retry_created_one_policy": true,
+  "bindings_created": 0,
+  "automation_controls_created": 0
+}

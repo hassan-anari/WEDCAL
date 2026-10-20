@@ -146,3 +146,54 @@ def qualified_player_ids_at(
         if row.decision == QualificationDecision.Decision.QUALIFIED
         and moderation_state_at(row.player, at) not in BLOCKED_STATES
     )
+
+
+def record_prepared_decisions(
+    epoch: EconomicEpoch,
+    *,
+    policy_key: str,
+    policy_version: int,
+    rows: list[QualificationDecision],
+) -> None:
+    """Batch the existing immutable decision contract under Prepare's exclusive Season barrier.
+
+    Each row retains the same source identity and evidence as the individual service. PostgreSQL
+    still enforces cutoff barriers and uniqueness; matching retries are compared before insertion.
+    """
+    if not transaction.get_connection().in_atomic_block:
+        raise RuntimeError("Prepared decisions require the Prepare transaction")
+    affected = EconomicEpoch.objects.filter(
+        ends_at__gte=epoch.ends_at,
+        config_version__payload__dlx_distribution__pool__growth_unlock__qualified_player_predicate__policy_key=policy_key,
+        config_version__payload__dlx_distribution__pool__growth_unlock__qualified_player_predicate__policy_version=policy_version,
+    )
+    for season_id in affected.order_by("season_id").values_list("season_id", flat=True).distinct():
+        acquire_economic_write_barrier(season_id)
+    if affected.filter(state__in=["FROZEN", "SETTLING", "SETTLED"]).exists():
+        raise ValueError("QUALIFICATION_CUTOFF_FINALIZED")
+    for offset in range(0, len(rows), 1000):
+        batch = rows[offset : offset + 1000]
+        existing = {
+            row.source_id: row
+            for row in QualificationDecision.objects.filter(
+                policy_key=policy_key,
+                source="S1_FINALIZED_V1",
+                source_id__in=[row.source_id for row in batch],
+            )
+        }
+        pending = []
+        for row in batch:
+            previous = existing.get(row.source_id)
+            if previous is None:
+                pending.append(row)
+            elif not _same_decision(
+                previous,
+                player=Player(pk=row.player_id),
+                policy_version=policy_version,
+                decision=row.decision,
+                effective_at=row.effective_at,
+                reason_code=row.reason_code,
+                evidence=row.evidence,
+            ):
+                raise ValueError("Qualification decision idempotency conflict")
+        QualificationDecision.objects.bulk_create(pending, batch_size=1000)

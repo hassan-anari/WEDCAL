@@ -274,7 +274,11 @@ def _ranking(season: Season, cutoff: datetime) -> DrainEvidence:
 @drain_provider("economic_epochs")
 def _epochs(season: Season, cutoff: datetime) -> DrainEvidence:
     rows = list(EconomicEpoch.objects.filter(season=season).order_by("epoch_number"))
-    terminal = len(rows) == 6 and [row.epoch_number for row in rows] == list(range(1, 7))
+    distribution = resolve_game_config_version(season.baseline_config_id).dlx_distribution
+    expected = distribution.epoch_count if distribution else 0
+    terminal = len(rows) == expected and [row.epoch_number for row in rows] == list(
+        range(1, expected + 1)
+    )
     pending = sum(row.state != EconomicEpoch.State.SETTLED for row in rows)
     return DrainEvidence(
         "economic_epochs",
@@ -282,7 +286,7 @@ def _epochs(season: Season, cutoff: datetime) -> DrainEvidence:
         None,
         None,
         not terminal or bool(pending),
-        "SIX_SETTLED" if terminal and not pending else "INCOMPLETE",
+        "CONFIGURED_EPOCHS_SETTLED" if terminal and not pending else "INCOMPLETE",
         0,
         {"states": [{"epoch": row.epoch_number, "state": row.state} for row in rows]},
     )
@@ -449,7 +453,9 @@ def reconcile_season_dlx(season: Season, *, record_residuals: bool = False) -> d
     if policy is None:
         raise ValidationError("Season has no DLX distribution policy")
     epochs = list(EconomicEpoch.objects.filter(season=season).order_by("epoch_number"))
-    exact_epochs = len(epochs) == 6 and [row.epoch_number for row in epochs] == list(range(1, 7))
+    exact_epochs = len(epochs) == policy.epoch_count and [
+        row.epoch_number for row in epochs
+    ] == list(range(1, policy.epoch_count + 1))
     budgets = EpochCategoryBudget.objects.filter(epoch__season=season)
     authorized_budget = sum(row.base_budget + row.growth_budget for row in epochs)
     allocated_projection = int(budgets.aggregate(value=Sum("allocated_amount"))["value"] or 0)
@@ -457,7 +463,10 @@ def reconcile_season_dlx(season: Season, *, record_residuals: bool = False) -> d
         DlxAllocation.objects.filter(season=season).aggregate(value=Sum("amount"))["value"] or 0
     )
     residual = int(
-        budgets.filter(epoch__epoch_number=6).aggregate(value=Sum("carry_out"))["value"] or 0
+        budgets.filter(epoch__epoch_number=policy.epoch_count).aggregate(value=Sum("carry_out"))[
+            "value"
+        ]
+        or 0
     )
     reserve_total = int(
         CategoryCorrectionReserve.objects.filter(budget__epoch__season=season).aggregate(
@@ -494,7 +503,9 @@ def reconcile_season_dlx(season: Season, *, record_residuals: bool = False) -> d
             raise ValidationError("Correction admission or final category rounds remain open")
         if unresolved_deferrals:
             raise ValidationError("Economic deferrals remain unresolved")
-        for row in budgets.filter(epoch__epoch_number=6).select_related("config_version"):
+        for row in budgets.filter(epoch__epoch_number=policy.epoch_count).select_related(
+            "config_version"
+        ):
             category_reserve = CategoryCorrectionReserve.objects.filter(
                 budget__epoch__season=season, budget__category=row.category
             )
@@ -518,12 +529,13 @@ def reconcile_season_dlx(season: Season, *, record_residuals: bool = False) -> d
                     },
                     "config_version": row.config_version,
                     "disposition": "UNALLOCATED_SEASON_RESIDUAL",
-                    "reason": "Final same-category carry has no seventh economic epoch",
+                    "reason": "Final same-category carry has no further economic epoch",
                     "idempotency_key": f"season-close-residual:{season.pk}:{row.category}",
                 },
             )
     return {
-        "exactly_six_epochs": exact_epochs,
+        "configured_epochs_complete": exact_epochs,
+        "exactly_six_epochs": exact_epochs and policy.epoch_count == 6,
         "epoch_states": [row.state for row in epochs],
         "base_pool": policy.base_pool_dlx_amount,
         "growth_unlocks": sum(row.growth_budget for row in epochs),
@@ -542,7 +554,11 @@ def reconcile_season_dlx(season: Season, *, record_residuals: bool = False) -> d
             season=season, source_type__icontains="DLX"
         ).count(),
         "reconciled": exact_epochs
-        and confirmed_batches == 6
+        and confirmed_batches == policy.epoch_count
+        and authorized_budget
+        == policy.base_pool_dlx_amount
+        + sum(event.unlocked_amount for event in season.growth_unlocks.all())
+        and authorized_budget <= policy.max_pool_dlx_amount
         and allocated_projection == allocation_ledger
         and allocation_ledger + corrections_paid + residual == authorized_budget
         and unused_reserve >= 0

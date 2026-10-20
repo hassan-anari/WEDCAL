@@ -229,13 +229,18 @@ def _finalize(activity: ClanActivity, now: datetime) -> bool:
         return True
 
 
-def finalize_due_windows(*, limit: int = 100, now: datetime | None = None) -> int:
+def finalize_due_windows(
+    *, limit: int = 100, now: datetime | None = None, season_id: int | None = None
+) -> int:
     now = now or timezone.now()
     processed = 0
+    source = ClanActivity.objects.filter(window_processed=False)
+    if season_id is not None:
+        source = source.filter(season_id=season_id)
     candidates = list(
-        ClanActivity.objects.filter(window_processed=False)
-        .select_related("membership", "clan_season", "season", "config_version")
-        .order_by("observed_at", "pk")[: max(limit * 4, limit)]
+        source.select_related("membership", "clan_season", "season", "config_version").order_by(
+            "observed_at", "pk"
+        )[: max(limit * 4, limit)]
     )
     seen: set[tuple[int | None, int, datetime]] = set()
     for activity in candidates:

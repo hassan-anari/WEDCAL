@@ -55,7 +55,7 @@ class EconomicPolicy:
         return value
 
     def validate(self) -> None:
-        if self.values.get("implementation") != "S1_FINALIZED_V1":
+        if self.values.get("implementation") not in {"S1_FINALIZED_V1", "CONFIGURABLE_V1"}:
             raise ValidationError("ECONOMIC_POLICY_IMPLEMENTATION_UNSUPPORTED")
         for key in (
             "scale",
@@ -97,7 +97,7 @@ class EconomicPolicy:
         s = self.number("scale")
         if (
             s != 10000
-            or self.number("days") != 7
+            or (self.values["implementation"] == "S1_FINALIZED_V1" and self.number("days") != 7)
             or sum(
                 self.number(k)
                 for k in ("tap_weight", "typing_weight", "daily_weight", "mission_weight")
@@ -109,10 +109,29 @@ class EconomicPolicy:
                 self.number(k) > s
                 for k in ("player_cap_bps", "carry_release_bps", "correction_reserve_bps")
             )
-            or self.values.get("growth_milestones") != []
+            or (
+                self.values["implementation"] == "S1_FINALIZED_V1"
+                and self.values.get("growth_milestones") != []
+            )
             or self.values.get("recognition") != "FINALIZED_ONCE_V1"
         ):
             raise ValidationError("Invalid Season 1 economic policy")
+        if self.values["implementation"] == "CONFIGURABLE_V1":
+            if "growth_milestones" in self.values:
+                raise ValidationError("Growth milestones belong only to GameConfig")
+            growth = self.values.get("growth")
+            if not isinstance(growth, dict) or growth.get("rule") not in {
+                "DISABLED",
+                "SEASON_TO_DATE_PRE_FREEZE_EQUAL_V1",
+            }:
+                raise ValidationError("Unsupported Growth recognition/placement rule")
+            if (
+                growth["rule"] != "DISABLED"
+                and not str(growth.get("approval_reference", "")).strip()
+            ):
+                raise ValidationError("Growth rule requires explicit owner approval")
+            if self.number("meaningful_days") > self.number("days"):
+                raise ValidationError("Qualification days exceed Epoch duration")
         missions = self.values.get("independent_mission_keys")
         if not isinstance(missions, list) or len(missions) != len(set(missions)):
             raise ValidationError("Invalid independent Mission allowlist")

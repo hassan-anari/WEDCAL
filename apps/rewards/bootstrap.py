@@ -10,7 +10,11 @@ from apps.players.models import Player
 from apps.players.services import reward_gameplay_allowed
 from apps.progression.services import refresh_player_progression
 from apps.seasons.models import PlayerSeason, Season
-from apps.seasons.services import is_reward_earning_time, resolve_current_season
+from apps.seasons.services import (
+    economic_window_end,
+    is_reward_earning_time,
+    resolve_current_season,
+)
 
 
 @transaction.atomic
@@ -25,7 +29,21 @@ def build_bootstrap(player: Player, now: datetime, *, request_id: str) -> dict[s
         player_season = (
             PlayerSeason.objects.filter(player=player, season=season).only("season_points").first()
         )
+        from apps.game_config.services import resolve_game_config_version
+
+        setup = resolve_game_config_version(season.baseline_config_id).dlx_distribution
         season_data = {
+            "timing": {
+                "product_period_days": setup.product_period_days,
+                "epoch_count": setup.epoch_count,
+                "epoch_days": setup.epoch_days,
+                "closing_days": setup.closing_days,
+                "economic_ends_at": economic_window_end(season),
+                "settlement_start_epoch": season.settlement_start_epoch
+                or setup.default_settlement_start_epoch,
+            }
+            if setup
+            else None,
             "code": season.code,
             "title": season.title,
             "status": season.status,

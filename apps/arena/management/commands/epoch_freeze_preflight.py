@@ -12,7 +12,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser: Any) -> None:
         parser.add_argument("season")
-        parser.add_argument("epoch", type=int, choices=range(1, 7))
+        parser.add_argument("epoch", type=int)
 
     def handle(self, *args: Any, **options: Any) -> None:
         try:

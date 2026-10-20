@@ -1,0 +1,99 @@
+{
+  "epoch_count": 2,
+  "epoch_days": 7,
+  "closing_days": 1,
+  "settlement_gate": 1,
+  "base": 100003,
+  "maximum": 200019,
+  "allocation_total": 29,
+  "final_residual": 99974,
+  "correction_reserve_unused": 5000,
+  "closed": true,
+  "typing_wallet_auto_settled_only_at_close": true,
+  "epochs": [
+    {
+      "number": 1,
+      "base": 50002,
+      "growth": 0,
+      "categories": [
+        {
+          "category": "CLAN_PERFORMANCE",
+          "fresh": 17500,
+          "allocated": 0,
+          "carry_in": 0,
+          "carry_out": 16625
+        },
+        {
+          "category": "CORE_GAMEPLAY",
+          "fresh": 10000,
+          "allocated": 9,
+          "carry_in": 0,
+          "carry_out": 9491
+        },
+        {
+          "category": "CREATOR_COMMUNITY_GROWTH",
+          "fresh": 10000,
+          "allocated": 0,
+          "carry_in": 0,
+          "carry_out": 9500
+        },
+        {
+          "category": "LOYALTY_CONSISTENCY",
+          "fresh": 5002,
+          "allocated": 4,
+          "carry_in": 0,
+          "carry_out": 4748
+        },
+        {
+          "category": "VERIFIED_REFERRAL",
+          "fresh": 7500,
+          "allocated": 0,
+          "carry_in": 0,
+          "carry_out": 7125
+        }
+      ]
+    },
+    {
+      "number": 2,
+      "base": 50001,
+      "growth": 0,
+      "categories": [
+        {
+          "category": "CLAN_PERFORMANCE",
+          "fresh": 17500,
+          "allocated": 0,
+          "carry_in": 16625,
+          "carry_out": 33250
+        },
+        {
+          "category": "CORE_GAMEPLAY",
+          "fresh": 10000,
+          "allocated": 11,
+          "carry_in": 9491,
+          "carry_out": 18980
+        },
+        {
+          "category": "CREATOR_COMMUNITY_GROWTH",
+          "fresh": 10000,
+          "allocated": 0,
+          "carry_in": 9500,
+          "carry_out": 19000
+        },
+        {
+          "category": "LOYALTY_CONSISTENCY",
+          "fresh": 5001,
+          "allocated": 5,
+          "carry_in": 4748,
+          "carry_out": 9494
+        },
+        {
+          "category": "VERIFIED_REFERRAL",
+          "fresh": 7500,
+          "allocated": 0,
+          "carry_in": 7125,
+          "carry_out": 14250
+        }
+      ]
+    }
+  ]
+}

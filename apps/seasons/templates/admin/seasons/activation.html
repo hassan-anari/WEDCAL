@@ -1,0 +1,7 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<h1>Activate {{ season }}</h1>
+<p>Configuration: {{ config.version }} / {{ config.payload_checksum }}</p>
+<p>Activation permanently pins this Season's timing, budgets and referenced economic policy. Weekly automation requires separate explicit authority.</p>
+<form method="post">{% csrf_token %}{{ form.as_p }}<input type="submit" value="Activate and bind approved policy"></form>
+{% endblock %}

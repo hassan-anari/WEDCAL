@@ -1,0 +1,51 @@
+{
+  "synthetic": true,
+  "transport": "mocked shared Telegram Bot API",
+  "captured_messages": [
+    {
+      "chat_id": 771001,
+      "text": "Dexo Land \u2014 Economic Alert\n\nSeverity: ERROR\nEvent: Epoch Freeze Overdue\nTransition: OPENED\nSeason: 2\nEpoch: 1\nStatus: OPEN\nIncident ID: 1\nEvent ID: 1\nTime: 2026-10-28 00:33:06 UTC\n\nAction: Review the economic incident in Django Admin."
+    },
+    {
+      "chat_id": 771001,
+      "text": "Dexo Land \u2014 Economic Alert\n\nSeverity: ERROR\nEvent: Epoch Freeze Overdue\nTransition: RESOLVED\nSeason: 2\nEpoch: 1\nStatus: RESOLVED\nIncident ID: 1\nEvent ID: 4\nTime: 2026-10-28 00:33:06 UTC\n\nAction: Review the economic incident in Django Admin."
+    }
+  ],
+  "events": [
+    {
+      "outcome": "OPENED",
+      "severity": "ERROR"
+    },
+    {
+      "outcome": "DISPATCH_STARTED",
+      "severity": "ERROR"
+    },
+    {
+      "outcome": "DELIVERY_RESULT",
+      "severity": "ERROR"
+    },
+    {
+      "outcome": "RESOLVED",
+      "severity": "ERROR"
+    },
+    {
+      "outcome": "DISPATCH_STARTED",
+      "severity": "ERROR"
+    },
+    {
+      "outcome": "DELIVERY_RESULT",
+      "severity": "ERROR"
+    }
+  ],
+  "deliveries": [
+    {
+      "status": "DELIVERED",
+      "attempts": 1
+    },
+    {
+      "status": "DELIVERED",
+      "attempts": 1
+    }
+  ],
+  "incident_status": "RESOLVED"
+}

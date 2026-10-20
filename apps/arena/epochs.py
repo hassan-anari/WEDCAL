@@ -51,6 +51,12 @@ def initialize_epochs(season: Season) -> list[EconomicEpoch]:
     per_epoch, remainder = divmod(policy.base_pool_dlx_amount, policy.epoch_count)
     rows = []
     with transaction.atomic():
+        if (
+            EconomicEpoch.objects.filter(season=season)
+            .exclude(epoch_number__gte=1, epoch_number__lte=policy.epoch_count)
+            .exists()
+        ):
+            raise ValidationError("Existing Epoch topology conflicts with Season setup")
         for number in range(1, policy.epoch_count + 1):
             start = season.starts_at + timedelta(days=(number - 1) * policy.epoch_days)
             row, _ = EconomicEpoch.objects.get_or_create(
@@ -63,6 +69,13 @@ def initialize_epochs(season: Season) -> list[EconomicEpoch]:
                     "base_budget": per_epoch + (1 if number <= remainder else 0),
                 },
             )
+            if (row.starts_at, row.ends_at, row.config_version_id, row.base_budget) != (
+                start,
+                start + timedelta(days=policy.epoch_days),
+                season.baseline_config_id,
+                per_epoch + (1 if number <= remainder else 0),
+            ):
+                raise ValidationError("Existing Epoch commitment conflicts with Season setup")
             rows.append(row)
     return rows
 
@@ -73,7 +86,7 @@ def epoch_for_source_time(season: Season, source_time: datetime) -> EconomicEpoc
             season=season, starts_at__lte=source_time, ends_at__gt=source_time
         )
     except EconomicEpoch.DoesNotExist as exc:
-        raise ValidationError("Source time is outside the six economic epochs") from exc
+        raise ValidationError("Source time is outside the configured economic epochs") from exc
 
 
 def drain_blockers(epoch: EconomicEpoch) -> list[DrainBlocker]:
@@ -202,6 +215,15 @@ def freeze_epoch(epoch: EconomicEpoch, *, at: datetime | None = None) -> Economi
             assert evaluation is not None
             policy = resolve_game_config_version(row.config_version_id).dlx_distribution
             assert policy is not None
+            if policy.growth_milestones:
+                from apps.arena.growth import unlock_growth
+
+                unlock_growth(row.season, epoch=row)
+                row.refresh_from_db(fields=("growth_budget",))
+                final_reasons, evaluation = readiness_blockers(row)
+                if final_reasons:
+                    raise EpochBlocked(",".join(final_reasons))
+                assert evaluation is not None
             _snapshot_budgets(row, policy)
             _build_performance_snapshots(row, policy)
             row.freeze_watermark = {
@@ -226,7 +248,7 @@ def freeze_epoch(epoch: EconomicEpoch, *, at: datetime | None = None) -> Economi
 
 
 def _snapshot_budgets(epoch: EconomicEpoch, policy: DlxDistributionConfig) -> None:
-    distributed = 0
+    distributed = distributed_growth = 0
     weights = list(policy.category_weights_bps)
     for index, (category, weight) in enumerate(weights):
         base = epoch.base_budget * weight // 10000
@@ -234,6 +256,9 @@ def _snapshot_budgets(epoch: EconomicEpoch, policy: DlxDistributionConfig) -> No
             base = epoch.base_budget - distributed
         distributed += base
         growth = epoch.growth_budget * weight // 10000
+        if index == len(weights) - 1:
+            growth = epoch.growth_budget - distributed_growth
+        distributed_growth += growth
         budget, _ = EpochCategoryBudget.objects.get_or_create(
             epoch=epoch,
             category=category,
@@ -253,12 +278,10 @@ def _snapshot_budgets(epoch: EconomicEpoch, policy: DlxDistributionConfig) -> No
         selected = bound_policy(epoch)
         if selected is not None:
             binding, economic_policy = selected
-            if growth:
-                raise ValidationError("S1_GROWTH_MILESTONES_EMPTY")
             CategoryCorrectionReserve.objects.get_or_create(
                 budget=budget,
                 defaults={
-                    "amount": base
+                    "amount": (base + growth)
                     * economic_policy.number("correction_reserve_bps")
                     // economic_policy.number("scale"),
                     "policy": binding.policy,
@@ -467,7 +490,7 @@ def settle_epoch(
             }
             h = sum(int(s.raw_inputs.get("h_units", 0)) for s in snapshots if s.player_id in scores)
             limit, _ = emission_limit(
-                budget.base_epoch_budget,
+                budget.base_epoch_budget + budget.growth_contribution,
                 budget.carry_in,
                 budget.category,
                 scores,
@@ -475,7 +498,7 @@ def settle_epoch(
                 economic_policy,
             )
             cap = (
-                budget.base_epoch_budget
+                (budget.base_epoch_budget + budget.growth_contribution)
                 * economic_policy.number("player_cap_bps")
                 // economic_policy.number("scale")
             )
@@ -514,27 +537,39 @@ def settle_epoch(
         requested_total = sum(allocations.values())
         if requested_total > budget.effective_budget:
             raise ValidationError("Category allocation exceeds budget")
+        existing = {
+            allocation.snapshot_id: allocation.amount
+            for allocation in DlxAllocation.objects.filter(batch=batch, category=budget.category)
+        }
+        pending = []
         for player_id, amount in allocations.items():
             if not amount:
                 continue
             snapshot = eligible[player_id]
-            allocation, created = DlxAllocation.objects.get_or_create(
-                batch=batch,
-                snapshot=snapshot,
-                defaults={
-                    "player_id": player_id,
-                    "season_id": row.season_id,
-                    "epoch": row,
-                    "category": budget.category,
-                    "amount": amount,
-                    "config_version_id": row.config_version_id,
-                    "idempotency_key": f"dlx:{batch.pk}:{snapshot.pk}",
-                    "metadata": {},
-                    "confirmed_at": now,
-                },
+            previous = existing.get(snapshot.pk)
+            if previous is not None:
+                if previous != amount:
+                    raise ValidationError("Allocation retry conflicts with confirmed history")
+                continue
+            pending.append(
+                DlxAllocation(
+                    batch=batch,
+                    snapshot=snapshot,
+                    player_id=player_id,
+                    season_id=row.season_id,
+                    epoch=row,
+                    category=budget.category,
+                    amount=amount,
+                    config_version_id=row.config_version_id,
+                    idempotency_key=f"dlx:{batch.pk}:{snapshot.pk}",
+                    metadata={},
+                    confirmed_at=now,
+                )
             )
-            if not created and allocation.amount != amount:
-                raise ValidationError("Allocation retry conflicts with confirmed history")
+            if len(pending) >= 1000:
+                DlxAllocation.objects.bulk_create(pending, batch_size=1000)
+                pending.clear()
+        DlxAllocation.objects.bulk_create(pending, batch_size=1000)
         actual = (
             DlxAllocation.objects.filter(
                 batch=batch, epoch=row, category=budget.category
@@ -576,27 +611,10 @@ def reconcile_epoch(epoch: EconomicEpoch) -> dict[str, bool]:
     }
 
 
-@transaction.atomic
 def evaluate_growth_unlocks(season: Season) -> list[GrowthUnlockEvent]:
-    from apps.seasons.barrier import acquire_economic_write_barrier
+    from apps.arena.growth import unlock_growth
 
-    acquire_economic_write_barrier(season.pk)
-    locked = Season.objects.select_for_update().get(pk=season.pk)
-    policy = resolve_game_config_version(locked.baseline_config_id).dlx_distribution
-    if policy is None or not policy.growth_milestones:
-        return []
-    predicate = policy.qualified_player_predicate
-    qualified = len(
-        qualified_player_ids_at(
-            policy_key=str(predicate["policy_key"]),
-            policy_version=int(predicate["policy_version"]),
-            at=timezone.now(),
-        )
-    )
-    for milestone in policy.growth_milestones:
-        if qualified >= milestone.qualified_player_count:
-            raise ScoringPolicyUnconfigured("GROWTH_DISTRIBUTION_POLICY_UNCONFIGURED")
-    return []
+    return unlock_growth(season)
 
 
 def player_dlx_balance(player: Player, season: Season) -> dict[str, int]:

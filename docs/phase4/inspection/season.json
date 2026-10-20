@@ -1,0 +1,132 @@
+{
+  "season": "configurable-1",
+  "status": "ACTIVE",
+  "config_id": 1890,
+  "config_checksum": "dad061e349c3128ceea57b36b67f7818a758ea2a8edd1de9d37b385c3e7d8ee1",
+  "base_budget": 100003,
+  "maximum_budget": 200019,
+  "authorized_growth": 10001,
+  "authorized_total": 110004,
+  "funding_placements_total": 10001,
+  "distinct_qualified_players": 1,
+  "qualification_cutoff": "2026-10-27 22:33:06.352397+00:00",
+  "qualification_status": "FINALIZED",
+  "last_committed_growth_count": 1,
+  "milestones": [
+    {
+      "key": "one-qualified",
+      "threshold": 1,
+      "configured_amount": 10001,
+      "status": "FUNDED",
+      "event_id": 86,
+      "authorized_amount": 10001
+    }
+  ],
+  "milestone_count": 1,
+  "epochs": [
+    {
+      "id": 2379,
+      "epoch_number": 1,
+      "state": "SETTLED",
+      "base_budget": 50002,
+      "growth_budget": 5001,
+      "frozen_at": "2026-10-27 22:33:06.352397+00:00",
+      "settlement_completed_at": "2026-10-27 22:33:06.352397+00:00"
+    },
+    {
+      "id": 2380,
+      "epoch_number": 2,
+      "state": "OPEN",
+      "base_budget": 50001,
+      "growth_budget": 5000,
+      "frozen_at": null,
+      "settlement_completed_at": null
+    }
+  ],
+  "confirmed_allocations": 15,
+  "category_carry": [
+    {
+      "category": "CLAN_PERFORMANCE",
+      "epoch__epoch_number": 1,
+      "carry_out": 18288
+    },
+    {
+      "category": "CORE_GAMEPLAY",
+      "epoch__epoch_number": 1,
+      "carry_out": 10440
+    },
+    {
+      "category": "CREATOR_COMMUNITY_GROWTH",
+      "epoch__epoch_number": 1,
+      "carry_out": 10450
+    },
+    {
+      "category": "LOYALTY_CONSISTENCY",
+      "epoch__epoch_number": 1,
+      "carry_out": 5223
+    },
+    {
+      "category": "VERIFIED_REFERRAL",
+      "epoch__epoch_number": 1,
+      "carry_out": 7838
+    }
+  ],
+  "category_carry_historical_flows": [
+    {
+      "category": "CLAN_PERFORMANCE",
+      "carry_in_total": 0,
+      "carry_out_total": 18288
+    },
+    {
+      "category": "CORE_GAMEPLAY",
+      "carry_in_total": 0,
+      "carry_out_total": 10440
+    },
+    {
+      "category": "CREATOR_COMMUNITY_GROWTH",
+      "carry_in_total": 0,
+      "carry_out_total": 10450
+    },
+    {
+      "category": "LOYALTY_CONSISTENCY",
+      "carry_in_total": 0,
+      "carry_out_total": 5223
+    },
+    {
+      "category": "VERIFIED_REFERRAL",
+      "carry_in_total": 0,
+      "carry_out_total": 7838
+    }
+  ],
+  "correction_reserve_funding": 2749,
+  "correction_payments": 0,
+  "outstanding_deferrals": 0,
+  "pending_review_cases": 0,
+  "reconciliation": {
+    "configured_epochs_complete": true,
+    "exactly_six_epochs": false,
+    "base_pool": 100003,
+    "growth_unlocks": 10001,
+    "authorized_budget": 110004,
+    "projected_allocations": 15,
+    "confirmed_allocations": 15,
+    "funded_corrections": 0,
+    "unused_correction_reserve": 2749,
+    "correction_admission_closed": false,
+    "correction_rounds_sealed": false,
+    "unresolved_economic_deferrals": 0,
+    "final_residual": 2749,
+    "confirmed_batches": 1,
+    "adjustments": {
+      "held": 0,
+      "hold_recorded": 0,
+      "released": 0,
+      "forfeited": 0,
+      "forfeit_recorded": 0,
+      "reversed": 0
+    },
+    "xp_events_with_dlx_source": 0,
+    "reconciled": false
+  },
+  "final_residual": null
+}

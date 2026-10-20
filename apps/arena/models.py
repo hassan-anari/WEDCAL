@@ -1,5 +1,6 @@
 import uuid
 
+from django.conf import settings
 from django.db import models
 from django.db.models import Q
 
@@ -107,9 +108,7 @@ class EconomicEpoch(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=("season", "epoch_number"), name="arena_epoch_number"),
-            models.CheckConstraint(
-                condition=Q(epoch_number__gte=1, epoch_number__lte=6), name="arena_epoch_range"
-            ),
+            models.CheckConstraint(condition=Q(epoch_number__gte=1), name="arena_epoch_range"),
             models.CheckConstraint(
                 condition=Q(ends_at__gt=models.F("starts_at")), name="arena_epoch_time"
             ),
@@ -683,4 +682,186 @@ class EconomicDeferralEvidence(models.Model):
             models.UniqueConstraint(
                 fields=("deferral", "evidence_digest"), name="arena_deferral_proof_unique"
             )
+        ]
+
+
+class GrowthEpochFunding(models.Model):
+    """Immutable placement of newly authorized funding; never an allocation."""
+
+    event = models.ForeignKey(GrowthUnlockEvent, on_delete=models.PROTECT, related_name="funding")
+    epoch = models.ForeignKey(
+        EconomicEpoch, on_delete=models.PROTECT, related_name="growth_funding"
+    )
+    amount = models.PositiveBigIntegerField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("event", "epoch"), name="arena_growth_placement"),
+            models.CheckConstraint(condition=Q(amount__gt=0), name="arena_growth_funding_positive"),
+        ]
+
+
+class EconomicAutomationControl(models.Model):
+    """Append-only activation/pause authority. No scheduler may create this record."""
+
+    season = models.ForeignKey("seasons.Season", on_delete=models.PROTECT)
+    enabled = models.BooleanField()
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    policy = models.ForeignKey("EconomicPolicyVersion", on_delete=models.PROTECT)
+    config_checksum = models.CharField(max_length=64)
+    capability = models.CharField(max_length=64)
+    reason = models.CharField(max_length=1000)
+    evidence_reference = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        permissions = [("control_economic_automation", "Can activate or pause DLX automation")]
+        indexes = [models.Index(fields=("season", "-id"), name="arena_automation_latest")]
+
+
+class EconomicAutomationAttempt(models.Model):
+    epoch = models.ForeignKey(EconomicEpoch, on_delete=models.PROTECT)
+    control = models.ForeignKey(EconomicAutomationControl, on_delete=models.PROTECT)
+    stage = models.CharField(max_length=32)
+    status = models.CharField(max_length=16, default="RUNNING")
+    error_code = models.CharField(max_length=128, blank=True)
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True)
+    evidence = models.JSONField(default=dict)
+
+    class Meta:
+        indexes = [models.Index(fields=("status", "started_at"), name="arena_automation_status")]
+
+
+class GrowthEvaluation(models.Model):
+    """Append-only evaluation/retry evidence, separate from monetary milestone authorization."""
+
+    season = models.ForeignKey("seasons.Season", on_delete=models.PROTECT)
+    epoch = models.ForeignKey(EconomicEpoch, on_delete=models.PROTECT)
+    policy = models.ForeignKey(EconomicPolicyVersion, on_delete=models.PROTECT)
+    cutoff_at = models.DateTimeField()
+    qualified_player_count = models.PositiveBigIntegerField()
+    cohort_digest = models.CharField(max_length=64)
+    config_checksum = models.CharField(max_length=64)
+    outcome = models.CharField(max_length=40)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=("season", "epoch", "-id"), name="arena_growth_evaluation")]
+        permissions = [("view_economic_overview", "Can inspect read-only economic overviews")]
+
+
+class EconomicPolicyProposal(models.Model):
+    key = models.CharField(max_length=64)
+    version = models.PositiveIntegerField()
+    payload = models.JSONField()
+    checksum = models.CharField(max_length=64)
+    submitted_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    submission_reference = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        permissions = [
+            ("propose_economic_policy", "Can submit validated economic policy proposals")
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=("key", "version"), name="arena_policy_proposal_version")
+        ]
+
+
+class EconomicPolicyApproval(models.Model):
+    proposal = models.OneToOneField(EconomicPolicyProposal, on_delete=models.PROTECT)
+    policy = models.OneToOneField(EconomicPolicyVersion, on_delete=models.PROTECT)
+    approved_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    approval_reference = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        permissions = [("approve_economic_policy", "Can independently approve economic policies")]
+
+
+class EconomicAlert(models.Model):
+    fingerprint = models.CharField(max_length=64, unique=True)
+    season = models.ForeignKey("seasons.Season", on_delete=models.PROTECT)
+    epoch = models.ForeignKey(EconomicEpoch, null=True, on_delete=models.PROTECT)
+    code = models.CharField(max_length=48)
+    severity = models.CharField(max_length=16)
+    status = models.CharField(max_length=16, default="OPEN")
+    evidence = models.JSONField(default=dict)
+    opened_at = models.DateTimeField()
+    last_seen_at = models.DateTimeField()
+    resolved_at = models.DateTimeField(null=True)
+
+    class Meta:
+        indexes = [models.Index(fields=("status", "season"), name="arena_alert_open")]
+
+
+class EconomicAlertEvent(models.Model):
+    alert = models.ForeignKey(EconomicAlert, on_delete=models.PROTECT, related_name="events")
+    outcome = models.CharField(max_length=16)
+    severity = models.CharField(max_length=16)
+    evidence = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class EconomicAlertFanout(models.Model):
+    event = models.OneToOneField(EconomicAlertEvent, on_delete=models.PROTECT)
+    status = models.CharField(max_length=16, default="PENDING")
+    attempts = models.PositiveIntegerField(default=0)
+    next_attempt_at = models.DateTimeField(db_index=True)
+    last_error_code = models.CharField(max_length=48, blank=True)
+    completed_at = models.DateTimeField(null=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=("status", "next_attempt_at"), name="arena_alert_fanout_due")
+        ]
+
+
+class EconomicAlertDelivery(models.Model):
+    # LEGACY preserves earlier delivery history without retaining an executable transport.
+    channel = models.CharField(max_length=24, default="LEGACY")
+    operator = models.ForeignKey(
+        "notifications.BotAdminOperator", null=True, on_delete=models.PROTECT
+    )
+    telegram_user_id = models.BigIntegerField(null=True)
+    telegram_message_id = models.BigIntegerField(null=True)
+    lease_token = models.UUIDField(null=True)
+    lease_expires_at = models.DateTimeField(null=True)
+    event = models.ForeignKey(EconomicAlertEvent, on_delete=models.PROTECT)
+    route_key = models.CharField(max_length=64)
+    route_config = models.JSONField()
+    status = models.CharField(max_length=16, default="PENDING")
+    attempts = models.PositiveIntegerField(default=0)
+    retry_cycle_start = models.PositiveIntegerField(default=0)
+    next_attempt_at = models.DateTimeField()
+    delivered_at = models.DateTimeField(null=True)
+    last_error_code = models.CharField(max_length=48, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("event", "route_key"), name="arena_alert_route_once"),
+            models.UniqueConstraint(fields=("event", "operator"), name="arena_alert_operator_once"),
+            models.UniqueConstraint(
+                fields=("event", "telegram_user_id"), name="arena_alert_private_chat_once"
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    channel="LEGACY", operator__isnull=True, telegram_user_id__isnull=True
+                )
+                | models.Q(
+                    channel="TELEGRAM_PRIVATE",
+                    operator__isnull=False,
+                    telegram_user_id__isnull=False,
+                )
+                & (
+                    models.Q(telegram_user_id__gt=0)
+                    | models.Q(status="DEAD", telegram_user_id__lte=0)
+                ),
+                name="arena_alert_private_target",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=("status", "next_attempt_at"), name="arena_alert_due"),
+            models.Index(fields=("status", "lease_expires_at"), name="arena_alert_send_lease"),
         ]

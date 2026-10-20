@@ -1,0 +1,53 @@
+{
+  "synthetic": true,
+  "base_budget": 3000000,
+  "maximum_budget": 5000000,
+  "events": [
+    {
+      "id": 103,
+      "milestone": "demo-qualified-20",
+      "qualified_count": 20,
+      "authorized_amount": 2000000,
+      "provenance": {
+        "rule": "SEASON_TO_DATE_PRE_FREEZE_EQUAL_V1",
+        "outcome": "FUNDED",
+        "placement": {
+          "2434": 2000000
+        },
+        "policy_id": 339,
+        "threshold": 20,
+        "evaluated_at": "2026-11-04T00:33:06.352397+00:00",
+        "cohort_digest": "fab0b423f4eae3f9dd49754b9c9b93a3f9fd9567a6b0a4a15df9ac808c83eeb6",
+        "evaluation_id": 776,
+        "rule_approval": "SYNTHETIC_TEST_OWNER_APPROVAL",
+        "config_checksum": "8dc49be898d2ef61e070af7ac8c62fa3893a63a6032b802856e8ded3b76f2855",
+        "policy_checksum": "c36c3109fcce0a276bda0d363c665051edc327990022f8c094fcdf2187fd8962",
+        "requested_amount": 2000000,
+        "qualifying_cutoff": "2026-11-03T22:33:06.352397+00:00",
+        "counted_population": "DISTINCT_SEASON_TO_DATE_FINALIZED_QUALIFIED_MINUS_CURRENT_ADVERSE",
+        "recognition_epoch_id": 2434,
+        "recognition_epoch_number": 2
+      },
+      "receivers": [
+        {
+          "epoch__epoch_number": 2,
+          "amount": 2000000
+        }
+      ]
+    }
+  ],
+  "evaluations": [
+    {
+      "outcome": "THRESHOLD_NOT_REACHED",
+      "qualified_player_count": 10,
+      "cutoff_at": "2026-10-27 22:33:06.352397+00:00",
+      "cohort_digest": "8d198c97af84bd1dda470972558df09bf74323c5f9f4c2a4b290d8a983475cc3"
+    },
+    {
+      "outcome": "FUNDED",
+      "qualified_player_count": 20,
+      "cutoff_at": "2026-11-03 22:33:06.352397+00:00",
+      "cohort_digest": "fab0b423f4eae3f9dd49754b9c9b93a3f9fd9567a6b0a4a15df9ac808c83eeb6"
+    }
+  ]
+}

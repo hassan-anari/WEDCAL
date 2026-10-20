@@ -1,0 +1,254 @@
+{
+  "canonical": {
+    "server_time": "2026-11-03T22:33:06.352397Z",
+    "player_id": "940001",
+    "season_id": "configurable-1",
+    "config_version": "phase4-v1",
+    "receipt_cursor": 0,
+    "progression": {
+      "lifetime_points": 0,
+      "level": 1,
+      "current_threshold": 0,
+      "next_threshold": 300,
+      "points_into_level": 0,
+      "points_remaining": 300,
+      "dexo_stage": "newborn"
+    },
+    "season_points": 0
+  },
+  "contract_version": "1.1",
+  "request_id": "phase4-configurable-contract",
+  "server_time": "2026-11-03T22:33:06.352397Z",
+  "player": {
+    "id": "940001",
+    "telegram_user_id": 940001,
+    "first_name": "Dexo",
+    "last_name": "",
+    "username": "",
+    "language_code": "",
+    "photo_url": ""
+  },
+  "progression": {
+    "lifetime_points": 0,
+    "level": 1,
+    "current_threshold": 0,
+    "next_threshold": 300,
+    "points_into_level": 0,
+    "points_remaining": 300,
+    "dexo_stage": "newborn"
+  },
+  "season": {
+    "code": "configurable-1",
+    "title": "Disposable test",
+    "status": "ACTIVE",
+    "starts_at": "2026-10-20T22:33:06.352397Z",
+    "ends_at": "2026-11-04T22:33:06.352397Z",
+    "season_points": 0,
+    "timing": {
+      "product_period_days": 15,
+      "epoch_count": 2,
+      "epoch_days": 7,
+      "closing_days": 1,
+      "economic_ends_at": "2026-11-03T22:33:06.352397Z",
+      "settlement_start_epoch": 1
+    }
+  },
+  "config": {
+    "version": "phase4-v1",
+    "effective_at": "2026-10-17T22:33:06.352397Z",
+    "schema_version": 4,
+    "payload_checksum": "16e982c3b109ace89935486b6365e73ea939fa38b91b1b0e194decd31a64d48a",
+    "progression": {
+      "levels": [
+        {
+          "level": 1,
+          "min_lifetime_points": 0
+        },
+        {
+          "level": 2,
+          "min_lifetime_points": 300
+        },
+        {
+          "level": 3,
+          "min_lifetime_points": 800
+        },
+        {
+          "level": 4,
+          "min_lifetime_points": 1500
+        },
+        {
+          "level": 5,
+          "min_lifetime_points": 2500
+        },
+        {
+          "level": 6,
+          "min_lifetime_points": 3800
+        },
+        {
+          "level": 7,
+          "min_lifetime_points": 5400
+        },
+        {
+          "level": 8,
+          "min_lifetime_points": 7300
+        },
+        {
+          "level": 9,
+          "min_lifetime_points": 9500
+        },
+        {
+          "level": 10,
+          "min_lifetime_points": 12000
+        },
+        {
+          "level": 11,
+          "min_lifetime_points": 14800
+        },
+        {
+          "level": 12,
+          "min_lifetime_points": 18000
+        },
+        {
+          "level": 13,
+          "min_lifetime_points": 21600
+        },
+        {
+          "level": 14,
+          "min_lifetime_points": 25600
+        },
+        {
+          "level": 15,
+          "min_lifetime_points": 30000
+        },
+        {
+          "level": 16,
+          "min_lifetime_points": 34900
+        },
+        {
+          "level": 17,
+          "min_lifetime_points": 40300
+        },
+        {
+          "level": 18,
+          "min_lifetime_points": 46200
+        },
+        {
+          "level": 19,
+          "min_lifetime_points": 52700
+        },
+        {
+          "level": 20,
+          "min_lifetime_points": 59800
+        },
+        {
+          "level": 21,
+          "min_lifetime_points": 67600
+        },
+        {
+          "level": 22,
+          "min_lifetime_points": 76200
+        },
+        {
+          "level": 23,
+          "min_lifetime_points": 85700
+        },
+        {
+          "level": 24,
+          "min_lifetime_points": 96200
+        },
+        {
+          "level": 25,
+          "min_lifetime_points": 108000
+        },
+        {
+          "level": 26,
+          "min_lifetime_points": 121500
+        },
+        {
+          "level": 27,
+          "min_lifetime_points": 137000
+        },
+        {
+          "level": 28,
+          "min_lifetime_points": 155000
+        },
+        {
+          "level": 29,
+          "min_lifetime_points": 176000
+        },
+        {
+          "level": 30,
+          "min_lifetime_points": 200000
+        }
+      ],
+      "dexo_stages": [
+        {
+          "key": "newborn",
+          "min_level": 1
+        },
+        {
+          "key": "explorer",
+          "min_level": 5
+        },
+        {
+          "key": "connector",
+          "min_level": 10
+        },
+        {
+          "key": "specialist",
+          "min_level": 15
+        },
+        {
+          "key": "vanguard",
+          "min_level": 20
+        },
+        {
+          "key": "legend",
+          "min_level": 30
+        }
+      ],
+      "clan_min_level": 5
+    }
+  },
+  "features": {
+    "season": true,
+    "daily": true,
+    "typing": true,
+    "missions": true,
+    "referral": true,
+    "network": true,
+    "base_tap": true,
+    "clan": false,
+    "profile": true,
+    "arena": true
+  },
+  "gameplay": {
+    "moderation_state": "ACTIVE",
+    "reward_earning_allowed": false
+  },
+  "daily": {
+    "claimable": true,
+    "streak": 0,
+    "cycle_day": 1,
+    "reward_amount": 80,
+    "next_reset": "2026-11-04T00:00:00Z"
+  },
+  "typing": {
+    "attempts_used": 0,
+    "attempts_remaining": 5,
+    "claimable_balance": 280
+  },
+  "missions": {
+    "available_count": 0,
+    "reward_ready_count": 0,
+    "unclaimed_count": 0
+  },
+  "referral": {
+    "status": null,
+    "verified_invites": 0
+  },
+  "network": {
+    "group_count": 0,
+    "active_group_count": 0
+  }
+}

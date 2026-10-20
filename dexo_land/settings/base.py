@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from pathlib import Path
@@ -234,17 +235,9 @@ CELERY_BEAT_SCHEDULE.update(
             "task": "apps.arena.tasks.reconcile_rankings",
             "schedule": ARENA_RECONCILIATION_INTERVAL_SECONDS,
         },
-        "drain-freeze-dlx-epochs": {
-            "task": "apps.arena.tasks.drain_and_freeze_epochs",
-            "schedule": 60,
-        },
-        "evaluate-dlx-growth": {
-            "task": "apps.arena.tasks.evaluate_growth_unlocks",
-            "schedule": 300,
-        },
         "settle-dlx-epochs": {
             "task": "apps.arena.tasks.settle_epochs",
-            "schedule": 60,
+            "schedule": int(os.getenv("DLX_AUTOMATION_SCAN_SECONDS", "60")),
         },
         "materialize-broadcasts": {
             "task": "apps.notifications.tasks.materialize_broadcasts",
@@ -444,3 +437,56 @@ CELERY_BEAT_SCHEDULE["process-clan-mission-signals"] = {
 CLAN_MISSION_SIGNAL_MAX_ATTEMPTS = int(os.getenv("CLAN_MISSION_SIGNAL_MAX_ATTEMPTS", "5"))
 
 CLAN_AUTHORITY_RECHECK_SECONDS = int(os.getenv("CLAN_AUTHORITY_RECHECK_SECONDS", "60"))
+
+# Operational work bound; never an earning or authorization parameter.
+DLX_AUTOMATION_SOURCE_BATCH_SIZE = int(os.getenv("DLX_AUTOMATION_SOURCE_BATCH_SIZE", "100"))
+# Large Epochs use separate operational limits from request workers.
+DLX_AUTOMATION_SOFT_TIME_LIMIT = int(os.getenv("DLX_AUTOMATION_SOFT_TIME_LIMIT", "3600"))
+DLX_AUTOMATION_TIME_LIMIT = int(os.getenv("DLX_AUTOMATION_TIME_LIMIT", "3660"))
+
+# Operational alerts run automatically; false values are explicit maintenance pauses.
+ECONOMIC_ALERTS_ENABLED = env_bool("ECONOMIC_ALERTS_ENABLED", True)
+ECONOMIC_ALERT_DELIVERY_ENABLED = env_bool("ECONOMIC_ALERT_DELIVERY_ENABLED", True)
+ECONOMIC_ALERT_BATCH_SIZE = int(os.getenv("ECONOMIC_ALERT_BATCH_SIZE", "100"))
+ECONOMIC_ALERT_FAILURE_COUNT = int(os.getenv("ECONOMIC_ALERT_FAILURE_COUNT", "3"))
+ECONOMIC_ALERT_FAILURE_WINDOW_SECONDS = int(
+    os.getenv("ECONOMIC_ALERT_FAILURE_WINDOW_SECONDS", "3600")
+)
+ECONOMIC_ALERT_MAX_ATTEMPTS = int(os.getenv("ECONOMIC_ALERT_MAX_ATTEMPTS", "5"))
+ECONOMIC_ALERT_RETRY_BASE_SECONDS = int(os.getenv("ECONOMIC_ALERT_RETRY_BASE_SECONDS", "30"))
+ECONOMIC_ALERT_RETRY_MAX_SECONDS = int(os.getenv("ECONOMIC_ALERT_RETRY_MAX_SECONDS", "3600"))
+ECONOMIC_ALERT_DELIVERY_LEASE_SECONDS = int(
+    os.getenv("ECONOMIC_ALERT_DELIVERY_LEASE_SECONDS", "60")
+)
+ECONOMIC_ALERT_RULES = {
+    "EPOCH_FREEZE_OVERDUE": {"enabled": True, "severity": "ERROR", "grace_seconds": 900},
+    "DLX_SETTLEMENT_OVERDUE": {"enabled": True, "severity": "ERROR", "grace_seconds": 900},
+    "DLX_LIFECYCLE_BLOCKED": {"enabled": True, "severity": "ERROR", "grace_seconds": 0},
+    "GROWTH_FINALIZATION_FAILED": {"enabled": True, "severity": "CRITICAL", "grace_seconds": 0},
+    "ACCOUNTING_RECONCILIATION_MISMATCH": {
+        "enabled": True,
+        "severity": "CRITICAL",
+        "grace_seconds": 0,
+    },
+    "ECONOMIC_WORKER_STALE": {"enabled": True, "severity": "ERROR", "grace_seconds": 3900},
+    "ECONOMIC_WORKER_REPEATED_FAILURE": {
+        "enabled": True,
+        "severity": "CRITICAL",
+        "grace_seconds": 0,
+    },
+    "SEASON_CLOSE_BLOCKED": {"enabled": True, "severity": "CRITICAL", "grace_seconds": 0},
+}
+for alert_code, alert_override in json.loads(
+    os.getenv("ECONOMIC_ALERT_RULE_OVERRIDES", "{}")
+).items():
+    if alert_code not in ECONOMIC_ALERT_RULES or set(alert_override) - {
+        "enabled",
+        "severity",
+        "grace_seconds",
+    }:
+        raise ImproperlyConfigured("Invalid economic alert rule override")
+    ECONOMIC_ALERT_RULES[alert_code].update(alert_override)
+CELERY_BEAT_SCHEDULE["monitor-economic-operations"] = {
+    "task": "apps.arena.tasks.monitor_economic_operations",
+    "schedule": int(os.getenv("ECONOMIC_ALERT_SCAN_SECONDS", "60")),
+}

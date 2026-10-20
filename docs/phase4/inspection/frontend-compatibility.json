@@ -1,0 +1,27 @@
+{
+  "frontend_sha": "eb76307615322016bc39509c467f64be0268423a",
+  "zod": "4.6.7",
+  "original_consumer_files_copied_without_edits": true,
+  "results": [
+    {
+      "epochs": 2,
+      "accepted": true,
+      "timing_preserved": false,
+      "gameplay_gate_preserved": true
+    },
+    {
+      "epochs": 6,
+      "accepted": true,
+      "timing_preserved": false,
+      "gameplay_gate_preserved": true
+    }
+  ],
+  "source_sha256": {
+    "bootstrapContract.ts": "4bbcaa61ba6b7317d7065854b246f9a702b8215dc3c2cd57553f24fc2df64bae",
+    "b3Contracts.ts": "fa62b9ff4f7384e4f9350f861f3723157e372f31f68e70ada0947ad891669a65"
+  },
+  "backend_fixture_sha256": {
+    "registered-2.json": "340de099321528c0150a68e8ea058c1d668c74c757e8f6752e3703801e5d89a1",
+    "registered-6.json": "680913cd45507b804185650c74149f7d0cb420c3a5bc85a6396f13a3e556f550"
+  }
+}

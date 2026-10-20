@@ -1,0 +1,114 @@
+{
+  "registered": 100000,
+  "active": 10000,
+  "qualified": 10000,
+  "normalized_receipts": 20000,
+  "source_producer_throughput_measured": false,
+  "mix": "90% inactive; 10% two-day typing receipts; flagged inactive every 100th index 19",
+  "postgres": "PostgreSQL 17.11 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+  "seed_players_seconds": 10.176264084000081,
+  "wall_seconds_including_seed": 80.32580892300007,
+  "economic_seconds": 65.53011670800038,
+  "stages": {
+    "prepare_qualification_manifest": {
+      "seconds": 27.864860844000077,
+      "queries": 9772
+    },
+    "readiness": {
+      "seconds": 6.7911736290000135,
+      "queries": 50
+    },
+    "freeze_snapshots": {
+      "seconds": 24.981116287000077,
+      "queries": 159
+    },
+    "settlement": {
+      "seconds": 5.876826263000112,
+      "queries": 57
+    },
+    "reconciliation": {
+      "seconds": 0.016139685000098325,
+      "queries": 7
+    }
+  },
+  "python_cpu_seconds": 54.921419228000005,
+  "peak_rss_kib": 363012,
+  "before": {
+    "database_counters": [
+      2203139,
+      1746541,
+      195504,
+      4162,
+      0,
+      0
+    ],
+    "wal_lsn": "0/2579BB70",
+    "database_bytes": 19936947
+  },
+  "after": {
+    "database_counters": [
+      5160821,
+      3896698,
+      480789,
+      4273,
+      0,
+      28844032
+    ],
+    "wal_lsn": "0/39367FA8",
+    "database_bytes": 162150067
+  },
+  "recognition_query_plan": [
+    {
+      "Plan": {
+        "Node Type": "Index Scan",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Scan Direction": "Forward",
+        "Index Name": "arena_economicrecognition_pkey",
+        "Relation Name": "arena_economicrecognition",
+        "Alias": "arena_economicrecognition",
+        "Startup Cost": 0.29,
+        "Total Cost": 1351.29,
+        "Plan Rows": 20000,
+        "Plan Width": 276,
+        "Actual Startup Time": 0.026,
+        "Actual Total Time": 6.715,
+        "Actual Rows": 20000,
+        "Actual Loops": 1,
+        "Filter": "(epoch_id = 7)",
+        "Rows Removed by Filter": 0,
+        "Shared Hit Blocks": 770,
+        "Shared Read Blocks": 56,
+        "Shared Dirtied Blocks": 0,
+        "Shared Written Blocks": 0,
+        "Local Hit Blocks": 0,
+        "Local Read Blocks": 0,
+        "Local Dirtied Blocks": 0,
+        "Local Written Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0
+      },
+      "Planning": {
+        "Shared Hit Blocks": 228,
+        "Shared Read Blocks": 1,
+        "Shared Dirtied Blocks": 1,
+        "Shared Written Blocks": 0,
+        "Local Hit Blocks": 0,
+        "Local Read Blocks": 0,
+        "Local Dirtied Blocks": 0,
+        "Local Written Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0
+      },
+      "Planning Time": 0.88,
+      "Triggers": [],
+      "Execution Time": 7.373
+    }
+  ],
+  "limitations": [
+    "not a gameplay traffic benchmark",
+    "not Creator/Clan/referral aggregation capacity",
+    "no external Telegram calls",
+    "one economic worker, no concurrent gameplay load"
+  ]
+}

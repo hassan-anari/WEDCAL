@@ -263,7 +263,7 @@ def claim_wallet(player: Player, idempotency_key: str, at: datetime) -> tuple[Ty
         if not wallet.claimable_balance:
             return claim, True
         credits = list(
-            TypingWalletTransaction.objects.select_for_update()
+            TypingWalletTransaction.objects.select_for_update(of=("self",))
             .filter(
                 wallet=wallet, kind=TypingWalletTransaction.Kind.CREDIT, claimed_by__isnull=True
             )
@@ -324,7 +324,7 @@ def auto_settle_wallet_for_season(
         if existing:
             return existing, False
         credits = list(
-            TypingWalletTransaction.objects.select_for_update()
+            TypingWalletTransaction.objects.select_for_update(of=("self",))
             .filter(
                 wallet=wallet, kind=TypingWalletTransaction.Kind.CREDIT, claimed_by__isnull=True
             )

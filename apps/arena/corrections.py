@@ -232,7 +232,7 @@ def resolve_ineligible_correction(
 def finalize_correction_round(
     epoch: EconomicEpoch, category: str, *, actor: User
 ) -> DlxCorrectionRound:
-    """Seal all admitted corrected scores together after the 45-day admission window.
+    """Seal all admitted corrected scores together after the configured admission window.
 
     Waiting for this final round does not delay any normal weekly settlement. Unknown cases
     remain unresolved; a final round cannot assert them resolved merely to close the Season.
@@ -287,9 +287,18 @@ def finalize_correction_round(
     budget = reserve.budget
     h = sum(h_by_player.get(pid, 0) for pid in scores)
     limit, _ = emission_limit(
-        budget.base_epoch_budget, budget.carry_in, category, scores, h, policy
+        budget.base_epoch_budget + budget.growth_contribution,
+        budget.carry_in,
+        category,
+        scores,
+        h,
+        policy,
     )
-    cap = budget.base_epoch_budget * policy.number("player_cap_bps") // policy.number("scale")
+    cap = (
+        (budget.base_epoch_budget + budget.growth_contribution)
+        * policy.number("player_cap_bps")
+        // policy.number("scale")
+    )
     corrected = proportional_allocation(scores, limit, cap)
     original = {
         r["player_id"]: int(r["total"])

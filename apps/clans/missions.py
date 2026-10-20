@@ -268,7 +268,7 @@ def queue_mission_signal(
         raise IdempotencyConflict("Clan mission signal identity conflict")
 
 
-def process_mission_signals(*, limit: int = 100) -> int:
+def process_mission_signals(*, limit: int = 100, season_id: int | None = None) -> int:
     from datetime import timedelta
 
     from django.conf import settings
@@ -277,8 +277,11 @@ def process_mission_signals(*, limit: int = 100) -> int:
 
     from apps.clans.models import ClanMissionSignal
 
+    source = ClanMissionSignal.objects.all()
+    if season_id is not None:
+        source = source.filter(membership__season_id=season_id)
     ids = list(
-        ClanMissionSignal.objects.filter(
+        source.filter(
             processed_at__isnull=True,
             requires_review=False,
             next_attempt_at__lte=timezone.now(),

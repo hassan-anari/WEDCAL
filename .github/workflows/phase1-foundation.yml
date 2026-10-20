@@ -91,6 +91,19 @@ jobs:
       - run: uv run python manage.py migrate --noinput
       - run: uv run python manage.py makemigrations --check --dry-run
       - run: uv run pytest
+      - name: Phase 4 isolated empty-schema rollback and forward check
+        run: POSTGRES_DB=phase4_migration_ci PHASE4_MIGRATION_CYCLE=1 uv run pytest apps/arena/tests/test_phase4_migration_cycle.py -q
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase4-lifecycle-and-admin-projections
+          path: |
+            work/phase4-simulations/*.json
+            work/phase4-admin-reports/*.json
+            work/phase4-growth-reports/*.json
+            work/phase4-bootstrap/*.json
+            work/phase4-policy-reports/*.json
+            work/phase4-alert-reports/*.json
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: b4-interactive-latency

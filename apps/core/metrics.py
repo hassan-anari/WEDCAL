@@ -34,7 +34,14 @@ def outbox_metrics() -> dict[str, Any]:
 
 
 def operational_snapshot() -> dict[str, Any]:
-    from apps.arena.models import RankingProjectionEvent
+    from apps.arena.alert_delivery import route_health
+    from apps.arena.models import (
+        EconomicAlert,
+        EconomicAlertDelivery,
+        EconomicAlertFanout,
+        EconomicAutomationAttempt,
+        RankingProjectionEvent,
+    )
     from apps.base_tap.models import BaseTapDailyAccumulator
     from apps.network.models import CreatorWindowSettlement
     from apps.notifications.models import BroadcastRecipient, TelegramDelivery
@@ -47,6 +54,25 @@ def operational_snapshot() -> dict[str, Any]:
             state__in=("PROCESSED", "IGNORED")
         ).count(),
         "reward_outbox": outbox_metrics(),
+        "dlx_automation": list(
+            EconomicAutomationAttempt.objects.values("status", "error_code")
+            .annotate(count=Count("pk"))
+            .order_by("status", "error_code")
+        ),
+        "economic_alerts": {
+            "routing_health": route_health(),
+            "pending_fanouts": EconomicAlertFanout.objects.filter(status="PENDING").count(),
+            "open": list(
+                EconomicAlert.objects.filter(status="OPEN")
+                .values("code", "severity")
+                .annotate(count=Count("pk"))
+            ),
+            "deliveries": list(
+                EconomicAlertDelivery.objects.values(
+                    "channel", "status", "last_error_code"
+                ).annotate(count=Count("pk"))
+            ),
+        },
         "base_tap_pending": BaseTapDailyAccumulator.objects.filter(pending_points__gt=0).count(),
         "creator_windows_pending": CreatorWindowSettlement.objects.filter(
             finalized_at__isnull=True

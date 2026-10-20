@@ -1,0 +1,351 @@
+{
+  "epoch_count": 8,
+  "epoch_days": 3,
+  "closing_days": 2,
+  "settlement_gate": 1,
+  "base": 100003,
+  "maximum": 200019,
+  "allocation_total": 24,
+  "final_residual": 99979,
+  "correction_reserve_unused": 4984,
+  "closed": true,
+  "typing_wallet_auto_settled_only_at_close": true,
+  "epochs": [
+    {
+      "number": 1,
+      "base": 12501,
+      "growth": 0,
+      "categories": [
+        {
+          "category": "CLAN_PERFORMANCE",
+          "fresh": 4375,
+          "allocated": 0,
+          "carry_in": 0,
+          "carry_out": 4157
+        },
+        {
+          "category": "CORE_GAMEPLAY",
+          "fresh": 2500,
+          "allocated": 2,
+          "carry_in": 0,
+          "carry_out": 2373
+        },
+        {
+          "category": "CREATOR_COMMUNITY_GROWTH",
+          "fresh": 2500,
+          "allocated": 0,
+          "carry_in": 0,
+          "carry_out": 2375
+        },
+        {
+          "category": "LOYALTY_CONSISTENCY",
+          "fresh": 1251,
+          "allocated": 1,
+          "carry_in": 0,
+          "carry_out": 1188
+        },
+        {
+          "category": "VERIFIED_REFERRAL",
+          "fresh": 1875,
+          "allocated": 0,
+          "carry_in": 0,
+          "carry_out": 1782
+        }
+      ]
+    },
+    {
+      "number": 2,
+      "base": 12501,
+      "growth": 0,
+      "categories": [
+        {
+          "category": "CLAN_PERFORMANCE",
+          "fresh": 4375,
+          "allocated": 0,
+          "carry_in": 4157,
+          "carry_out": 8314
+        },
+        {
+          "category": "CORE_GAMEPLAY",
+          "fresh": 2500,
+          "allocated": 2,
+          "carry_in": 2373,
+          "carry_out": 4746
+        },
+        {
+          "category": "CREATOR_COMMUNITY_GROWTH",
+          "fresh": 2500,
+          "allocated": 0,
+          "carry_in": 2375,
+          "carry_out": 4750
+        },
+        {
+          "category": "LOYALTY_CONSISTENCY",
+          "fresh": 1251,
+          "allocated": 1,
+          "carry_in": 1188,
+          "carry_out": 2376
+        },
+        {
+          "category": "VERIFIED_REFERRAL",
+          "fresh": 1875,
+          "allocated": 0,
+          "carry_in": 1782,
+          "carry_out": 3564
+        }
+      ]
+    },
+    {
+      "number": 3,
+      "base": 12501,
+      "growth": 0,
+      "categories": [
+        {
+          "category": "CLAN_PERFORMANCE",
+          "fresh": 4375,
+          "allocated": 0,
+          "carry_in": 8314,
+          "carry_out": 12471
+        },
+        {
+          "category": "CORE_GAMEPLAY",
+          "fresh": 2500,
+          "allocated": 2,
+          "carry_in": 4746,
+          "carry_out": 7119
+        },
+        {
+          "category": "CREATOR_COMMUNITY_GROWTH",
+          "fresh": 2500,
+          "allocated": 0,
+          "carry_in": 4750,
+          "carry_out": 7125
+        },
+        {
+          "category": "LOYALTY_CONSISTENCY",
+          "fresh": 1251,
+          "allocated": 1,
+          "carry_in": 2376,
+          "carry_out": 3564
+        },
+        {
+          "category": "VERIFIED_REFERRAL",
+          "fresh": 1875,
+          "allocated": 0,
+          "carry_in": 3564,
+          "carry_out": 5346
+        }
+      ]
+    },
+    {
+      "number": 4,
+      "base": 12500,
+      "growth": 0,
+      "categories": [
+        {
+          "category": "CLAN_PERFORMANCE",
+          "fresh": 4375,
+          "allocated": 0,
+          "carry_in": 12471,
+          "carry_out": 16628
+        },
+        {
+          "category": "CORE_GAMEPLAY",
+          "fresh": 2500,
+          "allocated": 2,
+          "carry_in": 7119,
+          "carry_out": 9492
+        },
+        {
+          "category": "CREATOR_COMMUNITY_GROWTH",
+          "fresh": 2500,
+          "allocated": 0,
+          "carry_in": 7125,
+          "carry_out": 9500
+        },
+        {
+          "category": "LOYALTY_CONSISTENCY",
+          "fresh": 1250,
+          "allocated": 1,
+          "carry_in": 3564,
+          "carry_out": 4751
+        },
+        {
+          "category": "VERIFIED_REFERRAL",
+          "fresh": 1875,
+          "allocated": 0,
+          "carry_in": 5346,
+          "carry_out": 7128
+        }
+      ]
+    },
+    {
+      "number": 5,
+      "base": 12500,
+      "growth": 0,
+      "categories": [
+        {
+          "category": "CLAN_PERFORMANCE",
+          "fresh": 4375,
+          "allocated": 0,
+          "carry_in": 16628,
+          "carry_out": 20785
+        },
+        {
+          "category": "CORE_GAMEPLAY",
+          "fresh": 2500,
+          "allocated": 2,
+          "carry_in": 9492,
+          "carry_out": 11865
+        },
+        {
+          "category": "CREATOR_COMMUNITY_GROWTH",
+          "fresh": 2500,
+          "allocated": 0,
+          "carry_in": 9500,
+          "carry_out": 11875
+        },
+        {
+          "category": "LOYALTY_CONSISTENCY",
+          "fresh": 1250,
+          "allocated": 1,
+          "carry_in": 4751,
+          "carry_out": 5938
+        },
+        {
+          "category": "VERIFIED_REFERRAL",
+          "fresh": 1875,
+          "allocated": 0,
+          "carry_in": 7128,
+          "carry_out": 8910
+        }
+      ]
+    },
+    {
+      "number": 6,
+      "base": 12500,
+      "growth": 0,
+      "categories": [
+        {
+          "category": "CLAN_PERFORMANCE",
+          "fresh": 4375,
+          "allocated": 0,
+          "carry_in": 20785,
+          "carry_out": 24942
+        },
+        {
+          "category": "CORE_GAMEPLAY",
+          "fresh": 2500,
+          "allocated": 2,
+          "carry_in": 11865,
+          "carry_out": 14238
+        },
+        {
+          "category": "CREATOR_COMMUNITY_GROWTH",
+          "fresh": 2500,
+          "allocated": 0,
+          "carry_in": 11875,
+          "carry_out": 14250
+        },
+        {
+          "category": "LOYALTY_CONSISTENCY",
+          "fresh": 1250,
+          "allocated": 1,
+          "carry_in": 5938,
+          "carry_out": 7125
+        },
+        {
+          "category": "VERIFIED_REFERRAL",
+          "fresh": 1875,
+          "allocated": 0,
+          "carry_in": 8910,
+          "carry_out": 10692
+        }
+      ]
+    },
+    {
+      "number": 7,
+      "base": 12500,
+      "growth": 0,
+      "categories": [
+        {
+          "category": "CLAN_PERFORMANCE",
+          "fresh": 4375,
+          "allocated": 0,
+          "carry_in": 24942,
+          "carry_out": 29099
+        },
+        {
+          "category": "CORE_GAMEPLAY",
+          "fresh": 2500,
+          "allocated": 2,
+          "carry_in": 14238,
+          "carry_out": 16611
+        },
+        {
+          "category": "CREATOR_COMMUNITY_GROWTH",
+          "fresh": 2500,
+          "allocated": 0,
+          "carry_in": 14250,
+          "carry_out": 16625
+        },
+        {
+          "category": "LOYALTY_CONSISTENCY",
+          "fresh": 1250,
+          "allocated": 1,
+          "carry_in": 7125,
+          "carry_out": 8312
+        },
+        {
+          "category": "VERIFIED_REFERRAL",
+          "fresh": 1875,
+          "allocated": 0,
+          "carry_in": 10692,
+          "carry_out": 12474
+        }
+      ]
+    },
+    {
+      "number": 8,
+      "base": 12500,
+      "growth": 0,
+      "categories": [
+        {
+          "category": "CLAN_PERFORMANCE",
+          "fresh": 4375,
+          "allocated": 0,
+          "carry_in": 29099,
+          "carry_out": 33256
+        },
+        {
+          "category": "CORE_GAMEPLAY",
+          "fresh": 2500,
+          "allocated": 2,
+          "carry_in": 16611,
+          "carry_out": 18984
+        },
+        {
+          "category": "CREATOR_COMMUNITY_GROWTH",
+          "fresh": 2500,
+          "allocated": 0,
+          "carry_in": 16625,
+          "carry_out": 19000
+        },
+        {
+          "category": "LOYALTY_CONSISTENCY",
+          "fresh": 1250,
+          "allocated": 1,
+          "carry_in": 8312,
+          "carry_out": 9499
+        },
+        {
+          "category": "VERIFIED_REFERRAL",
+          "fresh": 1875,
+          "allocated": 0,
+          "carry_in": 12474,
+          "carry_out": 14256
+        }
+      ]
+    }
+  ]
+}

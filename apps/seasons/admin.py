@@ -1,11 +1,12 @@
+import json
 import uuid
 from typing import cast
 
 from django import forms
 from django.contrib import admin
 from django.contrib.auth.models import User
-from django.core.exceptions import PermissionDenied
-from django.http import HttpRequest, HttpResponse
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed
 from django.shortcuts import redirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
@@ -30,6 +31,10 @@ class SettlementControlForm(forms.Form):
     correlation_id = forms.UUIDField(initial=uuid.uuid4)
 
 
+class SeasonActivationForm(forms.Form):
+    evidence_reference = forms.CharField(max_length=255)
+
+
 class SeasonCloseForm(forms.Form):
     reason = forms.CharField(max_length=1000, widget=forms.Textarea)
     ticket_reference = forms.CharField(max_length=128, required=False)
@@ -52,10 +57,22 @@ class SeasonAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     @admin.action(description="Activate selected draft season")
     def activate_selected(self, request: HttpRequest, queryset):  # type: ignore[no-untyped-def]
         for season in queryset:
+            if season.baseline_config.schema_version >= 4:
+                return redirect("admin:season_activation", object_id=season.pk)
             activate_season(season)
 
     def get_urls(self):  # type: ignore[no-untyped-def]
         return [
+            path(
+                "<int:object_id>/economics/",
+                self.admin_site.admin_view(self.economics_view),
+                name="season_economics",
+            ),
+            path(
+                "<int:object_id>/activation/",
+                self.admin_site.admin_view(self.activation_view),
+                name="season_activation",
+            ),
             path(
                 "<int:object_id>/settlement-control/",
                 self.admin_site.admin_view(self.settlement_control_view),
@@ -71,9 +88,53 @@ class SeasonAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     @admin.display(description="Settlement control")
     def settlement_operation(self, obj: Season) -> str:
         return format_html(
-            '<a href="{}">Settlement control</a> | <a href="{}">Preview / close</a>',
+            '<a href="{}">Settlement control</a> | <a href="{}">Preview / close</a> | '
+            '<a href="{}">Economics</a>',
             reverse("admin:season_settlement_control", args=(obj.pk,)),
             reverse("admin:season_close", args=(obj.pk,)),
+            reverse("admin:season_economics", args=(obj.pk,)),
+        )
+
+    def economics_view(self, request: HttpRequest, object_id: int) -> HttpResponse:
+        from apps.arena.inspection import require_auditor, season_report
+
+        require_auditor(request.user)
+        if request.method != "GET":
+            return HttpResponseNotAllowed(["GET"])
+        after = request.GET.get("after_epoch", "0")
+        report = season_report(
+            Season.objects.select_related("baseline_config").get(pk=object_id),
+            after_epoch=int(after) if after.isdigit() else 0,
+        )
+        return TemplateResponse(
+            request,
+            "admin/arena/economics.html",
+            {
+                "title": "Season economic inspection",
+                "report": json.dumps(report, indent=2, default=str),
+            },
+        )
+
+    def activation_view(self, request: HttpRequest, object_id: int) -> HttpResponse:
+        if not request.user.has_perm("arena.bind_economic_policy"):
+            raise PermissionDenied
+        season = Season.objects.select_related("baseline_config").get(pk=object_id)
+        form = SeasonActivationForm(request.POST or None)
+        if request.method == "POST" and form.is_valid():
+            try:
+                activate_season(
+                    season,
+                    actor=cast(User, request.user),
+                    evidence_reference=form.cleaned_data["evidence_reference"],
+                )
+            except ValidationError as exc:
+                form.add_error(None, exc)
+            else:
+                return redirect("admin:seasons_season_changelist")
+        return TemplateResponse(
+            request,
+            "admin/seasons/activation.html",
+            {"form": form, "season": season, "config": season.baseline_config},
         )
 
     def close_view(self, request: HttpRequest, object_id: int) -> HttpResponse:
@@ -121,7 +182,10 @@ class SeasonAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     def get_readonly_fields(
         self, request: HttpRequest, obj: Season | None = None
     ) -> tuple[str, ...]:
-        return (
+        pinned = (
+            ("baseline_config", "starts_at", "ends_at") if obj and obj.status != "DRAFT" else ()
+        )
+        return pinned + (
             (
                 "status",
                 "settlement_start_epoch",

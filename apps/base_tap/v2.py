@@ -309,7 +309,10 @@ def issue_lease(
             if state.config_version_id == config.id
             else resolve_game_config_version(state.config_version_id)
         )
-        epoch_days = bound.dlx_distribution.epoch_days if bound.dlx_distribution else 7
+        setup = resolve_game_config_version(season.baseline_config_id).dlx_distribution
+        if setup is None:
+            raise TapError("SEASON_SETUP_UNAVAILABLE", 503, retryable=True)
+        epoch_days = setup.epoch_days
         epoch_end = season.starts_at + timedelta(
             days=((at - season.starts_at).days // epoch_days + 1) * epoch_days
         )
